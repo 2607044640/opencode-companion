@@ -1,0 +1,546 @@
+.talk-map {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: #0f1115;
+  color: #e8eaed;
+  font-family: inherit;
+  position: relative;
+  overflow: hidden;
+}
+
+.talk-map__banner {
+  margin: 0;
+  padding: 8px 16px;
+  background: #3b1d1d;
+  color: #ffd9d9;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #5a2828;
+}
+
+.talk-map__banner button {
+  background: #5a2828;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.talk-map__toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid #24272b;
+  background: #12141a;
+}
+
+.talk-map__toolbar label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.talk-map__canvas {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.talk-map__toast {
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid #24272b;
+  background: #1b212c;
+  color: #e8eaed;
+  font-size: 12px;
+}
+
+.session-card {
+  position: relative;
+  width: fit-content;
+  min-width: 120px;
+  max-width: 260px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border: 1px solid #2d333f;
+  border-radius: 8px;
+  background: #161a22;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-card__quick-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #2d333f;
+  border-radius: 4px;
+  background: rgba(18, 21, 28, 0.9);
+  color: #8b949e;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  z-index: 5;
+}
+
+.session-card:hover .session-card__quick-delete {
+  opacity: 0.85;
+  pointer-events: auto;
+}
+
+.session-card__quick-delete:hover {
+  opacity: 1 !important;
+  color: #f87171 !important;
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.2) !important;
+}
+
+.session-card:hover {
+  border-color: #38bdf8;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.45), 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+}
+
+.session-card--dimmed {
+  opacity: 0.22;
+  filter: grayscale(0.5);
+}
+
+.session-card--selected {
+  border-color: #f97316 !important;
+  box-shadow: 0 0 18px rgba(249, 115, 22, 0.5), 0 12px 28px rgba(0, 0, 0, 0.6) !important;
+  background: #1a1f29;
+}
+
+.session-card--highlighted {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.6), 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+}
+
+.session-card[data-ghost="true"] {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.session-card__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e6edf3;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.session-card__title-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border: 1px solid #f97316;
+  border-radius: 4px;
+  background: #090a0d;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+
+.session-card__next {
+  margin: 1px 0 0;
+  color: #9aa2b1;
+  font-size: 10px;
+  font-weight: 400;
+  max-width: 236px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-card__palette {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #2d333f;
+  border-radius: 8px;
+  background: #12151c;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+}
+
+.session-card__swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #0f1115;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+
+.session-card__swatch:hover {
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
+}
+
+.session-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.session-card__time {
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.session-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-card__badge,
+.session-card__ghost {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.session-card__badge {
+  background: #1f6feb;
+  color: #ffffff;
+}
+
+.session-card__ghost {
+  background: #373e47;
+  color: #8b949e;
+}
+
+.talk-map-edge-label {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #141720;
+  border: 1px solid #272a31;
+  color: #e8eaed;
+  font-size: 11px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.talk-map-edge-label input[type="text"] {
+  background: #0d0f14;
+  border: 1px solid #38bdf8;
+  color: #fff;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 11px;
+  outline: none;
+}
+
+.talk-map-edge-label label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #8b949e;
+  cursor: pointer;
+}
+
+.session-card__refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #2d333f;
+  border-radius: 4px;
+  background: #11141a;
+  color: #8b949e;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.session-card:hover .session-card__refresh {
+  opacity: 1;
+}
+
+.session-card__refresh:hover {
+  color: #f97316;
+  border-color: #f97316;
+}
+
+.talk-map__band {
+  position: absolute;
+  pointer-events: none;
+  border: 1px dashed #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.talk-map__hotkey-menu,
+.session-card__group-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+}
+
+.session-card__group-menu button,
+.talk-map__hotkey-menu button {
+  background: #1a1e27;
+  color: #c9d1d9;
+  border: 1px solid #272a31;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.session-card__group-menu button:hover,
+.talk-map__hotkey-menu button:hover {
+  background: #252b38;
+  color: #fff;
+}
+
+.talk-map__hotkey-menu {
+  position: fixed;
+  z-index: 100;
+  border: 1px solid #2d333f;
+  border-radius: 8px;
+  background: #12151c;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+}
+
+.comment-group {
+  box-sizing: border-box;
+  border: 1px dashed #3a4150;
+  border-radius: 10px;
+  background: rgba(45, 51, 63, 0.15);
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.comment-group:hover,
+.comment-group--hovered {
+  border-color: #38bdf8;
+  background: rgba(45, 51, 63, 0.22);
+}
+
+.comment-group--selected {
+  border-color: #38bdf8 !important;
+  border-style: solid !important;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35) !important;
+}
+
+.comment-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+}
+
+.comment-group__title {
+  padding: 2px 4px;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.comment-group__delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #3a4150;
+  border-radius: 4px;
+  background: rgba(18, 21, 28, 0.85);
+  color: #8b949e;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.comment-group:hover .comment-group__delete-btn,
+.comment-group--hovered .comment-group__delete-btn {
+  opacity: 0.85;
+  pointer-events: auto;
+}
+
+.comment-group__delete-btn:hover {
+  opacity: 1 !important;
+  color: #f87171 !important;
+  border-color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.2) !important;
+}
+
+.session-card--skeleton {
+  min-height: 72px;
+  background: linear-gradient(90deg, #161a22 0%, #212631 50%, #161a22 100%);
+  background-size: 200% 100%;
+}
+
+/* Smooth layout transition (only applied during auto-layout, NOT during dragging) */
+.talk-map--animating .react-flow__node {
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* Animated Wire Connecting Spawed / Injected Branches */
+@keyframes edge-dashdraw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.talk-map-edge--animated.react-flow__edge-path,
+path.react-flow__edge-path.talk-map-edge--animated,
+.react-flow__edge.talk-map-edge--animated path.react-flow__edge-path {
+  animation: edge-dashdraw 0.75s linear infinite !important;
+}
+
+/* Blueprint Connector Handles */
+.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  border: 2px solid #0f1115 !important;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease !important;
+  cursor: crosshair !important;
+  z-index: 10 !important;
+}
+
+.react-flow__handle-left {
+  background: #64748b !important;
+  left: -5px !important;
+}
+
+.react-flow__handle-right {
+  background: #38bdf8 !important;
+  right: -5px !important;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.4) !important;
+}
+
+.react-flow__handle:hover {
+  box-shadow: 0 0 12px #38bdf8 !important;
+}
+
+.react-flow__handle-right:hover {
+  background: #60a5fa !important;
+  box-shadow: 0 0 14px rgba(96, 165, 250, 0.9) !important;
+}
+
+.react-flow__handle-left:hover {
+  background: #94a3b8 !important;
+  box-shadow: 0 0 12px rgba(148, 163, 184, 0.8) !important;
+}
+
+/* Blueprint ReactFlow Controls */
+.react-flow__controls {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid #272a31 !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: rgba(18, 20, 24, 0.85) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border-bottom: 1px solid #272a31 !important;
+  fill: #8b949e !important;
+  color: #8b949e !important;
+  width: 28px !important;
+  height: 28px !important;
+  transition: all 0.15s ease !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #252b38 !important;
+  fill: #e6edf3 !important;
+  color: #e6edf3 !important;
+}
+
+/* Radar MiniMap Glassmorphism */
+.react-flow__minimap {
+  background: rgba(18, 20, 24, 0.75) !important;
+  border: 1px solid #272a31 !important;
+  border-radius: 8px !important;
+  backdrop-filter: blur(8px) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden !important;
+  margin: 16px !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(15, 17, 21, 0.75) !important;
+}
+
+.react-flow__minimap-node {
+  rx: 3px !important;
+  ry: 3px !important;
+}
+
+/* NodeResizer Corner Handles */
+.react-flow__resize-control.handle {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 2px !important;
+  border: 1px solid rgba(15, 17, 21, 0.9) !important;
+  background: #38bdf8 !important;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.6) !important;
+  transition: transform 0.1s ease, background-color 0.15s ease !important;
+}
+
+.react-flow__resize-control.handle:hover {
+  transform: scale(1.3) !important;
+  background: #60a5fa !important;
+}
+
+.react-flow__resize-control.line {
+  border-color: rgba(56, 189, 248, 0.4) !important;
+}
+

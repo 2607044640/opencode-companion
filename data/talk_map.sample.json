@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "global": {
+    "camera": { "x": 0, "y": 0, "zoom": 1 },
+    "hotkeys": {}
+  },
+  "boards": {},
+  "cards": {},
+  "groups": {},
+  "edges": {},
+  "digests": {}
+}
