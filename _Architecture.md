@@ -78,8 +78,8 @@
 ## 4. Key Invariants & Contracts
 
 <!-- BEGIN USER-SPECIFIED -->
-1. **Windows Host Sandbox Isolation**:
-   - The companion app lives strictly on the Windows host filesystem (`C:\APISpace\opencode-companion\`).
+1. **Host Sandbox Isolation**:
+   - The companion app lives strictly on the host filesystem (`opencode-companion/`).
    - NEVER place the frontend inside the WSL2 `opencode-jail` sandbox, preventing sandbox firewall whitelist blocks or filesystem permission clashes.
 2. **Dual-Mode Desktop Navigation**:
    - Switching focus to OpenCode Desktop MUST attempt `POST /tui/select-session` first. This performs a silent in-place tab switch in the running desktop app without triggering browser security prompts.

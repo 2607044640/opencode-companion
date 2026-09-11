@@ -1,7 +1,8 @@
 {
   "name": "opencode-companion",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Web Companion for OpenCode daemon with Dialogue Map canvas, visual session search, and Zen reading mode",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

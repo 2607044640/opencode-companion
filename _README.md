@@ -15,7 +15,7 @@ OpenCode Web Companion is an independent, lightweight web dashboard running nati
 
 ### Running the Companion App
 ```powershell
-cd C:\APISpace\opencode-companion
+cd opencode-companion
 pnpm install
 pnpm dev
 ```
