@@ -6,7 +6,7 @@ import { TodoBanner } from './components/chat/TodoBanner'
 import { PromptInput, type DraftInjection } from './components/chat/PromptInput'
 import { SessionRevertDock } from './components/chat/SessionRevertDock'
 import { extractDraftFromMessage } from './utils/draft'
-import { SettingsModal } from './components/settings/SettingsModal'
+import { SettingsModal, type SettingsTab } from './components/settings/SettingsModal'
 import { FloatingMapModal } from './components/map/FloatingMapModal'
 import { FloatingSearchModal } from './components/search/FloatingSearchModal'
 import { DiffDrawerProvider } from './components/diff/DiffDrawerContext'
@@ -39,6 +39,12 @@ export default function App() {
     return true
   })
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined)
+
+  const handleOpenSettings = useCallback((tab?: SettingsTab) => {
+    setSettingsInitialTab(tab)
+    setIsSettingsOpen(true)
+  }, [])
   const [isMapOpen, setIsMapOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
@@ -649,7 +655,7 @@ export default function App() {
           }}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenSettings={() => handleOpenSettings()}
           onOpenSearch={() => setIsSearchOpen(true)}
           onOpenScheduledTasks={() => setIsScheduledTasksOpen(true)}
           onToggleSidebar={() => toggleSidebar()}
@@ -696,6 +702,7 @@ export default function App() {
             }
             onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
             onShowInMap={handleAddSessionToMap}
+            onOpenSettings={handleOpenSettings}
           />
         )}
 
@@ -788,7 +795,11 @@ export default function App() {
       {/* 3. Settings Modal (Image 3) */}
       <SettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => {
+          setIsSettingsOpen(false)
+          setSettingsInitialTab(undefined)
+        }}
+        initialTab={settingsInitialTab}
       />
 
       {/* 4. A1 Floating Dialogue Map Modal */}

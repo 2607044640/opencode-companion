@@ -109,6 +109,61 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  if (reqPath === '/api/proxy/relay-quota') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      })
+      res.end()
+      return
+    }
+
+    if (req.method === 'GET') {
+      const parsedUrl = new URL(req.url, `http://${req.headers.host || '127.0.0.1:5173'}`)
+      const target = parsedUrl.searchParams.get('target')
+      const token = parsedUrl.searchParams.get('token') || req.headers['authorization']
+
+      if (!target) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+        res.end(JSON.stringify({ error: 'target parameter is required' }))
+        return
+      }
+
+      const headers = {
+        'User-Agent': 'OpenCode-Companion/1.0',
+        'Accept': 'application/json',
+      }
+      if (token) {
+        headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`
+      }
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+      fetch(target, { method: 'GET', headers, signal: controller.signal })
+        .then(async (upstreamRes) => {
+          clearTimeout(timeoutId)
+          const text = await upstreamRes.text()
+          res.writeHead(upstreamRes.status, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          })
+          res.end(text)
+        })
+        .catch((err) => {
+          clearTimeout(timeoutId)
+          res.writeHead(502, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          })
+          res.end(JSON.stringify({ error: err.message || 'Upstream fetch failed' }))
+        })
+      return
+    }
+  }
+
   if (reqPath === '/api/map') {
     const dataDir = path.join(__dirname, 'data')
     const mapFile = path.join(dataDir, 'talk_map.json')

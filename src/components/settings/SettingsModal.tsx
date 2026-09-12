@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Lock,
   Search,
+  Coins,
 } from 'lucide-react'
 import { api, BASE_URL, getAuthToken, setAuthToken } from '../../services/api'
 import { getShortcuts, resetShortcuts, saveShortcuts, type ShortcutsMap, type ShortcutItem } from '../../utils/shortcuts'
@@ -30,29 +31,38 @@ import { useI18n, type SupportedLanguage } from '../../utils/i18n'
 import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
 import type { ProviderInfo } from '../../types/opencode'
 import { ManageModelsContent } from '../models/ManageModelsModal'
+import { RelayHubSettings } from './RelayHubSettings'
 
-interface SettingsModalProps {
-  isOpen: boolean
-  onClose: () => void
-}
-
-type SettingsTab =
+export type SettingsTab =
   | 'general'
   | 'application'
   | 'appearance'
   | 'models'
+  | 'relays'
   | 'customizations'
   | 'browser'
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+interface SettingsModalProps {
+  isOpen: boolean
+  onClose: () => void
+  initialTab?: SettingsTab
+}
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab }) => {
   const { prefs, updatePreferences } = usePreferences()
   const { lang, setLanguage, t } = useI18n()
   const isZh = lang === 'zh-CN'
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'appearance')
   const [autoAccept, setAutoAccept] = useState(false)
   const [expandShell, setExpandShell] = useState(false)
   const [expandEdit, setExpandEdit] = useState(false)
+
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab)
+    }
+  }, [isOpen, initialTab])
 
   // Daemon / Application state
   const [testingHealth, setTestingHealth] = useState(false)
@@ -264,6 +274,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               >
                 <Cpu className="w-4 h-4" />
                 <span>Models</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('relays')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  activeTab === 'relays'
+                    ? 'bg-[#252834] text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#16181f]'
+                }`}
+              >
+                <Coins className="w-4 h-4 text-amber-400" />
+                <span>{isZh ? '中转站额度' : 'Relay Hub'}</span>
               </button>
 
               <button
@@ -739,6 +761,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 providers={providers}
                 onClose={() => {}}
               />
+            )}
+
+            {/* 4.5 RELAY HUB TAB */}
+            {activeTab === 'relays' && (
+              <RelayHubSettings />
             )}
 
             {/* 5. CUSTOMIZATIONS TAB (Shortcuts Manager) */}

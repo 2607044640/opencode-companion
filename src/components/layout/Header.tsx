@@ -15,6 +15,8 @@ import type { Session, SessionStatusPayload } from '../../types/opencode'
 import { CopyExportButton } from '../chat/CopyExportButton'
 import { useI18n } from '../../utils/i18n'
 import { TabContextMenu } from './TabContextMenu'
+import { RelayHubDropdown } from './RelayHubDropdown'
+import type { SettingsTab } from '../settings/SettingsModal'
 
 interface HeaderProps {
   sessions: Session[]
@@ -39,6 +41,7 @@ interface HeaderProps {
   onGetSessionJson?: () => Promise<string>
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
+  onOpenSettings?: (tab?: SettingsTab) => void
 }
 
 function formatTokens(n: number | undefined): string {
@@ -67,6 +70,7 @@ export function Header({
   onGetSessionJson,
   onUpdateSessionTitle,
   onShowInMap,
+  onOpenSettings,
 }: HeaderProps) {
   const { lang, t } = useI18n()
   const isZh = lang.startsWith('zh')
@@ -317,6 +321,9 @@ export function Header({
             compact
           />
         )}
+
+        {/* Real-Time Relay Quota & Billing Hub Capsule (中转站额度与账单监视器) */}
+        <RelayHubDropdown onOpenSettings={() => onOpenSettings?.('relays')} />
 
         {/* Realtime Ambient Status Indicator with Instant Tooltip */}
         <div className="relative group/status flex items-center shrink-0">
