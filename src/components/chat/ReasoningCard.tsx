@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Sparkles, ChevronDown, ChevronRight, Copy, Check, Clock } from 'lucide-react'
 import type { ReasoningPart } from '../../types/opencode'
+import { usePreferences } from '../../utils/preferences'
 
 interface ReasoningCardProps {
   part: ReasoningPart
@@ -8,7 +9,8 @@ interface ReasoningCardProps {
 }
 
 export function ReasoningCard({ part, title }: ReasoningCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const { prefs } = usePreferences()
+  const [isExpanded, setIsExpanded] = useState(() => prefs.verboseAgentChat ?? false)
   const [copied, setCopied] = useState(false)
   const text = part.text || ''
 

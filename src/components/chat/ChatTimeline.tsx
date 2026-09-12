@@ -429,8 +429,12 @@ export function ChatTimeline({
       ) : (
         <div
           className={`mx-auto w-full transition-all duration-300 ${
-            isZenMode ? 'max-w-4xl space-y-6 pb-36' : 'space-y-4'
-          }`}
+            prefs.conversationWidth === 'narrow'
+              ? 'max-w-2xl'
+              : prefs.conversationWidth === 'wide'
+              ? 'max-w-6xl'
+              : 'max-w-4xl'
+          } ${isZenMode ? 'space-y-6 pb-36' : 'space-y-4'}`}
         >
           {/* Revert Banner if session is currently reverted */}
           {revertState && onUnrevert && (
