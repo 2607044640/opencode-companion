@@ -8,6 +8,7 @@ import type {
   MessagePartInput,
   SessionStatusPayload,
   TodoItem,
+  Session,
 } from '../types/opencode'
 import { api, normalizeMessageInfo, normalizeMessagePart } from '../services/api'
 import { sseManager } from '../services/sse'
@@ -19,7 +20,12 @@ export interface PromptAttachment {
   url: string
 }
 
-export function useChatStream(sessionId: string | null) {
+export type RevertMode = 'both' | 'conversation_only' | 'code_only' | 'summarize'
+
+export function useChatStream(
+  sessionId: string | null,
+  onSessionUpdate?: (sessionId: string, patch: Partial<Session>) => void
+) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [sessionStatus, setSessionStatus] = useState<SessionStatusPayload>({ type: 'idle' })
@@ -411,52 +417,71 @@ export function useChatStream(sessionId: string | null) {
     }
   }, [sessionId, sendPrompt, loadSessionData])
 
-  const revertLastExchange = useCallback(
-    async (opts: { includeUserMessage?: boolean; directory?: string; gitRevert?: boolean; gitRevertMode?: 'revert' | 'reset' } = {}) => {
+  const [reverting, setReverting] = useState<boolean>(false)
+
+  /**
+   * Revert session to a specific message using OpenCode daemon native atomic rollback
+   */
+  const revertToMessage = useCallback(
+    async (
+      messageId: string,
+      options?: { mode?: RevertMode; partID?: string }
+    ) => {
       if (!sessionId) return { ok: false, error: 'No active session' }
-
-      const msgs = messagesRef.current
-      // Find last assistant and its paired user message
-      const lastAssistant = [...msgs].reverse().find((m) => m.info.role === 'assistant')
-      const lastUser = lastAssistant
-        ? [...msgs].reverse().find((m) => m.info.role === 'user' && m.info.id !== lastAssistant.info.id)
-        : undefined
-
-      if (!lastAssistant) return { ok: false, error: 'No assistant message to revert' }
-
+      setReverting(true)
+      const mode = options?.mode || 'both'
       try {
-        // 1. Delete assistant message from daemon
-        await api.deleteMessage(sessionId, lastAssistant.info.id)
-
-        // 2. Optionally delete paired user message
-        if (opts.includeUserMessage && lastUser) {
-          await api.deleteMessage(sessionId, lastUser.info.id).catch(() => {/* ignore if fails */})
+        if (mode === 'summarize') {
+          await api.summarizeSession(sessionId)
+          await loadSessionData(sessionId)
+          return { ok: true }
         }
 
-        // 3. Optionally trigger git revert via serve.mjs endpoint
-        if (opts.gitRevert && opts.directory) {
-          const gitResp = await fetch('/api/git-revert', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ directory: opts.directory, mode: opts.gitRevertMode ?? 'revert' }),
-            signal: AbortSignal.timeout(20000),
-          })
-          if (!gitResp.ok) {
-            const errBody = await gitResp.json().catch(() => ({}))
-            console.warn('Git revert failed:', errBody)
-          }
+        if (mode === 'code_only') {
+          // Revert disk snapshot, then clear conversation boundary so messages remain visible
+          await api.revertSession(sessionId, messageId, { files: true, partID: options?.partID })
+          const clearedSession = await api.unrevertSession(sessionId)
+          onSessionUpdate?.(sessionId, { revert: undefined })
+          await loadSessionData(sessionId)
+          return { ok: true, session: clearedSession }
         }
 
-        // 4. Refresh local messages from daemon
-        if (sessionId) await loadSessionData(sessionId)
-        return { ok: true }
+        const files = mode !== 'conversation_only'
+        const updatedSession = await api.revertSession(sessionId, messageId, {
+          files,
+          partID: options?.partID,
+        })
+        onSessionUpdate?.(sessionId, { revert: updatedSession.revert })
+        await loadSessionData(sessionId)
+        return { ok: true, session: updatedSession }
       } catch (err) {
-        console.error('Failed to revert last exchange:', err)
+        console.error('Failed to revert message:', err)
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      } finally {
+        setReverting(false)
       }
     },
-    [sessionId, loadSessionData]
+    [sessionId, loadSessionData, onSessionUpdate]
   )
+
+  /**
+   * Restore all previously reverted messages and file state
+   */
+  const unrevert = useCallback(async () => {
+    if (!sessionId) return { ok: false, error: 'No active session' }
+    setReverting(true)
+    try {
+      const updatedSession = await api.unrevertSession(sessionId)
+      onSessionUpdate?.(sessionId, { revert: undefined })
+      await loadSessionData(sessionId)
+      return { ok: true, session: updatedSession }
+    } catch (err) {
+      console.error('Failed to unrevert session:', err)
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      setReverting(false)
+    }
+  }, [sessionId, loadSessionData, onSessionUpdate])
 
   return {
     messages,
@@ -467,7 +492,9 @@ export function useChatStream(sessionId: string | null) {
     sendPrompt,
     abort,
     retry,
-    revertLastExchange,
+    revertToMessage,
+    unrevert,
+    reverting,
     reload: () => sessionId && loadSessionData(sessionId),
   }
 }

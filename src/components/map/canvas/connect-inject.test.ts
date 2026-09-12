@@ -15,7 +15,7 @@ function readyView(): ViewState {
   return {
     kind: "ready",
     map: emptyTalkMap(),
-    directory: "/home/developer/projects/APISpace",
+    directory: "/workspace/projects/APISpace",
     projects: [],
     titles: { ses_src: "Source" },
     running: {},
@@ -60,7 +60,7 @@ describe("applyInjectedBranch", () => {
       created: {
         id: "ses_new",
         title: "Source (branch)",
-        directory: "/home/developer/projects/APISpace",
+        directory: "/workspace/projects/APISpace",
       },
     })
     assert.equal(next.kind, "ready")
@@ -75,7 +75,7 @@ describe("applyInjectedBranch", () => {
     assert.equal(edge?.kind, "inject")
     assert.equal(edge?.autoSync, false)
     assert.equal(next.titles["ses_new"], "Source (branch)")
-    const board = next.map.boards["/home/developer/projects/APISpace"]
+    const board = next.map.boards["/workspace/projects/APISpace"]
     assert.ok(board?.cardIds.includes("card_new"))
   })
 
@@ -89,7 +89,7 @@ describe("applyInjectedBranch", () => {
       created: {
         id: "ses_new",
         title: "Source (branch)",
-        directory: "/home/developer/projects/APISpace",
+        directory: "/workspace/projects/APISpace",
       },
     })
     assert.equal(next.kind, "ready")

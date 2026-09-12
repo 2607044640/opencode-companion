@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Search, X, FolderGit2, Clock, ArrowRight, Folder } from 'lucide-react'
 import type { Session, Project } from '../../types/opencode'
 import { matchCanonicalWorkspace } from '../../services/api'
+import { useI18n, type TranslationDictionary } from '../../utils/i18n'
 
 export interface FloatingSearchModalProps {
   readonly isOpen: boolean
@@ -71,7 +72,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
   )
 }
 
-function formatSessionTime(timestamp?: number): string {
+function formatSessionTime(timestamp?: number, t?: TranslationDictionary): string {
   if (!timestamp) return ''
   const now = Date.now()
   const diff = now - timestamp
@@ -79,11 +80,11 @@ function formatSessionTime(timestamp?: number): string {
   const oneHour = 60 * oneMinute
   const oneDay = 24 * oneHour
 
-  if (diff < oneMinute) return '刚刚'
-  if (diff < oneHour) return `${Math.floor(diff / oneMinute)} 分钟前`
-  if (diff < oneDay) return `${Math.floor(diff / oneHour)} 小时前`
-  if (diff < 2 * oneDay) return '昨天'
-  if (diff < 7 * oneDay) return `${Math.floor(diff / oneDay)} 天前`
+  if (diff < oneMinute) return t ? t.search.timeJustNow : '刚刚'
+  if (diff < oneHour) return t ? t.search.timeMinutesAgo(Math.floor(diff / oneMinute)) : `${Math.floor(diff / oneMinute)} 分钟前`
+  if (diff < oneDay) return t ? t.search.timeHoursAgo(Math.floor(diff / oneHour)) : `${Math.floor(diff / oneHour)} 小时前`
+  if (diff < 2 * oneDay) return t ? t.search.timeYesterday : '昨天'
+  if (diff < 7 * oneDay) return t ? t.search.timeDaysAgo(Math.floor(diff / oneDay)) : `${Math.floor(diff / oneDay)} 天前`
 
   const date = new Date(timestamp)
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -178,6 +179,9 @@ export function FloatingSearchModal(props: FloatingSearchModalProps) {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      data-modal="floating-search"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none"
       style={{
         backdropFilter: 'blur(8px)',
@@ -213,6 +217,7 @@ function FloatingSearchContent({
   projects,
   initialSelectedProjectId,
 }: FloatingSearchModalProps) {
+  const { t } = useI18n()
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [selectedProjectIdFilter, setSelectedProjectIdFilter] = useState<string>(() => {
@@ -640,7 +645,7 @@ function FloatingSearchContent({
             onKeyDown={handleSearchKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            placeholder="搜索会话 (按 ↑↓ 选择, Enter 打开, Esc 退出)..."
+            placeholder={t.search.placeholder}
             className="a1-search-input w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-orange-500/80 transition-colors placeholder:text-zinc-500"
           />
           {query && (
@@ -651,7 +656,7 @@ function FloatingSearchContent({
                 searchInputRef.current?.focus()
               }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 rounded"
-              title="清除输入"
+              title={t.search.clearInput}
             >
               <X className="w-3 h-3" />
             </button>
@@ -670,10 +675,10 @@ function FloatingSearchContent({
                 setSelectedIndex(0)
               }}
               className="bg-transparent text-xs text-zinc-300 focus:outline-none cursor-pointer max-w-[160px] truncate"
-              title="按工程筛选"
+              title={t.search.filterByProject}
             >
               <option value="ALL" className="bg-[#16181e] text-zinc-300">
-                全部工程
+                {t.search.allProjects}
               </option>
               {filterProjectOptions.map((opt) => (
                 <option key={opt.id} value={opt.id} className="bg-[#16181e] text-zinc-300">
@@ -692,7 +697,7 @@ function FloatingSearchContent({
           <button
             onClick={onClose}
             className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-[#1c1f26] rounded-md border border-[#272a31] transition-colors"
-            title="关闭 (Esc)"
+            title={t.search.close}
           >
             <X className="w-4 h-4" />
           </button>
@@ -709,10 +714,10 @@ function FloatingSearchContent({
           <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 space-y-2">
             <Search className="w-8 h-8 text-zinc-600 mb-1" />
             <div className="text-sm font-medium text-zinc-400">
-              {query ? `未找到与 "${query}" 匹配的会话` : '暂无会话记录'}
+              {query ? t.search.searchNoResults(query) : t.search.noSessionsFound}
             </div>
             <div className="text-xs text-zinc-600">
-              {query ? '尝试更换关键词或切换工程筛选' : '开启新会话以在此处检索历史记录'}
+              {query ? t.search.searchTryOther : t.search.noSessionsHint}
             </div>
           </div>
         ) : (
@@ -724,7 +729,7 @@ function FloatingSearchContent({
               colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
             }
             const agentInitial = ((session.agent || 'A').charAt(0) || 'A').toUpperCase()
-            const timeDisplay = formatSessionTime(session.time?.updated || session.time?.created)
+            const timeDisplay = formatSessionTime(session.time?.updated || session.time?.created, t)
 
             // Short directory or subpath hint
             let displayDir = ''

@@ -1,6 +1,6 @@
 import type { TalkMap } from "../schema/talk-map"
 import type { ParsedSseEvent } from "../opencode/sse"
-import { applySessionCreated, applySessionDeleted } from "./session-sync"
+import { applySessionDeleted } from "./session-sync"
 import { assertNever } from "./assert-never"
 import type { SessionRunning, SessionTitles, SessionUpdated } from "./map-bootstrap"
 
@@ -19,7 +19,7 @@ export type ApplyLiveEventInput = {
 }
 
 export function applyLiveEvent(input: ApplyLiveEventInput): LiveBoard {
-  const { event, board, directory, newCardId } = input
+  const { event, board } = input
   switch (event.kind) {
     case "ignored":
       return board
@@ -32,12 +32,7 @@ export function applyLiveEvent(input: ApplyLiveEventInput): LiveBoard {
       }
     case "created":
       return {
-        map: applySessionCreated({
-          map: board.map,
-          session: event.session,
-          directory,
-          newCardId,
-        }),
+        map: board.map,
         titles: { ...board.titles, [event.session.id]: event.session.title },
         running: board.running,
         updated: { ...board.updated, [event.session.id]: event.session.timeUpdated },

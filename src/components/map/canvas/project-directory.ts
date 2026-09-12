@@ -2,14 +2,14 @@ import type { ListedProject } from "../opencode/client"
 
 import { CANONICAL_PROJECTS, matchCanonicalWorkspace } from "../../../services/api"
 
-export const PROJECTS_ROOT = "/home/developer/projects/" as const
+export const PROJECTS_ROOT = "/workspace/projects/" as const
 
 export function isRootWorktree(worktree: string): boolean {
-  return worktree === "/"
+  return !worktree || worktree === "/"
 }
 
 export function isPreferredWorktree(worktree: string): boolean {
-  return worktree.startsWith(PROJECTS_ROOT) && worktree.length > PROJECTS_ROOT.length
+  return Boolean(worktree && worktree !== "/" && !isRootWorktree(worktree))
 }
 
 export function selectableProjects(

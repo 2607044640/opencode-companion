@@ -49,7 +49,7 @@ Key components:
 ### 1. Clone and Install Dependencies
 
 ```powershell
-git clone https://github.com/your-org/opencode-companion.git
+git clone https://github.com/2607044640/opencode-companion.git
 cd opencode-companion
 pnpm install
 ```

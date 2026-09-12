@@ -13,6 +13,8 @@ import type {
   MessagePartInput,
   DaemonConfig,
   CommandItem,
+  SnapshotFileDiff,
+  RevertSessionOptions,
 } from '../types/opencode'
 
 // Base URL: strictly 127.0.0.1:5001 loopback
@@ -53,31 +55,31 @@ export interface CanonicalProjectMeta {
 export const CANONICAL_PROJECTS: readonly CanonicalProjectMeta[] = [
   {
     name: 'APISpace',
-    defaultWorktree: '/home/developer/projects/APISpace',
+    defaultWorktree: '/workspace/projects/APISpace',
     defaultColor: 'blue',
     fallbackId: '53aa51360d45a83713b344d0fec6eb07e226c45b',
   },
   {
     name: 'ObsidianDev',
-    defaultWorktree: '/home/developer/projects/ObsidianDev',
+    defaultWorktree: '/workspace/projects/ObsidianDev',
     defaultColor: 'magenta',
     fallbackId: 'e2502d34ac60eb75b1dc17feed238fddebf26c12',
   },
   {
     name: 'ObsidianNote',
-    defaultWorktree: '/home/developer/projects/ObsidianNote',
+    defaultWorktree: '/workspace/projects/ObsidianNote',
     defaultColor: 'purple',
     fallbackId: '28409f34b07f22051233c7be93e4dffc8034e88e',
   },
   {
     name: 'AISpace',
-    defaultWorktree: '/home/developer/projects/AISpace',
+    defaultWorktree: '/workspace/projects/AISpace',
     defaultColor: 'cyan',
     fallbackId: 'af780317cdbe4ad0e34fd43acd12b34ac3093bed',
   },
   {
     name: 'NullSpace',
-    defaultWorktree: '/home/developer/projects/NullSpace',
+    defaultWorktree: '/workspace/projects/NullSpace',
     defaultColor: 'amber',
     fallbackId: '568bc3678fd5edb9259a1ba82dd71bfac38a8c54',
   },
@@ -102,6 +104,11 @@ export function canonicalizeDirectory(dir?: string): string | undefined {
   const normalized = dir.replace(/\\/g, '/').replace(/\/+$/, '').trim()
   if (!normalized || normalized === '/') return undefined
 
+  // If already starts with Linux root / (e.g. /workspace/projects/...)
+  if (normalized.startsWith('/') && !normalized.includes(':')) {
+    return normalized
+  }
+
   // If already a canonical Linux project path, return it directly
   for (const meta of CANONICAL_PROJECTS) {
     if (normalized === meta.defaultWorktree) {
@@ -109,22 +116,16 @@ export function canonicalizeDirectory(dir?: string): string | undefined {
     }
   }
 
-  // Match against canonical workspaces (e.g. C:/Godot/AISpace, /projects/AISpace, etc.)
-  const matched = matchCanonicalWorkspace(normalized)
-  if (matched) {
-    return matched.defaultWorktree
-  }
-
-  // If already starts with Linux root / (e.g. /home/developer/projects/...)
-  if (normalized.startsWith('/') && !normalized.includes(':')) {
-    return normalized
-  }
-
   // If Windows drive path (e.g. C:/... or D:\...)
   const winMatch = normalized.match(/^[a-zA-Z]:(?:\/[^/]+)*\/([^/]+)$/)
   if (winMatch) {
     const endMatch = matchCanonicalWorkspace(undefined, winMatch[1])
     if (endMatch) return endMatch.defaultWorktree
+  }
+
+  const matched = matchCanonicalWorkspace(normalized)
+  if (matched) {
+    return matched.defaultWorktree
   }
 
   return normalized
@@ -193,8 +194,8 @@ export function deduplicateAndFilterProjects(rawProjects: Project[]): Project[] 
     const chosenColor =
       matches.find((m) => m.icon?.color)?.icon?.color || meta.defaultColor
 
-    // Strictly enforce canonical Linux worktree root so OpenCode daemon never gets Windows drive mangling
-    const chosenWorktree = meta.defaultWorktree
+    // Use the worktree provided by the daemon, fallback to default worktree
+    const chosenWorktree = primary.worktree || meta.defaultWorktree
 
     return {
       ...primary,
@@ -270,6 +271,14 @@ export function normalizeSession(raw: any): Session {
       created: Number(raw.time?.created || 0),
       updated: Number(raw.time?.updated || raw.time?.created || 0),
     },
+    revert: raw.revert && typeof raw.revert === 'object' && raw.revert.messageID
+      ? {
+          messageID: String(raw.revert.messageID),
+          partID: raw.revert.partID ? String(raw.revert.partID) : undefined,
+          snapshot: raw.revert.snapshot ? String(raw.revert.snapshot) : undefined,
+          diff: raw.revert.diff ? String(raw.revert.diff) : undefined,
+        }
+      : undefined,
   }
 }
 
@@ -550,9 +559,6 @@ export const api = {
 
     const queries: Promise<any>[] = [
       request<any[]>('/session?limit=500').catch(() => []),
-      ...CANONICAL_PROJECTS.map((meta) =>
-        request<any>(`/api/session?directory=${encodeURIComponent(meta.defaultWorktree)}&limit=500`).catch(() => [])
-      ),
     ]
 
     const results = await Promise.allSettled(queries)
@@ -638,6 +644,25 @@ export const api = {
   },
 
   /**
+   * Update session properties (e.g. title) via OpenCode daemon PATCH /session/:id
+   */
+  async updateSession(
+    sessionID: string,
+    updates: { title?: string; directory?: string }
+  ): Promise<Session> {
+    const query = updates.directory
+      ? `?directory=${encodeURIComponent(canonicalizeDirectory(updates.directory) || updates.directory)}`
+      : ''
+    const raw = await request<any>(`/session/${sessionID}${query}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(updates.title !== undefined ? { title: updates.title } : {}),
+      }),
+    })
+    return normalizeSession(raw)
+  },
+
+  /**
    * Delete a session
    */
   async deleteSession(sessionID: string): Promise<void> {
@@ -654,6 +679,72 @@ export const api = {
     await request<void>(`/session/${sessionID}/message/${messageID}`, {
       method: 'DELETE',
     })
+  },
+
+  /**
+   * Revert a specific message in a session, atomically undoing its effects,
+   * restoring filesystem snapshots, and setting session revert boundary.
+   */
+  async revertSession(
+    sessionID: string,
+    messageID: string,
+    options?: RevertSessionOptions | string
+  ): Promise<Session> {
+    const opts: RevertSessionOptions = typeof options === 'string' ? { partID: options } : options || {}
+
+    // When files: false is specified, try modern v2 stage endpoint first to avoid touching disk files
+    if (opts.files === false) {
+      try {
+        const rawV2 = await request<any>(`/api/session/${sessionID}/revert/stage`, {
+          method: 'POST',
+          body: JSON.stringify({ messageID, files: false }),
+        })
+        const data = rawV2?.data || rawV2
+        if (data?.revert) {
+          return normalizeSession(data)
+        }
+      } catch (err) {
+        console.warn('v2 revert/stage failed, falling back to standard revert:', err)
+      }
+    }
+
+    const raw = await request<any>(`/session/${sessionID}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ messageID, ...(opts.partID ? { partID: opts.partID } : {}) }),
+    })
+    return normalizeSession(raw)
+  },
+
+  /**
+   * Restore all previously reverted messages and file state in a session.
+   */
+  async unrevertSession(sessionID: string): Promise<Session> {
+    const raw = await request<any>(`/session/${sessionID}/unrevert`, {
+      method: 'POST',
+    })
+    return normalizeSession(raw)
+  },
+
+  /**
+   * Summarize conversation context
+   */
+  async summarizeSession(sessionID: string): Promise<void> {
+    await request<any>(`/session/${sessionID}/summarize`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }).catch((err) => {
+      console.warn('summarizeSession failed or not implemented:', err)
+    })
+  },
+
+  /**
+   * Get the file changes (diff) resulting from a specific user message or session state.
+   */
+  async getSessionDiff(sessionID: string, messageID?: string): Promise<SnapshotFileDiff[]> {
+    const query = messageID ? `?messageID=${encodeURIComponent(messageID)}` : ''
+    const raw = await request<SnapshotFileDiff[]>(`/session/${sessionID}/diff${query}`)
+    if (!Array.isArray(raw)) return []
+    return raw
   },
 
   /**

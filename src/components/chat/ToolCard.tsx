@@ -22,6 +22,7 @@ interface ToolCardProps {
 export function ToolCard({ part }: ToolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedSection, setCopiedSection] = useState<'input' | 'output' | null>(null)
 
   const { tool, state } = part
   const status = state?.status || 'completed'
@@ -52,7 +53,14 @@ export function ToolCard({ part }: ToolCardProps) {
     e.stopPropagation()
     navigator.clipboard.writeText(output || commandText)
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), 1000)
+  }
+
+  const handleCopySection = (e: React.MouseEvent, text: string, section: 'input' | 'output') => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(text)
+    setCopiedSection(section)
+    setTimeout(() => setCopiedSection(null), 1000)
   }
 
   // Get icon by tool type
@@ -127,28 +135,68 @@ export function ToolCard({ part }: ToolCardProps) {
 
       {/* Collapsible Content / Terminal Body */}
       {isExpanded && (
-        <div className="border-t border-[#272a30] bg-[#0c0e10] p-3 overflow-x-auto font-mono text-[11px] leading-relaxed">
+        <div className="border-t border-[#272a30] bg-[#0c0e10] p-3 overflow-x-auto font-mono text-[11px] leading-relaxed select-text cursor-text">
           {commandText && (
             <div className="mb-2 text-zinc-400 pb-2 border-b border-zinc-800">
               <span className="text-emerald-400 mr-1.5">$</span>
-              <span className="text-zinc-200">{commandText}</span>
+              <span className="text-zinc-200 select-text">{commandText}</span>
             </div>
           )}
 
           {state?.input && Object.keys(state.input).length > 0 && !commandText && (
             <div className="mb-2 text-zinc-400">
-              <span className="text-zinc-500 uppercase text-[9px] font-sans font-bold">Input:</span>
-              <pre className="text-zinc-300 mt-1">{JSON.stringify(state.input, null, 2)}</pre>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-zinc-500 uppercase text-[9px] font-sans font-bold">Input:</span>
+                <button
+                  type="button"
+                  onClick={(e) => handleCopySection(e, JSON.stringify(state.input, null, 2), 'input')}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-colors"
+                  title="复制 Input"
+                >
+                  {copiedSection === 'input' ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span className="text-[10px] text-emerald-400 font-sans">已复制</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span className="text-[10px] font-sans">复制</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <pre className="text-zinc-300 select-text cursor-text">{JSON.stringify(state.input, null, 2)}</pre>
             </div>
           )}
 
           {output ? (
             <div>
-              <span className="text-zinc-500 uppercase text-[9px] font-sans font-bold block mb-1">
-                {isError ? 'Error Output:' : 'Output:'}
-              </span>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-zinc-500 uppercase text-[9px] font-sans font-bold block">
+                  {isError ? 'Error Output:' : 'Output:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => handleCopySection(e, output, 'output')}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-colors"
+                  title="复制 Output"
+                >
+                  {copiedSection === 'output' ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span className="text-[10px] text-emerald-400 font-sans">已复制</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      <span className="text-[10px] font-sans">复制</span>
+                    </>
+                  )}
+                </button>
+              </div>
               <pre
-                className={`whitespace-pre-wrap break-all ${
+                className={`whitespace-pre-wrap break-all select-text cursor-text ${
                   isError ? 'text-rose-400' : 'text-zinc-300'
                 }`}
               >
@@ -156,7 +204,7 @@ export function ToolCard({ part }: ToolCardProps) {
               </pre>
             </div>
           ) : (
-            <div className="text-zinc-600 italic">No output recorded</div>
+            <div className="text-zinc-600 italic select-none">No output recorded</div>
           )}
         </div>
       )}

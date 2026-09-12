@@ -98,7 +98,6 @@ export function syncSessions(input: SyncSessionsInput): TalkMap {
 
   const listedIds = new Set(listed.map((session) => session.id))
   let next = input.map
-  let stackIndex = 0
 
   for (const session of listed) {
     const existing = findCardBySession(next, session.id, input.directory)
@@ -117,8 +116,7 @@ export function syncSessions(input: SyncSessionsInput): TalkMap {
       next = withBoardCard(next, input.directory, existing.cardId)
       continue
     }
-    next = insertNewCard(next, session, input.newCardId, stackPosition(stackIndex))
-    stackIndex += 1
+    // Do NOT automatically insert cards into map; cards are only added manually via right-click or user action
   }
 
   for (const card of Object.values(next.cards)) {

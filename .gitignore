@@ -16,6 +16,7 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.agent-work
 .DS_Store
 *.suo
 *.ntvs*
@@ -35,6 +36,8 @@ exports/
 
 # Python Cache
 __pycache__/
-*.py[cod]
-*$py.class
-
+# OS & Security
+Thumbs.db
+desktop.ini
+*.pem
+*.key

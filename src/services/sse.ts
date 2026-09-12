@@ -26,6 +26,7 @@ class GlobalEventStreamManager {
   }
 
   public connect() {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return
     if (this.eventSource || this.isConnecting) return
     this.isConnecting = true
 
@@ -71,6 +72,7 @@ class GlobalEventStreamManager {
   }
 
   private scheduleReconnect() {
+    if (typeof window === 'undefined') return
     if (this.retryTimeout) return
     this.retryTimeout = window.setTimeout(() => {
       this.retryTimeout = null

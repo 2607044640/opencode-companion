@@ -46,6 +46,18 @@ export interface SessionSummary {
   files: number
 }
 
+export interface SessionRevert {
+  messageID: string
+  partID?: string
+  snapshot?: string
+  diff?: string
+}
+
+export interface RevertSessionOptions {
+  partID?: string
+  files?: boolean
+}
+
 export interface Session {
   id: string
   slug: string
@@ -59,6 +71,7 @@ export interface Session {
   summary?: SessionSummary
   time: SessionTime
   version?: string
+  revert?: SessionRevert
 }
 
 export interface MessageModel {
@@ -279,3 +292,13 @@ export interface CommandItem {
   description?: string
   [key: string]: any
 }
+
+// Snapshot diff for message revert preview
+export interface SnapshotFileDiff {
+  file: string
+  patch?: string
+  additions: number
+  deletions: number
+  status?: 'added' | 'deleted' | 'modified'
+}
+

@@ -8,12 +8,27 @@ import {
   Bot,
   Image as ImageIcon,
   X,
+  Search,
+  Check,
+  Sliders,
 } from 'lucide-react'
-import type { AgentInfo, ProviderInfo, Session, CommandItem } from '../../types/opencode'
+import type { AgentInfo, ProviderInfo, Session, CommandItem, Project } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
 import { api } from '../../services/api'
 import { PromptPopover, type PopoverItem } from './PromptPopover'
+import { ProjectDropdown } from './ProjectDropdown'
 import { getShortcuts, matchesShortcut, type ShortcutsMap } from '../../utils/shortcuts'
+import { isCuratedModel, isModelVisible } from '../../utils/model-filter'
+import { usePreferences } from '../../utils/preferences'
+import { useI18n } from '../../utils/i18n'
+import { ManageModelsModal } from '../models/ManageModelsModal'
+
+export interface DraftInjection {
+  text: string
+  attachments?: PromptAttachment[]
+  timestamp: number
+  focus?: boolean
+}
 
 interface PromptInputProps {
   activeSession?: Session | null
@@ -29,6 +44,12 @@ interface PromptInputProps {
   isBusy: boolean
   placeholder?: string
   isZenMode?: boolean
+  draftInjection?: DraftInjection | null
+  projects?: Project[]
+  selectedProjectId?: string | null
+  onSelectProject?: (projectId: string | null) => void
+  onNewProject?: (name: string, path: string) => Promise<void> | void
+  sessions?: Session[]
 }
 
 export function PromptInput({
@@ -36,20 +57,31 @@ export function PromptInput({
   onSend,
   onAbort,
   isBusy,
-  placeholder = 'Ask anything, / for commands, @ for context...',
+  placeholder = 'Ask anything, @ to mention, / for actions',
   isZenMode,
+  draftInjection,
+  projects,
+  selectedProjectId,
+  onSelectProject,
+  onNewProject,
+  sessions,
 }: PromptInputProps) {
+  const { prefs } = usePreferences()
+  const { t } = useI18n()
   const [text, setText] = useState('')
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [commands, setCommands] = useState<CommandItem[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string>('Atlas - Plan Executor')
-  const [selectedModel, setSelectedModel] = useState<{ providerID: string; modelID: string }>({
+  const [selectedModel, setSelectedModel] = useState<{ providerID: string; modelID: string; name?: string }>({
     providerID: 'obsidian',
     modelID: 'grok-4.6',
+    name: 'Grok 4.6 (Paid)',
   })
   const [showAgentMenu, setShowAgentMenu] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
+  const [modelSearchQuery, setModelSearchQuery] = useState('')
+  const [isManageModelsOpen, setIsManageModelsOpen] = useState(false)
 
   // Multimodal image attachments (M4)
   const [attachments, setAttachments] = useState<PromptAttachment[]>([])
@@ -66,6 +98,26 @@ export function PromptInput({
   const [popoverQuery, setPopoverQuery] = useState<string>('')
   const [popoverSelectedIndex, setPopoverSelectedIndex] = useState<number>(0)
   const [matchingFiles, setMatchingFiles] = useState<string[]>([])
+
+  // Handle programmatic draft injection (on revert / restore)
+  const lastInjectedTimestamp = useRef<number>(0)
+  useEffect(() => {
+    if (!draftInjection || draftInjection.timestamp === lastInjectedTimestamp.current) return
+    lastInjectedTimestamp.current = draftInjection.timestamp
+
+    setText(draftInjection.text || '')
+    if (draftInjection.attachments && draftInjection.attachments.length > 0) {
+      setAttachments(draftInjection.attachments)
+    } else {
+      setAttachments([])
+    }
+
+    if (draftInjection.focus !== false && textareaRef.current) {
+      textareaRef.current.focus()
+      const len = (draftInjection.text || '').length
+      textareaRef.current.setSelectionRange(len, len)
+    }
+  }, [draftInjection])
 
   useEffect(() => {
     const handleShortcutsUpdate = (e: Event) => {
@@ -108,10 +160,14 @@ export function PromptInput({
         }
       }
       if (activeSession.model?.id) {
-        setSelectedModel({
-          providerID: activeSession.model.providerID || 'obsidian',
-          modelID: activeSession.model.id,
-        })
+        const prov = activeSession.model.providerID || 'obsidian'
+        const mod = activeSession.model.id
+        if (isCuratedModel(prov, mod)) {
+          setSelectedModel({
+            providerID: prov,
+            modelID: mod,
+          })
+        }
       }
     }
   }, [activeSession, agents])
@@ -132,7 +188,20 @@ export function PromptInput({
         const usableAgents = primaryAgents.length > 0 ? primaryAgents : agentList
         setAgents(usableAgents)
         setProviders(providerList)
-        setCommands(commandList)
+        // Merge built-in commands like compaction, summary, title (Image 4)
+        const defaultCommands: CommandItem[] = [
+          { name: 'compaction', description: 'Compress and summarize context tokens' },
+          { name: 'summary', description: 'Generate structured conversation summary' },
+          { name: 'title', description: 'Auto-generate descriptive session title' },
+          { name: 'undo', description: 'Revert last exchange or tool invocation' },
+        ]
+        const mergedCmds = [...commandList]
+        for (const def of defaultCommands) {
+          if (!mergedCmds.some((c) => c.name === def.name)) {
+            mergedCmds.push(def)
+          }
+        }
+        setCommands(mergedCmds)
 
         // Determine default agent from daemon config or first primary agent
         let defaultAgentName = 'Atlas - Plan Executor'
@@ -152,18 +221,28 @@ export function PromptInput({
           setSelectedAgent(defaultAgentName)
         }
 
-        // Initialize default model from daemon config (e.g. "obsidian/grok-4.6") or first provider
+        // Curated model list
+        const curated = providerList.flatMap((p) =>
+          Object.entries(p.models || {})
+            .filter(([mKey, modelObj]) => isCuratedModel(p.id, mKey, (modelObj as any)?.name))
+            .map(([mKey]) => ({ providerID: p.id, modelID: mKey }))
+        )
+
+        // Initialize default model from daemon config (e.g. "obsidian/grok-4.6") or first curated model
+        let chosenModel: { providerID: string; modelID: string } | null = null
         if (daemonConfig.model && typeof daemonConfig.model === 'string' && daemonConfig.model.includes('/')) {
           const [cfgProv, cfgMod] = daemonConfig.model.split('/')
-          if (cfgProv && cfgMod) {
-            setSelectedModel({ providerID: cfgProv, modelID: cfgMod })
+          if (cfgProv && cfgMod && isCuratedModel(cfgProv, cfgMod)) {
+            chosenModel = { providerID: cfgProv, modelID: cfgMod }
           }
-        } else if (providerList.length > 0) {
-          const p = providerList[0]
-          const mKeys = Object.keys(p.models || {})
-          if (mKeys.length > 0) {
-            setSelectedModel({ providerID: p.id, modelID: mKeys[0] })
-          }
+        }
+        if (!chosenModel && curated.length > 0) {
+          const grok = curated.find((m) => m.modelID.includes('grok-4.6'))
+          const flash = curated.find((m) => m.modelID.includes('gemini-3.8-flash'))
+          chosenModel = grok || flash || curated[0]
+        }
+        if (chosenModel) {
+          setSelectedModel(chosenModel)
         }
       } catch (err) {
         console.warn('Could not load agents/providers/config:', err)
@@ -188,6 +267,66 @@ export function PromptInput({
       setMatchingFiles([])
     }
   }, [popoverMode, popoverQuery, activeSession?.directory])
+
+  // Active model display name (e.g. "Grok 4.6 (Paid)")
+  const currentModelDisplayName = useMemo(() => {
+    for (const p of providers) {
+      if (p.id === selectedModel.providerID && p.models?.[selectedModel.modelID]) {
+        return p.models[selectedModel.modelID].name || selectedModel.modelID
+      }
+    }
+    return selectedModel.name || selectedModel.modelID
+  }, [providers, selectedModel])
+
+  // Grouped models for dropdown with search and visibility filtering (Image 1)
+  const groupedModelsForDropdown = useMemo(() => {
+    const q = modelSearchQuery.toLowerCase().trim()
+    const groups: {
+      providerID: string
+      providerName: string
+      models: { id: string; name: string }[]
+    }[] = []
+
+    providers.forEach((p) => {
+      const visibleModels: { id: string; name: string }[] = []
+
+      Object.entries(p.models || {}).forEach(([mId, mObj]) => {
+        const name = mObj.name || mId
+        // Check model visibility via preferences or defaults
+        const visible = isModelVisible(
+          p.id,
+          mId,
+          name,
+          prefs.modelVisibility,
+          prefs.providerVisibility
+        )
+        if (!visible) return
+
+        // Filter by search query if present
+        if (q) {
+          const matchProvider = (p.name || p.id).toLowerCase().includes(q)
+          const matchId = mId.toLowerCase().includes(q)
+          const matchName = name.toLowerCase().includes(q)
+          if (!matchProvider && !matchId && !matchName) return
+        }
+
+        visibleModels.push({
+          id: mId,
+          name,
+        })
+      })
+
+      if (visibleModels.length > 0) {
+        groups.push({
+          providerID: p.id,
+          providerName: p.name || p.id,
+          models: visibleModels,
+        })
+      }
+    })
+
+    return groups
+  }, [providers, modelSearchQuery, prefs.modelVisibility, prefs.providerVisibility])
 
   // Compute matching popover items
   const popoverItems = useMemo((): PopoverItem[] => {
@@ -459,6 +598,23 @@ export function PromptInput({
           : 'max-w-4xl mx-auto w-full px-4 pb-4 select-none'
       }
     >
+      {/* Project Selector Pill directly above prompt input (Image 2) */}
+      {!isZenMode && (
+        <div className="flex items-center justify-between mb-1.5 px-1">
+          <ProjectDropdown
+            projects={projects || []}
+            selectedProjectId={selectedProjectId || null}
+            sessions={sessions || []}
+            onSelectProject={onSelectProject || (() => {})}
+            onNewProject={onNewProject}
+            onQuickStart={() => {
+              setText('快速分析当前代码库与架构')
+              textareaRef.current?.focus()
+            }}
+          />
+        </div>
+      )}
+
       <div
         ref={containerBoxRef}
         className={`relative rounded-xl border shadow-2xl transition-all focus-within:border-[#388bfd]/60 focus-within:ring-1 focus-within:ring-[#388bfd]/20 ${
@@ -599,7 +755,7 @@ export function PromptInput({
               )}
             </div>
 
-            {/* Model Selector Dropdown */}
+            {/* Model Selector Dropdown (Image 1) */}
             <div className="relative">
               <button
                 type="button"
@@ -607,45 +763,103 @@ export function PromptInput({
                   setShowModelMenu(!showModelMenu)
                   setShowAgentMenu(false)
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1b1e24] hover:bg-[#22262e] border border-[#2b3038] text-zinc-300 hover:text-white transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#181b22] hover:bg-[#20242e] border border-[#2b303a] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                title="Select model"
               >
                 <Sparkles className="w-3 h-3 text-purple-400" />
-                <span className="font-medium truncate max-w-[140px]">{selectedModel.modelID}</span>
+                <span className="font-medium truncate max-w-[150px]">
+                  {currentModelDisplayName}
+                </span>
                 <ChevronDown className="w-3 h-3 text-zinc-500" />
               </button>
 
               {showModelMenu && (
-                <div className="absolute left-0 bottom-full mb-1.5 w-64 rounded-lg border border-[#2c3038] bg-[#16181e] shadow-xl z-50 p-1 max-h-56 overflow-y-auto">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 uppercase">
-                    Select Model
+                <div className="absolute left-0 bottom-full mb-2 w-72 rounded-xl border border-[#2a2e38] bg-[#14161c] shadow-2xl z-50 overflow-hidden flex flex-col">
+                  {/* Search Box at top (Matches Image 1) */}
+                  <div className="p-2 border-b border-[#21242b] bg-[#111317]">
+                    <div className="relative flex items-center">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 text-zinc-500 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={modelSearchQuery}
+                        onChange={(e) => setModelSearchQuery(e.target.value)}
+                        placeholder={t.models.searchPlaceholder}
+                        autoFocus
+                        className="w-full pl-8 pr-2.5 py-1 bg-[#0c0d10] border border-[#272a32] focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 rounded-md text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
+                      />
+                      {modelSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setModelSearchQuery('')}
+                          className="absolute right-2 text-zinc-500 hover:text-zinc-300 text-xs cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {providers.length === 0 ? (
-                    <div className="px-2 py-1 text-zinc-500 text-[11px]">Default models active</div>
-                  ) : (
-                    providers.flatMap((p) =>
-                      Object.keys(p.models || {}).map((mKey) => {
-                        const isSelected =
-                          selectedModel.providerID === p.id && selectedModel.modelID === mKey
-                        return (
-                          <button
-                            key={`${p.id}-${mKey}`}
-                            onClick={() => {
-                              setSelectedModel({ providerID: p.id, modelID: mKey })
-                              setShowModelMenu(false)
-                            }}
-                            className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between ${
-                              isSelected
-                                ? 'bg-purple-600/20 text-purple-300 font-medium'
-                                : 'text-zinc-300 hover:bg-[#20242c]'
-                            }`}
-                          >
-                            <span className="truncate">{mKey}</span>
-                            <span className="text-[10px] text-zinc-500 font-mono">{p.name || p.id}</span>
-                          </button>
-                        )
-                      })
-                    )
-                  )}
+
+                  {/* Grouped Model List by Provider (Matches Image 1) */}
+                  <div className="p-1 max-h-64 overflow-y-auto space-y-2">
+                    {groupedModelsForDropdown.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-zinc-500">
+                        {t.models.noModelsFound}
+                      </div>
+                    ) : (
+                      groupedModelsForDropdown.map((group) => (
+                        <div key={group.providerID} className="space-y-0.5">
+                          <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+                            {group.providerName}
+                          </div>
+                          {group.models.map((m) => {
+                            const isSelected =
+                              selectedModel.providerID === group.providerID &&
+                              selectedModel.modelID === m.id
+
+                            return (
+                              <button
+                                key={`${group.providerID}-${m.id}`}
+                                onClick={() => {
+                                  setSelectedModel({
+                                    providerID: group.providerID,
+                                    modelID: m.id,
+                                    name: m.name,
+                                  })
+                                  setShowModelMenu(false)
+                                  setModelSearchQuery('')
+                                }}
+                                className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-purple-600/20 text-purple-300 font-medium'
+                                    : 'text-zinc-300 hover:bg-[#1e222a]'
+                                }`}
+                              >
+                                <span className="truncate pr-2">{m.name || m.id}</span>
+                                {isSelected && (
+                                  <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Manage Models Action Button at Bottom (Matches Image 1) */}
+                  <div className="p-1 border-t border-[#21242b] bg-[#111317]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowModelMenu(false)
+                        setIsManageModelsOpen(true)
+                      }}
+                      className="w-full text-left px-2.5 py-1.5 rounded-md text-xs flex items-center gap-2 text-zinc-400 hover:text-white hover:bg-[#1e222a] transition-colors cursor-pointer font-medium"
+                    >
+                      <Sliders className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>{t.models.manageBtn}</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -680,6 +894,13 @@ export function PromptInput({
           </div>
         </div>
       </div>
+
+      {/* Manage Models Modal Dialog (Matches Image 2) */}
+      <ManageModelsModal
+        isOpen={isManageModelsOpen}
+        onClose={() => setIsManageModelsOpen(false)}
+        providers={providers}
+      />
     </div>
   )
 }

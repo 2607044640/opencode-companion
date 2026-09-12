@@ -6,6 +6,11 @@ export interface UserPreferences {
   collapseToolBatch: boolean
   promptCharThreshold: number
   promptLineThreshold: number
+  language: 'zh-CN' | 'en-US'
+  showModelSelector: boolean
+  showTimelineQuickJump: boolean
+  modelVisibility?: Record<string, boolean>
+  providerVisibility?: Record<string, boolean>
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -14,6 +19,11 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   collapseToolBatch: true,
   promptCharThreshold: 240,
   promptLineThreshold: 4,
+  language: 'zh-CN',
+  showModelSelector: true,
+  showTimelineQuickJump: true,
+  modelVisibility: {},
+  providerVisibility: {},
 }
 
 const STORAGE_KEY = 'opencode_companion_user_preferences'

@@ -60,3 +60,58 @@ export async function saveTalkMapToApi(map: TalkMap): Promise<void> {
     // We don't throw here to prevent disrupting user interactions if API server is temporarily offline
   }
 }
+
+/**
+ * Explicitly adds a session to the talk map for a given directory.
+ * Returns the cardId and whether it was already present on the board.
+ */
+export async function addSessionToTalkMap(
+  sessionId: string,
+  directory?: string,
+  title?: string,
+): Promise<{ readonly cardId: string; readonly alreadyExisted: boolean }> {
+  const map = await loadTalkMapFromApi()
+  const dir = directory || "/workspace/projects/APISpace"
+
+  // Check if an active (non-ghost) card already exists for this session
+  for (const card of Object.values(map.cards)) {
+    if (card.sessionId === sessionId && !card.ghost) {
+      return { cardId: card.cardId, alreadyExisted: true }
+    }
+  }
+
+  const newCardId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+  const dirCards = Object.values(map.cards).filter(
+    (card) => card.directory === dir && !card.ghost,
+  )
+  const index = dirCards.length
+  const position = {
+    x: 60 + (index % 4) * 280,
+    y: 60 + Math.floor(index / 4) * 160,
+  }
+
+  const next: TalkMap = {
+    ...map,
+    cards: {
+      ...map.cards,
+      [newCardId]: {
+        cardId: newCardId,
+        sessionId,
+        ghost: false,
+        position,
+        directory: dir,
+        ...(title ? { label: title } : {}),
+      },
+    },
+    boards: {
+      ...map.boards,
+      [dir]: {
+        cardIds: [...(map.boards[dir]?.cardIds || []), newCardId],
+        groupIds: map.boards[dir]?.groupIds || [],
+      },
+    },
+  }
+
+  await saveTalkMapToApi(next)
+  return { cardId: newCardId, alreadyExisted: false }
+}

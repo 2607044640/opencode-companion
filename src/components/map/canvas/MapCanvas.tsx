@@ -139,6 +139,14 @@ export function MapCanvas(props: MapAppProps) {
     return () => persist.cancel()
   }, [loadBoard, persist])
 
+  useEffect(() => {
+    const handleCardAdded = () => {
+      void loadBoard()
+    }
+    window.addEventListener("opencode:map-card-added", handleCardAdded)
+    return () => window.removeEventListener("opencode:map-card-added", handleCardAdded)
+  }, [loadBoard])
+
   const viewDirectory = view.kind === "ready" ? view.directory : undefined
   useEffect(() => {
     if (selectedDirectory !== undefined && selectedDirectory !== viewDirectory) {

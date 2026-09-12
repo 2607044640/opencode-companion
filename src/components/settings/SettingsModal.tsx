@@ -16,7 +16,10 @@ import {
 import { api, BASE_URL, getAuthToken, setAuthToken } from '../../services/api'
 import { getShortcuts, resetShortcuts, saveShortcuts, type ShortcutsMap, type ShortcutItem } from '../../utils/shortcuts'
 import { usePreferences } from '../../utils/preferences'
+import { useI18n, type SupportedLanguage } from '../../utils/i18n'
 import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
+import type { ProviderInfo } from '../../types/opencode'
+import { ManageModelsContent } from '../models/ManageModelsModal'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -25,8 +28,8 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { prefs, updatePreferences } = usePreferences()
+  const { lang, setLanguage, t } = useI18n()
   const [activeTab, setActiveTab] = useState<'general' | 'shortcuts' | 'servers' | 'models'>('general')
-  const [language, setLanguage] = useState('English')
   const [autoAccept, setAutoAccept] = useState(false)
   const [expandShell, setExpandShell] = useState(false)
   const [expandEdit, setExpandEdit] = useState(false)
@@ -39,6 +42,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [shortcutCategory, setShortcutCategory] = useState<'all' | 'general' | 'map'>('all')
   const [shortcutSearch, setShortcutSearch] = useState('')
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+
+  useEffect(() => {
+    if (isOpen) {
+      api.getProviders().then(setProviders).catch(() => {})
+    }
+  }, [isOpen])
 
   // Interactive keyboard shortcut recorder (M5)
   useEffect(() => {
@@ -107,11 +117,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs select-none">
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-modal="settings"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs select-none"
+    >
       <div className="w-[780px] h-[520px] bg-[#111317] border border-[#272a31] rounded-2xl shadow-2xl flex flex-col overflow-hidden text-xs">
         {/* Header */}
         <div className="h-12 px-4 border-b border-[#21242a] flex items-center justify-between bg-[#14161c]">
-          <span className="font-semibold text-zinc-200 text-sm">Settings</span>
+          <span className="font-semibold text-zinc-200 text-sm">{t.settings.title}</span>
           <button
             onClick={onClose}
             className="p-1 text-zinc-400 hover:text-white rounded hover:bg-zinc-800 transition-colors"
@@ -128,7 +143,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               {/* Desktop Section */}
               <div>
                 <div className="px-2 text-[10px] font-semibold text-zinc-500 uppercase mb-1">
-                  Desktop
+                  {t.settings.desktopSection}
                 </div>
                 <button
                   onClick={() => setActiveTab('general')}
@@ -139,7 +154,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   }`}
                 >
                   <Sliders className="w-3.5 h-3.5" />
-                  <span>General</span>
+                  <span>{t.settings.generalTab}</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('shortcuts')}
@@ -150,14 +165,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   }`}
                 >
                   <Keyboard className="w-3.5 h-3.5" />
-                  <span>Shortcuts</span>
+                  <span>{t.settings.shortcutsTab}</span>
                 </button>
               </div>
 
               {/* Server Section */}
               <div>
                 <div className="px-2 text-[10px] font-semibold text-zinc-500 uppercase mb-1">
-                  Server
+                  {t.settings.serverSection}
                 </div>
                 <button
                   onClick={() => setActiveTab('servers')}
@@ -168,7 +183,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   }`}
                 >
                   <Server className="w-3.5 h-3.5" />
-                  <span>Daemon Link</span>
+                  <span>{t.settings.daemonTab}</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('models')}
@@ -179,7 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   }`}
                 >
                   <Cpu className="w-3.5 h-3.5" />
-                  <span>Models</span>
+                  <span>{t.settings.modelsTab}</span>
                 </button>
               </div>
             </div>
@@ -194,27 +209,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <div className="flex-1 p-6 overflow-y-auto">
             {activeTab === 'general' && (
               <div className="space-y-6 max-w-lg">
-                <h3 className="text-sm font-semibold text-zinc-100">General</h3>
+                <h3 className="text-sm font-semibold text-zinc-100">{t.settings.generalTab}</h3>
 
                 {/* Language */}
                 <div className="space-y-1">
-                  <label className="text-zinc-300 font-medium">Language</label>
-                  <p className="text-[11px] text-zinc-500">Change the display language for OpenCode</p>
+                  <label className="text-zinc-300 font-medium">{t.settings.languageLabel}</label>
+                  <p className="text-[11px] text-zinc-500">{t.settings.languageDesc}</p>
                   <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
+                    value={lang}
+                    onChange={(e) => setLanguage(e.target.value as SupportedLanguage)}
                     className="w-full bg-[#16191f] border border-[#2c3038] text-zinc-200 rounded-md px-2.5 py-1.5 mt-1 focus:outline-none focus:border-zinc-500"
                   >
-                    <option value="English">English</option>
-                    <option value="zh-CN">简体中文</option>
+                    <option value="zh-CN">简体中文 (Simplified Chinese)</option>
+                    <option value="en-US">English</option>
                   </select>
                 </div>
 
                 {/* Auto Accept Permissions */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
-                    <div className="text-zinc-300 font-medium">Auto-accept permissions</div>
-                    <div className="text-[11px] text-zinc-500">Permission requests will be automatically approved</div>
+                    <div className="text-zinc-300 font-medium">{t.settings.autoAcceptLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.autoAcceptDesc}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -227,8 +242,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {/* Show Reasoning Summaries */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
-                    <div className="text-zinc-300 font-medium">显示模型思考过程 (Show reasoning)</div>
-                    <div className="text-[11px] text-zinc-500">在时间线中以折叠卡片形式显示 DeepSeek / Grok 等模型的思考推理</div>
+                    <div className="text-zinc-300 font-medium">{t.settings.showReasoningLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.showReasoningDesc}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -241,8 +256,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {/* Auto Collapse Long User Prompts */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
-                    <div className="text-zinc-300 font-medium">自动收起过长的用户提示词 (Auto-collapse long prompts)</div>
-                    <div className="text-[11px] text-zinc-500">提示词超过 240 字或 4 行时自动收起并附带渐变遮罩，方便滑轮滚动速读</div>
+                    <div className="text-zinc-300 font-medium">{t.settings.autoCollapsePromptLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.autoCollapsePromptDesc}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -252,11 +267,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   />
                 </div>
 
+                {/* Show Timeline Quick-Jump Buttons */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-zinc-300 font-medium">{t.settings.showTimelineQuickJumpLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.showTimelineQuickJumpDesc}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.showTimelineQuickJump ?? true}
+                    onChange={(e) => updatePreferences({ showTimelineQuickJump: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-purple-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
                 {/* Collapse Tool Batches */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
-                    <div className="text-zinc-300 font-medium">工具执行批次自动归拢 (Auto-collapse tool batches)</div>
-                    <div className="text-[11px] text-zinc-500">连续 3 个及以上工具调用自动归拢为紧凑单行条，点击可随时展开</div>
+                    <div className="text-zinc-300 font-medium">{t.settings.collapseToolBatchLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.collapseToolBatchDesc}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -269,8 +298,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {/* Expand Shell Tool Parts */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
-                    <div className="text-zinc-300 font-medium">默认展开 Shell 工具详情</div>
-                    <div className="text-[11px] text-zinc-500">在时间线中默认展开终端命令输出详情</div>
+                    <div className="text-zinc-300 font-medium">{t.settings.expandShellLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.expandShellDesc}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -283,8 +312,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {/* Expand Edit Tool Parts */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
-                    <div className="text-zinc-300 font-medium">默认展开文件修改详情</div>
-                    <div className="text-[11px] text-zinc-500">在时间线中默认展开代码编辑与改动详情</div>
+                    <div className="text-zinc-300 font-medium">{t.settings.expandEditLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.expandEditDesc}</div>
                   </div>
                   <input
                     type="checkbox"
@@ -298,21 +327,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
             {activeTab === 'servers' && (
               <div className="space-y-4 max-w-lg">
-                <h3 className="text-sm font-semibold text-zinc-100">Daemon Link & Security</h3>
+                <h3 className="text-sm font-semibold text-zinc-100">{t.settings.daemonTitle}</h3>
 
                 {/* Connection Box */}
                 <div className="p-3 bg-[#16181e] border border-[#2c3038] rounded-lg space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="text-xs text-zinc-300">
-                      Target Endpoint: <code className="text-orange-400 font-mono">{BASE_URL}</code>
+                      {t.settings.targetEndpoint}: <code className="text-orange-400 font-mono">{BASE_URL}</code>
                     </div>
                     <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/50 px-2 py-0.5 rounded">
                       <ShieldCheck className="w-3 h-3" />
-                      127.0.0.1 Locked
+                      {t.settings.locked127}
                     </span>
                   </div>
                   <div className="text-[11px] text-zinc-400">
-                    Direct loopback to OpenCode daemon running in WSL2 (opencode-jail) on port 5001.
+                    {t.settings.daemonLoopbackDesc}
                   </div>
 
                   <div className="flex items-center gap-3 pt-1">
@@ -322,20 +351,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center gap-1.5 font-medium transition-colors"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${testingHealth ? 'animate-spin' : ''}`} />
-                      <span>Test Healthcheck</span>
+                      <span>{t.settings.testHealth}</span>
                     </button>
 
                     {healthStatus === 'connected' && (
                       <span className="flex items-center gap-1 text-emerald-400 font-medium">
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        Online & Ready
+                        {t.settings.onlineReady}
                       </span>
                     )}
 
                     {healthStatus === 'error' && (
                       <span className="flex items-center gap-1 text-rose-400 font-medium">
                         <AlertCircle className="w-3.5 h-3.5" />
-                        Unreachable
+                        {t.settings.unreachable}
                       </span>
                     )}
                   </div>
@@ -345,11 +374,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-lg space-y-1.5">
                   <div className="flex items-center gap-1.5 text-amber-400 font-semibold text-xs">
                     <ShieldAlert className="w-4 h-4 shrink-0" />
-                    <span>Zero-Auth Threat Model Warning</span>
+                    <span>{t.settings.threatWarningTitle}</span>
                   </div>
                   <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                    OpenCode daemon has <strong>no built-in authentication</strong>. It provides full control over bash execution (<code className="font-mono text-amber-300">/pty</code>), file reading, and file modification.
-                    Both the daemon and this companion server are strictly locked to <code className="font-mono text-amber-300">127.0.0.1</code>. <strong>NEVER expose port 5001 or 5173 to 0.0.0.0 or LAN without a reverse-proxy authentication layer.</strong>
+                    {t.settings.threatWarningDesc}
                   </p>
                 </div>
 
@@ -357,14 +385,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <div className="space-y-1.5 pt-1">
                   <div className="flex items-center gap-1.5 text-zinc-300 font-medium">
                     <Lock className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>Proxy Ingress Token (Optional)</span>
+                    <span>{t.settings.proxyTokenTitle}</span>
                   </div>
                   <p className="text-[11px] text-zinc-500">
-                    If accessing through an authenticated reverse proxy (e.g., Nginx Basic Auth or Tailscale funnel), enter the bearer token here:
+                    {t.settings.proxyTokenDesc}
                   </p>
                   <input
                     type="password"
-                    placeholder="Bearer token / API key"
+                    placeholder={t.settings.proxyTokenPlaceholder}
                     value={authToken}
                     onChange={(e) => {
                       const val = e.target.value
@@ -382,15 +410,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 {/* Header & Reset Button */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-100">Keyboard Shortcuts</h3>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">查看并自定义全局与对话蓝图快捷键绑定</p>
+                    <h3 className="text-sm font-semibold text-zinc-100">{t.settings.shortcutsTitle}</h3>
+                    <p className="text-[11px] text-zinc-500 mt-0.5">{t.settings.shortcutsDesc}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setIsResetConfirmOpen(true)}
                     className="px-2.5 py-1 rounded-md bg-zinc-800/80 hover:bg-rose-950/40 text-zinc-400 hover:text-rose-300 text-xs font-medium transition-colors border border-zinc-700/60 hover:border-rose-800/60 cursor-pointer"
                   >
-                    Reset to Defaults
+                    {t.settings.resetShortcutsBtn}
                   </button>
                 </div>
 
@@ -407,7 +435,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      全部
+                      {t.settings.categoryAll}
                     </button>
                     <button
                       type="button"
@@ -418,7 +446,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      全局与对话
+                      {t.settings.categoryGeneral}
                     </button>
                     <button
                       type="button"
@@ -429,7 +457,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                           : 'text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      蓝图地图
+                      {t.settings.categoryMap}
                     </button>
                   </div>
 
@@ -438,7 +466,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
                     <input
                       type="text"
-                      placeholder="搜索快捷键或功能..."
+                      placeholder={t.settings.searchShortcutsPlaceholder}
                       value={shortcutSearch}
                       onChange={(e) => setShortcutSearch(e.target.value)}
                       className="w-full pl-8 pr-2.5 py-1 bg-[#15181e] border border-[#272a31] rounded-lg text-zinc-200 text-xs placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500"
@@ -462,17 +490,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       'zenMode',
                       'toggleSidebar',
                       'newSession',
+                      'nextTab',
+                      'prevTab',
+                      'closeActiveTab',
+                      'reopenClosedTab',
                       'focusSearch',
                       'sendMessage',
                       'newLine',
                       'toggleMap',
                       'openSettings',
+                      'prevDialogue',
+                      'nextDialogue',
+                      'jumpToTop',
+                      'jumpToBottom',
                       'mapUndo',
                       'mapRedo',
                       'mapFocus',
                       'mapCommentGroup',
                       'mapSelectAll',
                       'mapHome',
+                      'mapRearrange',
                     ] as (keyof ShortcutsMap)[]
                   )
                     .filter((key) => {
@@ -515,38 +552,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                                     : 'bg-zinc-800 text-zinc-400 border border-zinc-700/40'
                                 }`}
                               >
-                                {isMap ? '蓝图' : '全局'}
+                                {isMap ? t.settings.tagMap : t.settings.tagGlobal}
                               </span>
                             </div>
                             <div className="text-[11px] text-zinc-500">
-                              {key === 'zenMode' && '切换沉浸式全屏对话阅读模式 (F11 或 Esc 退出)'}
-                              {key === 'toggleSidebar' && '展开/收起左侧工程与会话列表边栏'}
-                              {key === 'newSession' && '在当前激活的工程下开启全新对话会话'}
-                              {key === 'focusSearch' && '唤起 A1 标准悬浮会话全局搜索窗'}
-                              {key === 'sendMessage' && '在提示词输入框中发送消息或触发执行'}
-                              {key === 'newLine' && '在提示词输入框中插入换行符不发送'}
-                              {key === 'toggleMap' && '打开或关闭对话拓扑蓝图全屏悬浮地图'}
-                              {key === 'openSettings' && '打开桌面端全局配置与快捷键面板'}
-                              {key === 'mapUndo' && '撤销上一次卡片拖拽、布局或编辑操作'}
-                              {key === 'mapRedo' && '重做撤销的历史变动'}
-                              {key === 'mapFocus' && '视野平滑聚焦至选中卡片或全景缩放适配'}
-                              {key === 'mapCommentGroup' && '将当前选中的所有卡片包裹为蓝图注释气泡'}
-                              {key === 'mapSelectAll' && '选中当前蓝图画布上的全部会话卡片'}
-                              {key === 'mapHome' && '平滑回到蓝图坐标系原点概览'}
+                              {key === 'zenMode' && (lang === 'zh-CN' ? '切换沉浸式全屏对话阅读模式 (F11 或 Esc 退出)' : 'Toggle immersive full-screen zen reading mode (F11 or Esc to exit)')}
+                              {key === 'toggleSidebar' && (lang === 'zh-CN' ? '展开/收起左侧工程与会话列表边栏' : 'Toggle left project and session sidebar')}
+                              {key === 'newSession' && (lang === 'zh-CN' ? '在当前激活的工程下开启全新对话会话' : 'Create a new conversation session in active project')}
+                              {key === 'focusSearch' && (lang === 'zh-CN' ? '唤起 A1 标准悬浮会话全局搜索窗' : 'Open floating session search modal')}
+                              {key === 'sendMessage' && (lang === 'zh-CN' ? '在提示词输入框中发送消息或触发执行' : 'Send message or submit prompt in input box')}
+                              {key === 'newLine' && (lang === 'zh-CN' ? '在提示词输入框中插入换行符不发送' : 'Insert a newline without sending')}
+                              {key === 'toggleMap' && (lang === 'zh-CN' ? '打开或关闭对话拓扑蓝图全屏悬浮地图' : 'Toggle conversation blueprint topology map')}
+                              {key === 'openSettings' && (lang === 'zh-CN' ? '打开桌面端全局配置与快捷键面板' : 'Open settings and shortcut configuration')}
+                              {key === 'mapUndo' && (lang === 'zh-CN' ? '撤销上一次卡片拖拽、布局或编辑操作' : 'Undo last card drag, layout, or edit on canvas')}
+                              {key === 'mapRedo' && (lang === 'zh-CN' ? '重做撤销的历史变动' : 'Redo previously undone canvas action')}
+                              {key === 'mapFocus' && (lang === 'zh-CN' ? '视野平滑聚焦至选中卡片或全景缩放适配' : 'Smoothly focus viewport on selected card or fit view')}
+                              {key === 'mapCommentGroup' && (lang === 'zh-CN' ? '将当前选中的所有卡片包裹为蓝图注释气泡' : 'Wrap selected cards in a blueprint comment group')}
+                              {key === 'mapSelectAll' && (lang === 'zh-CN' ? '选中当前蓝图画布上的全部会话卡片' : 'Select all session cards on the map canvas')}
+                              {key === 'mapHome' && (lang === 'zh-CN' ? '平滑回到蓝图坐标系原点概览' : 'Smoothly return to coordinate origin overview')}
                             </div>
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0 ml-3">
                             {isRecording ? (
                               <span className="px-2.5 py-1 rounded bg-orange-600/30 border border-orange-500/60 text-xs font-mono text-orange-300 animate-pulse">
-                                Press keys... (Esc to cancel)
+                                {t.settings.pressKeyPrompt}
                               </span>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => setRecordingKey(key)}
                                 className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-500 text-xs font-mono text-zinc-300 hover:text-white shadow-xs transition-colors cursor-pointer"
-                                title="Click to rebind shortcut"
+                                title={t.settings.clickToRebind}
                               >
                                 {item.label}
                               </button>
@@ -560,11 +597,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             )}
 
             {activeTab === 'models' && (
-              <div className="space-y-3 max-w-lg">
-                <h3 className="text-sm font-semibold text-zinc-100">Available Providers</h3>
-                <p className="text-zinc-400 text-xs">
-                  Connected to local New API / One API Gateway via OpenCode Daemon.
-                </p>
+              <div className="h-full flex flex-col -m-6">
+                <ManageModelsContent
+                  providers={providers}
+                  showHeaderActions={false}
+                />
               </div>
             )}
           </div>
@@ -574,17 +611,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       {/* Reusable Countdown Confirm Dialog for Destructive Reset Action */}
       <CountdownConfirmDialog
         isOpen={isResetConfirmOpen}
-        title="重置快捷键设置"
+        title={t.settings.resetModalTitle}
         description={
           <div className="space-y-2">
-            <p className="text-zinc-200">确定要将所有键盘快捷键重置为系统默认值吗？</p>
+            <p className="text-zinc-200">{t.settings.resetModalDesc1}</p>
             <p className="text-zinc-400 text-[11px]">
-              此操作将清除所有自定义绑定的全局和蓝图地图快捷键，恢复初始预设。
+              {t.settings.resetModalDesc2}
             </p>
           </div>
         }
-        confirmText="确定重置"
-        cancelText="取消"
+        confirmText={t.settings.resetModalConfirm}
+        cancelText={t.common.cancel}
         countdownSeconds={2}
         isDestructive={true}
         onConfirm={() => {

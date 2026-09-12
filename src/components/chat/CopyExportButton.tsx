@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback } from 'react'
 import { Copy, Download, Check, Loader2 } from 'lucide-react'
+import { useI18n } from '../../utils/i18n'
 
 interface CopyExportButtonProps {
   /** Async getter that returns the full raw session JSON string to copy/export */
@@ -7,11 +8,18 @@ interface CopyExportButtonProps {
   /** Session ID used to generate the export filename */
   sessionId: string | null
   className?: string
+  /** Compact icon-only button mode for space-constrained toolbars */
+  compact?: boolean
 }
 
 type ButtonState = 'idle' | 'loading' | 'copied' | 'exported' | 'error'
 
-export function CopyExportButton({ getSessionJson, sessionId, className = '' }: CopyExportButtonProps) {
+export function CopyExportButton({
+  getSessionJson,
+  sessionId,
+  className = '',
+  compact = false,
+}: CopyExportButtonProps) {
   const [state, setState] = useState<ButtonState>('idle')
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isLongPressRef = useRef(false)
@@ -97,42 +105,82 @@ export function CopyExportButton({ getSessionJson, sessionId, className = '' }: 
     }
   }, [])
 
+  const { lang, t } = useI18n()
   const isDisabled = !sessionId || state === 'loading'
+  const isZh = lang === 'zh-CN'
 
   const stateConfig: Record<ButtonState, { icon: React.ReactNode; label: string; colorClass: string }> = {
     idle: {
       icon: <Copy className="w-3.5 h-3.5" />,
-      label: 'Copy All JSON',
+      label: isZh ? '复制全部 JSON' : 'Copy All JSON',
       colorClass: 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/70 border-zinc-700/50',
     },
     loading: {
       icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />,
-      label: 'Working...',
+      label: isZh ? '处理中...' : 'Working...',
       colorClass: 'text-zinc-500 border-zinc-700/30 cursor-wait',
     },
     copied: {
       icon: <Check className="w-3.5 h-3.5" />,
-      label: 'Copied!',
+      label: isZh ? '已复制!' : 'Copied!',
       colorClass: 'text-emerald-400 border-emerald-800/50 bg-emerald-950/30',
     },
     exported: {
       icon: <Download className="w-3.5 h-3.5" />,
-      label: 'Saved to Desktop!',
+      label: isZh ? '已保存到桌面!' : 'Saved to Desktop!',
       colorClass: 'text-sky-400 border-sky-800/50 bg-sky-950/30',
     },
     error: {
       icon: <Copy className="w-3.5 h-3.5" />,
-      label: 'Failed — retry',
+      label: isZh ? '失败 — 请重试' : 'Failed — retry',
       colorClass: 'text-red-400 border-red-800/50',
     },
   }
 
   const { icon, label, colorClass } = stateConfig[state]
 
+  const tooltipText = !sessionId
+    ? t.header.noActiveSession
+    : state === 'copied'
+      ? t.header.copyJsonSuccess
+      : state === 'exported'
+        ? t.header.exportSuccess
+        : t.header.copyJsonTooltip
+
+  if (compact) {
+    return (
+      <div className="relative group/copy shrink-0">
+        <button
+          type="button"
+          disabled={isDisabled}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerLeave}
+          className={[
+            'flex items-center justify-center p-1.5 text-xs font-medium rounded-md border transition-all duration-150 select-none shrink-0 cursor-pointer shadow-sm',
+            'active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed',
+            state === 'idle'
+              ? 'text-zinc-400 hover:text-zinc-100 bg-[#16181e] hover:bg-[#1f232b] border-[#272a31] hover:border-zinc-600/70'
+              : colorClass,
+            className,
+          ].join(' ')}
+          aria-label={tooltipText}
+        >
+          {icon}
+        </button>
+
+        {/* Immediate floating tooltip on hover (100% localized and instant) */}
+        <div className="pointer-events-none absolute right-0 top-full mt-1.5 z-50 whitespace-nowrap rounded-md bg-[#12141a]/95 backdrop-blur-md border border-[#2a2e38] px-2 py-1 text-[11px] font-medium text-zinc-200 shadow-xl opacity-0 translate-y-1 group-hover/copy:opacity-100 group-hover/copy:translate-y-0 transition-all duration-150">
+          {tooltipText}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <button
       type="button"
-      title={`点击复制全部 JSON (单击) · 长按 500ms 导出到桌面`}
+      title={isZh ? '点击复制全部 JSON (单击) · 长按 500ms 导出到桌面' : 'Click to copy full JSON · Long press 500ms to export to desktop'}
       disabled={isDisabled}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
