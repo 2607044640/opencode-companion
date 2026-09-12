@@ -65,12 +65,14 @@ export function useChatStream(
     setSessionStatus({ type: 'idle' })
     setError(null)
 
-    if (!sessionId) {
+    if (!sessionId || sessionId === '__draft__') {
       setMessages([])
       setTodos([])
       return
     }
 
+    setMessages([])
+    setTodos([])
     loadSessionData(sessionId)
 
     // Subscribe to SSE events

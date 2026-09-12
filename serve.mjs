@@ -335,8 +335,8 @@ const server = http.createServer((req, res) => {
   })
 })
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`OpenCode Companion server running at http://127.0.0.1:${PORT}`)
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`OpenCode Companion server running on port ${PORT}`)
   startWslPortForwarder()
 })
 
