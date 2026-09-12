@@ -16,6 +16,7 @@ import { CopyExportButton } from '../chat/CopyExportButton'
 import { useI18n } from '../../utils/i18n'
 import { TabContextMenu } from './TabContextMenu'
 import { RelayHubDropdown } from './RelayHubDropdown'
+import { DaemonStatusDot } from './DaemonStatusDot'
 import type { SettingsTab } from '../settings/SettingsModal'
 
 interface HeaderProps {
@@ -42,6 +43,8 @@ interface HeaderProps {
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
   onOpenSettings?: (tab?: SettingsTab) => void
+  onDaemonRestored?: () => void
+  onDaemonLost?: () => void
 }
 
 function formatTokens(n: number | undefined): string {
@@ -71,6 +74,8 @@ export function Header({
   onUpdateSessionTitle,
   onShowInMap,
   onOpenSettings,
+  onDaemonRestored,
+  onDaemonLost,
 }: HeaderProps) {
   const { lang, t } = useI18n()
   const isZh = lang.startsWith('zh')
@@ -90,7 +95,7 @@ export function Header({
 
   return (
     <header className="h-12 border-b border-[#24272b] bg-[#0f1115] flex items-center justify-between px-3 gap-3 select-none shrink-0">
-      {/* Left: Sidebar Toggle & Multi-Session Tabs */}
+      {/* Left: Sidebar Toggle, Daemon Live Status Dot & Multi-Session Tabs */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto no-scrollbar">
         <button
           onClick={onToggleSidebar}
@@ -99,6 +104,13 @@ export function Header({
         >
           {isSidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
         </button>
+
+        {/* WSL Daemon Live Connection Status Dot with Exponential Backoff */}
+        <DaemonStatusDot
+          onRestored={onDaemonRestored}
+          onLost={onDaemonLost}
+          isZh={isZh}
+        />
 
         {/* Tab Items */}
         <div

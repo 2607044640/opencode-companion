@@ -169,6 +169,17 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
+  const handleDaemonRestored = useCallback(() => {
+    setToastMessage('已恢复与 WSL 后端守护进程的连接')
+    setTimeout(() => setToastMessage(null), 3500)
+    refresh()
+  }, [refresh])
+
+  const handleDaemonLost = useCallback(() => {
+    setToastMessage('WSL 后端连接中断，正在尝试指数退避重连...')
+    setTimeout(() => setToastMessage(null), 4000)
+  }, [])
+
   const handleAddSessionToMap = useCallback(
     async (sessionId: string) => {
       try {
@@ -703,6 +714,8 @@ export default function App() {
             onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
             onShowInMap={handleAddSessionToMap}
             onOpenSettings={handleOpenSettings}
+            onDaemonRestored={handleDaemonRestored}
+            onDaemonLost={handleDaemonLost}
           />
         )}
 
