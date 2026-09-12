@@ -27,74 +27,46 @@ def start_server():
     if is_server_listening():
         return True
 
-    # 1. Primary: Trigger WSL2 systemd service start
+    # 1. Ensure WSL2 daemon is alive
     try:
         subprocess.run(
-            ['wsl', '-d', 'opencode-jail', '-u', 'root', 'systemctl', 'start', 'opencode-companion.service', 'opencode-web.service'],
+            ['wsl', '-d', 'opencode-jail', '-u', 'root', 'systemctl', 'start', 'opencode-web.service'],
             creationflags=0x08000000,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=5
+            timeout=3
         )
     except Exception:
         pass
 
-    # Quick check if systemd brought it up
-    start_time = time.time()
-    while time.time() - start_time < 2.0:
-        if is_server_listening():
-            return True
-        time.sleep(0.1)
+    # 2. Launch Windows companion host daemon detached
+    node_paths = [
+        r"C:\Program Files\nodejs\node.exe",
+        r"C:\Program Files (x86)\nodejs\node.exe",
+    ]
+    node_exe = next((p for p in node_paths if os.path.exists(p)), 'node.exe')
 
-    # 2. Fallback: Local Windows Node process via WMI
-    node_exe = r'C:\Program Files\nodejs\node.exe'
-    if not os.path.exists(node_exe):
-        node_exe = 'node'
-
-    ps_cmd = f'''
-$startup = [wmiclass]"Win32_ProcessStartup"
-$startup.Properties['ShowWindow'].Value = 0
-$p = [wmiclass]"Win32_Process"
-$inParams = $p.GetMethodParameters("Create")
-$inParams["CommandLine"] = '"{node_exe}" "{SERVE_SCRIPT}"'
-$inParams["CurrentDirectory"] = "{COMPANION_DIR}"
-$inParams["ProcessStartupInformation"] = $startup
-$res = $p.InvokeMethod("Create", $inParams, $null)
-'''
+    flags = 0x00000008 | 0x00000200 | 0x08000000
     try:
-        subprocess.run(
-            ['powershell', '-NoProfile', '-Command', ps_cmd],
-            creationflags=0x08000000,
+        subprocess.Popen(
+            [node_exe, SERVE_SCRIPT],
+            cwd=COMPANION_DIR,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=8
+            creationflags=flags,
+            close_fds=True
         )
     except Exception:
         pass
-        try:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0
-            subprocess.Popen(
-                [node_exe, SERVE_SCRIPT],
-                cwd=COMPANION_DIR,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                startupinfo=startupinfo,
-                creationflags=0x08000000 | 0x00000200
-            )
-        except Exception:
-            pass
 
     # Poll until ready (max 5 seconds)
     start_time = time.time()
     while time.time() - start_time < 5.0:
         if is_server_listening():
             return True
-        time.sleep(0.1)
+        time.sleep(0.08)
 
     return False
 
