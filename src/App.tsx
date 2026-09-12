@@ -131,6 +131,26 @@ export default function App() {
     return () => window.removeEventListener('shortcuts-updated', handleShortcutsUpdate)
   }, [])
 
+  // Prevent browser default behavior of navigating away when dropping files outside drop targets
+  useEffect(() => {
+    const handleWindowDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault()
+      }
+    }
+    const handleWindowDrop = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('dragover', handleWindowDragOver)
+    window.addEventListener('drop', handleWindowDrop)
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver)
+      window.removeEventListener('drop', handleWindowDrop)
+    }
+  }, [])
+
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   const handleAddSessionToMap = useCallback(

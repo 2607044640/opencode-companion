@@ -11,6 +11,7 @@ import {
   Search,
   Check,
   Sliders,
+  FileUp,
 } from 'lucide-react'
 import type { AgentInfo, ProviderInfo, Session, CommandItem, Project } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
@@ -22,6 +23,7 @@ import { isCuratedModel, isModelVisible } from '../../utils/model-filter'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n } from '../../utils/i18n'
 import { ManageModelsModal } from '../models/ManageModelsModal'
+import { categorizeDroppedFiles, formatFileMentions, hasFilePayload } from './drag-drop'
 
 export interface DraftInjection {
   text: string
@@ -67,7 +69,8 @@ export function PromptInput({
   sessions,
 }: PromptInputProps) {
   const { prefs } = usePreferences()
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  const isZh = lang?.startsWith('zh') ?? true
   const [text, setText] = useState('')
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -83,8 +86,10 @@ export function PromptInput({
   const [modelSearchQuery, setModelSearchQuery] = useState('')
   const [isManageModelsOpen, setIsManageModelsOpen] = useState(false)
 
-  // Multimodal image attachments (M4)
+  // Multimodal image attachments (M4) & Drag-and-Drop
   const [attachments, setAttachments] = useState<PromptAttachment[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const dragCounterRef = useRef<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const containerBoxRef = useRef<HTMLDivElement>(null)
@@ -425,6 +430,66 @@ export function PromptInput({
     e.target.value = ''
   }
 
+  // Drag and Drop Attachment / Mention Handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!hasFilePayload(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current += 1
+    if (dragCounterRef.current === 1) {
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!hasFilePayload(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!hasFilePayload(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1)
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!hasFilePayload(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragging(false)
+
+    const rawFiles = e.dataTransfer.files
+    if (!rawFiles || rawFiles.length === 0) return
+
+    const { imageFiles, otherFiles } = categorizeDroppedFiles(rawFiles)
+
+    // 1. Process image files into thumbnail attachments
+    imageFiles.forEach((imgFile) => {
+      processImageFile(imgFile)
+    })
+
+    // 2. Process other files (logs, code, docs) into @file mentions
+    if (otherFiles.length > 0) {
+      const cursor = textareaRef.current?.selectionStart ?? text.length
+      const { newText, newCursorPosition } = formatFileMentions(otherFiles, text, cursor)
+      setText(newText)
+
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = newCursorPosition
+        }
+      }, 10)
+    }
+  }
+
   // Handle popover selection insertion
   const handleSelectPopoverItem = (entry: PopoverItem) => {
     const cursor = textareaRef.current?.selectionStart ?? text.length
@@ -617,12 +682,27 @@ export function PromptInput({
 
       <div
         ref={containerBoxRef}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         className={`relative rounded-xl border shadow-2xl transition-all focus-within:border-[#388bfd]/60 focus-within:ring-1 focus-within:ring-[#388bfd]/20 ${
-          isZenMode
+          isDragging
+            ? 'border-orange-500/80 ring-2 ring-orange-500/30 bg-[#161922]'
+            : isZenMode
             ? 'bg-[#121419]/90 backdrop-blur-md border-zinc-700/60 hover:border-zinc-500/80 hover:bg-[#121419]/95'
             : 'bg-[#14161b] border-[#272a31]'
         }`}
       >
+        {/* Drag and Drop Active Overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-[#12141a]/95 backdrop-blur-xs border-2 border-dashed border-orange-500/80 pointer-events-none select-none transition-all">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a1e27] border border-orange-500/50 text-orange-300 text-xs font-medium shadow-2xl animate-in zoom-in-95 duration-100">
+              <FileUp className="w-4 h-4 text-orange-400 animate-bounce" />
+              <span>{isZh ? '释放以注入图片预览缩略图或 @文件引用' : 'Drop to inject images or @file mentions'}</span>
+            </div>
+          </div>
+        )}
         {/* Floating Autocomplete Popover (M6) */}
         <PromptPopover
           isOpen={popoverOpen}
