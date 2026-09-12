@@ -16,7 +16,7 @@ import { useChatStream } from './hooks/useChatStream'
 import { getShortcuts, matchesShortcut, type ShortcutsMap } from './utils/shortcuts'
 import { getNextTabId, getPrevTabId, getTabIdByIndex } from './utils/tab-navigation'
 import { api, canonicalizeDirectory } from './services/api'
-import { Loader2, Minimize2, MapPin } from 'lucide-react'
+import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore } from 'lucide-react'
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
 import type { Message } from './types/opencode'
@@ -50,7 +50,8 @@ export default function App() {
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
   const [isZenMode, setIsZenMode] = useState(false)
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  const isZh = lang === 'zh-CN'
 
   const toggleSidebar = useCallback((force?: boolean) => {
     setIsSidebarOpen((prev) => {
@@ -65,6 +66,8 @@ export default function App() {
   const {
     projects,
     sessions,
+    unarchiveSession,
+    isArchived,
     selectedProjectId,
     setSelectedProjectId,
     activeSessionId,
@@ -425,10 +428,15 @@ export default function App() {
         return
       }
 
+      // If active session is archived, automatically unarchive it on prompt send
+      if (activeSessionId && isArchived(activeSessionId)) {
+        unarchiveSession(activeSessionId)
+      }
+
       // Existing real session: send directly via useChatStream
       await sendPrompt(text, options)
     },
-    [activeSessionId, projects, selectedProjectId, createNewSession, sendPrompt]
+    [activeSessionId, projects, selectedProjectId, createNewSession, sendPrompt, isArchived, unarchiveSession]
   )
 
   const isZenModeRef = useRef(isZenMode)
@@ -730,6 +738,28 @@ export default function App() {
           </div>
         ) : (
           <main className="flex-1 flex flex-col min-h-0 relative">
+            {/* Archived Session Notice Banner */}
+            {activeSessionId && isArchived(activeSessionId) && (
+              <div className="bg-[#1c1a14] border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200/90 shrink-0 z-20 backdrop-blur-sm">
+                <div className="flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    {isZh
+                      ? '此会话已归档。它已被移出活跃列表，但历史消息与上下文完整保留。发送新消息将自动恢复此会话。'
+                      : 'This conversation is archived. It is hidden from active project trees, but all history is preserved. Sending a message will automatically unarchive it.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => unarchiveSession(activeSessionId)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-medium transition-colors cursor-pointer shrink-0 ml-3"
+                >
+                  <ArchiveRestore className="w-3.5 h-3.5" />
+                  <span>{isZh ? '恢复会话' : 'Unarchive'}</span>
+                </button>
+              </div>
+            )}
+
             {/* Scrollable Timeline with Native Message Revert */}
             <ChatTimeline
               messages={messages}

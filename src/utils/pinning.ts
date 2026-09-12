@@ -31,6 +31,9 @@ export function savePinnedSessionIds(ids: string[], storage?: Storage): void {
     if (!store) return
     const uniqueIds = Array.from(new Set(ids.filter((id) => typeof id === 'string' && Boolean(id.trim()))))
     store.setItem(PINNED_SESSIONS_STORAGE_KEY, JSON.stringify(uniqueIds))
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('opencode_pinned_sessions_updated'))
+    }
   } catch (err) {
     console.error('Failed to save pinned sessions to storage:', err)
   }

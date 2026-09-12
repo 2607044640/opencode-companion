@@ -12,10 +12,12 @@ import {
   User,
   Bot,
   Sparkles,
+  Archive,
 } from 'lucide-react'
 import type { Session, Project } from '../../types/opencode'
 import { matchCanonicalWorkspace, api } from '../../services/api'
 import { useI18n, type TranslationDictionary } from '../../utils/i18n'
+import { getArchivedSessionIds, isSessionArchived } from '../../utils/archiving'
 import type { SearchMode, MessageSearchHit } from './search-types'
 import { messageCache, extractSearchableDocs } from './message-cache'
 import {
@@ -236,7 +238,19 @@ function FloatingSearchContent({
   projects,
   initialSelectedProjectId,
 }: FloatingSearchModalProps) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
+  const isZh = lang === 'zh-CN'
+  const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
+
+  useEffect(() => {
+    const handleArchivedUpdate = () => setArchivedIds(getArchivedSessionIds())
+    window.addEventListener('storage', handleArchivedUpdate)
+    window.addEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    return () => {
+      window.removeEventListener('storage', handleArchivedUpdate)
+      window.removeEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    }
+  }, [])
 
   const [searchMode, setSearchMode] = useState<SearchMode>(() => {
     try {
@@ -975,6 +989,16 @@ function FloatingSearchContent({
                       {projMeta.name}
                     </span>
 
+                    {isSessionArchived(session.id, archivedIds) && (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/70 text-amber-300 border border-amber-600/50 shrink-0 flex items-center gap-1"
+                        title={isZh ? '此会话已归档' : 'Archived conversation'}
+                      >
+                        <Archive className="w-2.5 h-2.5" />
+                        <span>{isZh ? '已归档' : 'Archived'}</span>
+                      </span>
+                    )}
+
                     <div className="min-w-0 flex-1 flex flex-col justify-center">
                       <div className="flex items-center gap-2">
                         <span
@@ -1102,6 +1126,16 @@ function FloatingSearchContent({
                       >
                         {hit.projectName || 'Project'}
                       </span>
+
+                      {isSessionArchived(hit.sessionId, archivedIds) && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/70 text-amber-300 border border-amber-600/50 shrink-0 flex items-center gap-1"
+                          title={isZh ? '此会话已归档' : 'Archived conversation'}
+                        >
+                          <Archive className="w-2.5 h-2.5" />
+                          <span>{isZh ? '已归档' : 'Archived'}</span>
+                        </span>
+                      )}
 
                       {/* Session Title Header */}
                       <span

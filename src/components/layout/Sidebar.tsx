@@ -21,6 +21,8 @@ import {
   Check,
   Plus,
   SlidersHorizontal,
+  Archive,
+  ArchiveRestore,
 } from 'lucide-react'
 import type { Project, Session } from '../../types/opencode'
 import type { SessionGroup } from '../../hooks/useSessions'
@@ -31,6 +33,13 @@ import {
   togglePinSessionId,
   isSessionPinned,
 } from '../../utils/pinning'
+import {
+  getArchivedSessionIds,
+  archiveSessionId,
+  unarchiveSessionId,
+  toggleArchiveSessionId,
+  isSessionArchived,
+} from '../../utils/archiving'
 import {
   doesSessionBelongToProject,
   formatCompactTime,
@@ -95,12 +104,34 @@ export function Sidebar({
   const { lang } = useI18n()
   const isZh = lang === 'zh-CN'
 
-  // Pinned session IDs state
+  // Pinned & Archived session IDs state
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => getPinnedSessionIds())
+  const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'opencode_pinned_sessions') {
+        setPinnedIds(getPinnedSessionIds())
+      } else if (e.key === 'opencode_archived_sessions') {
+        setArchivedIds(getArchivedSessionIds())
+      }
+    }
+    const handlePinnedUpdate = () => setPinnedIds(getPinnedSessionIds())
+    const handleArchivedUpdate = () => setArchivedIds(getArchivedSessionIds())
+
+    window.addEventListener('storage', handleStorage)
+    window.addEventListener('opencode_pinned_sessions_updated', handlePinnedUpdate)
+    window.addEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('opencode_pinned_sessions_updated', handlePinnedUpdate)
+      window.removeEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    }
+  }, [])
 
   // Accordion expansion state for project folders (default all open)
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = { _pinned: true }
+    const initial: Record<string, boolean> = { _pinned: true, _archived: false }
     projects.forEach((p) => {
       initial[p.id] = true
     })
@@ -135,23 +166,32 @@ export function Sidebar({
     return map
   }, [sessions])
 
-  // Pinned sessions list
+  // Pinned sessions list (strictly excluding archived)
   const pinnedSessions = useMemo(() => {
     return pinnedIds
+      .filter((id) => !archivedIds.includes(id))
       .map((id) => sessionMap.get(id))
       .filter((s): s is Session => Boolean(s))
-  }, [pinnedIds, sessionMap])
+  }, [pinnedIds, archivedIds, sessionMap])
 
-  // Filter sessions by search query if any
+  // Archived sessions list
+  const archivedSessions = useMemo(() => {
+    return archivedIds
+      .map((id) => sessionMap.get(id))
+      .filter((s): s is Session => Boolean(s))
+  }, [archivedIds, sessionMap])
+
+  // Filter sessions by search query if any (strictly excluding archived)
   const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return sessions
+    const activeNonArchived = sessions.filter((s) => !archivedIds.includes(s.id))
+    if (!searchQuery.trim()) return activeNonArchived
     const q = searchQuery.toLowerCase()
-    return sessions.filter(
+    return activeNonArchived.filter(
       (s) =>
         (s.title || '').toLowerCase().includes(q) ||
         s.id.toLowerCase().includes(q)
     )
-  }, [sessions, searchQuery])
+  }, [sessions, archivedIds, searchQuery])
 
   // Map sessions into projects
   const projectSessionsMap = useMemo(() => {
@@ -198,6 +238,26 @@ export function Sidebar({
     e?.stopPropagation()
     const res = togglePinSessionId(sessionId)
     setPinnedIds(res.pinnedIds)
+  }
+
+  const handleToggleArchive = (sessionId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const res = toggleArchiveSessionId(sessionId)
+    setArchivedIds(res.archivedIds)
+    setPinnedIds(getPinnedSessionIds())
+  }
+
+  const handleArchive = (sessionId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const res = archiveSessionId(sessionId)
+    setArchivedIds(res.archivedIds)
+    setPinnedIds(getPinnedSessionIds())
+  }
+
+  const handleUnarchive = (sessionId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const res = unarchiveSessionId(sessionId)
+    setArchivedIds(res.archivedIds)
   }
 
   const handleCommitTitle = () => {
@@ -416,6 +476,14 @@ export function Sidebar({
                         )}
                         <button
                           type="button"
+                          onClick={(e) => handleArchive(session.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-amber-400 rounded transition-opacity cursor-pointer"
+                          title={isZh ? '归档会话' : 'Archive session'}
+                        >
+                          <Archive className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={(e) => handleTogglePin(session.id, e)}
                           className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-orange-400 rounded transition-opacity cursor-pointer"
                           title={isZh ? '取消置顶' : 'Unpin'}
@@ -612,6 +680,16 @@ export function Sidebar({
                                   <Pin className={`w-3 h-3 ${isPinned ? 'fill-orange-400' : ''}`} />
                                 </button>
 
+                                {/* Archive button on hover */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleArchive(session.id, e)}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-500 hover:text-amber-400 transition-opacity cursor-pointer"
+                                  title={isZh ? '归档会话' : 'Archive session'}
+                                >
+                                  <Archive className="w-3 h-3" />
+                                </button>
+
                                 {/* More options button (...) */}
                                 <button
                                   type="button"
@@ -641,6 +719,98 @@ export function Sidebar({
             })}
           </div>
         </div>
+
+        {/* Archived Conversations Section */}
+        {archivedSessions.length > 0 && (
+          <div className="space-y-1.5 pt-2 border-t border-zinc-800/60 mt-2">
+            <div
+              onClick={() => toggleProjectExpand('_archived')}
+              className="group flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-medium cursor-pointer text-[#8b949e] hover:bg-[#14161b] hover:text-[#e6edf3] transition-colors"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {expandedProjects._archived ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                )}
+                <Archive className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+                <span className="truncate">{isZh ? '已归档会话' : 'Archived Conversations'}</span>
+              </div>
+              <span className="text-[10px] text-zinc-600 font-mono">
+                {archivedSessions.length}
+              </span>
+            </div>
+
+            {expandedProjects._archived && (
+              <div className="pl-5 pr-1 py-1 space-y-1 border-l border-amber-900/40 ml-3.5 mt-0.5">
+                {archivedSessions.map((session) => {
+                  const isActive = activeSessionId === session.id
+                  const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
+
+                  return (
+                    <div
+                      key={`archived-${session.id}`}
+                      onClick={() => onSelectSession(session.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setContextMenu({
+                          sessionId: session.id,
+                          title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                          x: e.clientX,
+                          y: e.clientY,
+                        })
+                      }}
+                      className={`group relative flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-all ${
+                        isActive
+                          ? 'bg-[#1c1a17] text-amber-200 border border-amber-500/40 font-medium'
+                          : 'text-zinc-500 hover:bg-[#15181e] hover:text-zinc-300 border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <Archive className="w-3 h-3 text-amber-500/60 shrink-0" />
+                        <span className="truncate text-left" title={session.title}>
+                          {session.title || (isZh ? '新建会话' : 'New session')}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-zinc-600 font-mono group-hover:hidden">
+                          {timeLabel}
+                        </span>
+
+                        {/* Unarchive Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleUnarchive(session.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-amber-400 transition-opacity cursor-pointer"
+                          title={isZh ? '恢复会话 (取消归档)' : 'Unarchive session'}
+                        >
+                          <ArchiveRestore className="w-3 h-3" />
+                        </button>
+
+                        {/* Delete Permanently Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (confirm(isZh ? `确定彻底删除归档会话 "${session.title}" 吗？此操作无法撤销。` : `Permanently delete "${session.title}"?`)) {
+                              onDeleteSession(session.id)
+                            }
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-rose-400 transition-opacity cursor-pointer"
+                          title={isZh ? '彻底删除' : 'Delete permanently'}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 4. Bottom Action Bar */}
@@ -694,6 +864,29 @@ export function Sidebar({
           >
             <Pin className="w-3.5 h-3.5 text-orange-400" />
             <span>{isSessionPinned(contextMenu.sessionId, pinnedIds) ? (isZh ? '取消置顶' : 'Unpin') : (isZh ? '置顶会话' : 'Pin Session')}</span>
+          </button>
+
+          {/* Toggle Archive in Context Menu */}
+          <button
+            type="button"
+            onClick={() => {
+              const targetId = contextMenu.sessionId
+              handleToggleArchive(targetId)
+              setContextMenu(null)
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-amber-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          >
+            {isSessionArchived(contextMenu.sessionId, archivedIds) ? (
+              <>
+                <ArchiveRestore className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isZh ? '恢复会话 (取消归档)' : 'Restore Session'}</span>
+              </>
+            ) : (
+              <>
+                <Archive className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isZh ? '归档会话' : 'Archive Session'}</span>
+              </>
+            )}
           </button>
 
           {/* Rename */}

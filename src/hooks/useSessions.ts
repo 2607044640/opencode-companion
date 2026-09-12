@@ -7,6 +7,13 @@ import {
   closeOtherTabsState,
   closeTabsToRightState,
 } from '../utils/tab-navigation'
+import {
+  getArchivedSessionIds,
+  archiveSessionId,
+  unarchiveSessionId,
+  toggleArchiveSessionId,
+  isSessionArchived,
+} from '../utils/archiving'
 
 export const DRAFT_SESSION_ID = '__draft__'
 
@@ -43,6 +50,7 @@ function isSameOrSubdirectory(parentPath: string, targetPath: string): boolean {
 export function useSessions() {
   const [projects, setProjects] = useState<Project[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [openTabIds, setOpenTabIds] = useState<string[]>([])
@@ -122,6 +130,21 @@ export function useSessions() {
       unsubUpdated()
     }
   }, [refresh])
+
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'opencode_archived_sessions') {
+        setArchivedIds(getArchivedSessionIds())
+      }
+    }
+    const handleArchivedUpdate = () => setArchivedIds(getArchivedSessionIds())
+    window.addEventListener('storage', handleStorage)
+    window.addEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    }
+  }, [])
 
   // Select a session and add it to open tabs if not present
   const selectSession = useCallback((sessionId: string) => {
@@ -295,6 +318,9 @@ export function useSessions() {
       // Never show draft session in history list
       if (s.id === DRAFT_SESSION_ID) return false
 
+      // Exclude archived sessions from active history list
+      if (archivedIds.includes(s.id)) return false
+
       // Filter out abandoned empty sessions created by previous instant new-session clicks
       const isAbandonedEmpty =
         Boolean(s.title?.startsWith('New session - ')) &&
@@ -411,9 +437,38 @@ export function useSessions() {
     [sessions]
   )
 
+  const archivedSessions = useMemo(() => {
+    const set = new Set(archivedIds)
+    return sessions.filter((s) => set.has(s.id))
+  }, [sessions, archivedIds])
+
+  const archiveSession = useCallback((sessionId: string) => {
+    const res = archiveSessionId(sessionId)
+    setArchivedIds(res.archivedIds)
+    return res
+  }, [])
+
+  const unarchiveSession = useCallback((sessionId: string) => {
+    const res = unarchiveSessionId(sessionId)
+    setArchivedIds(res.archivedIds)
+    return res
+  }, [])
+
+  const toggleArchiveSession = useCallback((sessionId: string) => {
+    const res = toggleArchiveSessionId(sessionId)
+    setArchivedIds(res.archivedIds)
+    return res
+  }, [])
+
   return {
     projects,
     sessions,
+    archivedIds,
+    archivedSessions,
+    archiveSession,
+    unarchiveSession,
+    toggleArchiveSession,
+    isArchived: (sessionId: string) => isSessionArchived(sessionId, archivedIds),
     selectedProjectId,
     setSelectedProjectId,
     activeSessionId,

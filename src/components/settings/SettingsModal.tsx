@@ -18,6 +18,7 @@ import {
   Lock,
   Search,
   Coins,
+  Archive,
 } from 'lucide-react'
 import { api, BASE_URL, getAuthToken, setAuthToken } from '../../services/api'
 import { getShortcuts, resetShortcuts, saveShortcuts, type ShortcutsMap, type ShortcutItem } from '../../utils/shortcuts'
@@ -32,6 +33,7 @@ import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
 import type { ProviderInfo } from '../../types/opencode'
 import { ManageModelsContent } from '../models/ManageModelsModal'
 import { RelayHubSettings } from './RelayHubSettings'
+import { ArchivedSessionsSettings } from './ArchivedSessionsSettings'
 
 export type SettingsTab =
   | 'general'
@@ -41,6 +43,7 @@ export type SettingsTab =
   | 'relays'
   | 'customizations'
   | 'browser'
+  | 'archived'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -310,6 +313,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
               >
                 <Globe className="w-4 h-4" />
                 <span>Browser</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('archived')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                  activeTab === 'archived'
+                    ? 'bg-[#252834] text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#16181f]'
+                }`}
+              >
+                <Archive className="w-4 h-4 text-amber-400" />
+                <span>{isZh ? '已归档会话' : 'Archived Sessions'}</span>
               </button>
             </div>
 
@@ -846,6 +861,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* 7. ARCHIVED SESSIONS TAB */}
+            {activeTab === 'archived' && (
+              <ArchivedSessionsSettings />
             )}
           </div>
         </div>
