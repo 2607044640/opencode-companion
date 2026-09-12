@@ -103,6 +103,9 @@ export default function App() {
   // Programmatic draft injection into PromptInput on message revert / restore
   const [draftInjection, setDraftInjection] = useState<DraftInjection | null>(null)
 
+  // Target message jump state (e.g. from Cross-Message Search hit)
+  const [targetMessageId, setTargetMessageId] = useState<string | null>(null)
+
   const handleRestoreMessage = useCallback(
     async (msg: Message) => {
       if (!activeSessionId) return
@@ -740,6 +743,8 @@ export default function App() {
               onUnrevert={unrevert}
               onDraftInject={(draft) => setDraftInjection(draft)}
               isReverting={reverting}
+              targetMessageId={targetMessageId}
+              onTargetMessageScrolled={() => setTargetMessageId(null)}
             />
 
             {/* In Zen mode, stack SessionRevertDock, TodoBanner and PromptInput in a floating dock to prevent collision */}
@@ -847,7 +852,10 @@ export default function App() {
       <FloatingSearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
-        onSelectSession={(sessionId) => {
+        onSelectSession={(sessionId, messageId) => {
+          if (messageId) {
+            setTargetMessageId(messageId)
+          }
           selectSession(sessionId)
           const target = sessions.find((s) => s.id === sessionId)
           if (target?.projectID && target.projectID !== 'global') {

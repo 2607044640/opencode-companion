@@ -611,7 +611,12 @@ export function MessageBubble({
   }
 
   return (
-    <div className={`my-5 px-4 ${isZenMode ? 'sm:px-0 my-6' : ''}`}>
+    <div
+      data-message-role="assistant"
+      data-message-id={message.info.id}
+      id={`msg_${message.info.id}`}
+      className={`flex flex-col my-5 px-4 ${isZenMode ? 'sm:px-0 my-6' : ''}`}
+    >
       <div
         className={`max-w-4xl mx-auto border border-l-2 ${badge.accent} shadow-sm transition-all ${
           isReverted

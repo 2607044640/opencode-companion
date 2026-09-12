@@ -1,4 +1,5 @@
 import http from 'node:http'
+import net from 'node:net'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -249,4 +250,32 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`OpenCode Companion server running at http://127.0.0.1:${PORT}`)
+  startWslPortForwarder()
 })
+
+function startWslPortForwarder() {
+  try {
+    const rawIp = execSync('wsl.exe -d opencode-jail hostname -I', { encoding: 'utf8', timeout: 5000 })
+    const wslIp = rawIp.trim().split(/\s+/)[0]
+    if (!wslIp) return
+
+    const forwarder = net.createServer((clientSocket) => {
+      const serverSocket = net.connect(5001, wslIp)
+      clientSocket.pipe(serverSocket).pipe(clientSocket)
+      clientSocket.on('error', () => serverSocket.destroy())
+      serverSocket.on('error', () => clientSocket.destroy())
+    })
+
+    forwarder.on('error', (err) => {
+      if (err.code !== 'EADDRINUSE') {
+        console.warn('[WSL Forwarder] Port 5001 forwarder notice:', err.message)
+      }
+    })
+
+    forwarder.listen(5001, '127.0.0.1', () => {
+      console.log(`[WSL Forwarder] Forwarding Windows 127.0.0.1:5001 -> WSL ${wslIp}:5001`)
+    })
+  } catch (err) {
+    console.warn('[WSL Forwarder] Could not resolve WSL IP:', err.message)
+  }
+}

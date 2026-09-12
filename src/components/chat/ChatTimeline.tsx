@@ -25,6 +25,8 @@ interface ChatTimelineProps {
   onUnrevert?: () => Promise<any>
   onDraftInject?: (draft: { text: string; attachments?: PromptAttachment[]; timestamp: number }) => void
   isReverting?: boolean
+  targetMessageId?: string | null
+  onTargetMessageScrolled?: () => void
 }
 
 function computeClientSideDiffs(messages: Message[], targetMsgId: string): ConfirmUndoFileDiff[] {
@@ -83,6 +85,8 @@ export function ChatTimeline({
   onUnrevert,
   onDraftInject,
   isReverting,
+  targetMessageId,
+  onTargetMessageScrolled,
 }: ChatTimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -367,10 +371,36 @@ export function ChatTimeline({
   ])
 
   useEffect(() => {
-    if (isAutoScrollEnabled.current) {
+    if (isAutoScrollEnabled.current && !targetMessageId) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, sessionStatus])
+  }, [messages, sessionStatus, targetMessageId])
+
+  // Jump to specific message target (e.g. from Cross-Message Full-Text Search hit)
+  useEffect(() => {
+    if (!targetMessageId || !containerRef.current) return
+
+    const timer = setTimeout(() => {
+      if (!containerRef.current) return
+      const targetEl =
+        containerRef.current.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`) ||
+        document.getElementById(`msg_${targetMessageId}`)
+
+      if (targetEl) {
+        isAutoScrollEnabled.current = false
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        targetEl.classList.remove('highlight-pulse')
+        void targetEl.offsetWidth
+        targetEl.classList.add('highlight-pulse')
+        setTimeout(() => {
+          targetEl?.classList.remove('highlight-pulse')
+        }, 2000)
+        onTargetMessageScrolled?.()
+      }
+    }, 150)
+
+    return () => clearTimeout(timer)
+  }, [targetMessageId, messages, onTargetMessageScrolled])
 
   const suggestions = [
     '列出当前工作区的所有文件结构',

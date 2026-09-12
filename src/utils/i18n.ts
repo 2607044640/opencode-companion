@@ -51,6 +51,15 @@ export interface TranslationDictionary {
   }
   search: {
     placeholder: string
+    modeTitles: string
+    modeMessages: string
+    placeholderTitles: string
+    placeholderMessages: string
+    searchingMessages: string
+    noMessageHits: (query: string) => string
+    noMessageHitsHint: string
+    userRole: string
+    assistantRole: string
     clearInput: string
     filterByProject: string
     allProjects: string
@@ -212,7 +221,16 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       exitZenLabel: '退出沉浸阅读',
     },
     search: {
-      placeholder: '搜索会话 (按 ↑↓ 选择, Enter 打开, Esc 退出)...',
+      placeholder: '搜索会话标题 (按 ↑↓ 选择, Enter 打开, Esc 退出)...',
+      modeTitles: '搜会话标题',
+      modeMessages: '搜消息内容',
+      placeholderTitles: '搜索会话标题 (按 ↑↓ 选择, Enter 打开, Esc 退出)...',
+      placeholderMessages: '全文字段搜索：输入消息内容、代码片段或错误词...',
+      searchingMessages: '正在检索会话消息正文...',
+      noMessageHits: (query: string) => `未在任何消息中找到匹配 “${query}” 的内容`,
+      noMessageHitsHint: '尝试缩短关键词，或在右上角切换至“全部工程”',
+      userRole: '用户',
+      assistantRole: '助手',
       clearInput: '清除输入',
       filterByProject: '按工程筛选',
       allProjects: '全部工程',
@@ -372,7 +390,16 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       exitZenLabel: 'Exit Zen Mode',
     },
     search: {
-      placeholder: 'Search sessions (↑↓ navigate, Enter open, Esc exit)...',
+      placeholder: 'Search session titles (↑↓ navigate, Enter open, Esc exit)...',
+      modeTitles: 'Search Titles',
+      modeMessages: 'Search Messages',
+      placeholderTitles: 'Search session titles (↑↓ navigate, Enter open, Esc exit)...',
+      placeholderMessages: 'Full-text message search: type keywords, code, or errors...',
+      searchingMessages: 'Searching message content across sessions...',
+      noMessageHits: (query: string) => `No message content found matching "${query}"`,
+      noMessageHitsHint: 'Try shorter keywords or switch to "All Projects"',
+      userRole: 'User',
+      assistantRole: 'Assistant',
       clearInput: 'Clear query',
       filterByProject: 'Filter by project',
       allProjects: 'All Projects',

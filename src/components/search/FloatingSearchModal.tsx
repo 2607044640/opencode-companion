@@ -1,13 +1,32 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { Search, X, FolderGit2, Clock, ArrowRight, Folder } from 'lucide-react'
+import {
+  Search,
+  X,
+  FolderGit2,
+  Clock,
+  ArrowRight,
+  Folder,
+  MessageSquare,
+  FileText,
+  Loader2,
+  User,
+  Bot,
+  Sparkles,
+} from 'lucide-react'
 import type { Session, Project } from '../../types/opencode'
-import { matchCanonicalWorkspace } from '../../services/api'
+import { matchCanonicalWorkspace, api } from '../../services/api'
 import { useI18n, type TranslationDictionary } from '../../utils/i18n'
+import type { SearchMode, MessageSearchHit } from './search-types'
+import { messageCache, extractSearchableDocs } from './message-cache'
+import {
+  queryAllCachedMessages,
+  type SessionSearchTarget,
+} from './message-search'
 
 export interface FloatingSearchModalProps {
   readonly isOpen: boolean
   readonly onClose: () => void
-  readonly onSelectSession: (sessionId: string) => void
+  readonly onSelectSession: (sessionId: string, messageId?: string) => void
   readonly sessions: readonly Session[]
   readonly projects: readonly Project[]
   readonly initialSelectedProjectId?: string | null
@@ -218,6 +237,19 @@ function FloatingSearchContent({
   initialSelectedProjectId,
 }: FloatingSearchModalProps) {
   const { t } = useI18n()
+
+  const [searchMode, setSearchMode] = useState<SearchMode>(() => {
+    try {
+      const saved = sessionStorage.getItem('opencode_search_mode')
+      if (saved === 'messages' || saved === 'titles') {
+        return saved
+      }
+    } catch {
+      // Ignore storage error
+    }
+    return 'titles'
+  })
+
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [selectedProjectIdFilter, setSelectedProjectIdFilter] = useState<string>(() => {
@@ -231,6 +263,9 @@ function FloatingSearchContent({
     }
     return 'ALL'
   })
+
+  const [messageHits, setMessageHits] = useState<MessageSearchHit[]>([])
+  const [isSearchingMessages, setIsSearchingMessages] = useState(false)
 
   const isComposingRef = useRef(false)
   const lastCompositionEndTimeRef = useRef(0)
@@ -288,11 +323,9 @@ function FloatingSearchContent({
     return Array.from(distinct.entries()).map(([id, name]) => ({ id, name }))
   }, [projects])
 
-  // Filtered & Ranked sessions
-  const filteredSessions = useMemo(() => {
-    const q = query.trim().toLowerCase()
-
-    const projectFiltered = sessions.filter((session) => {
+  // Sessions filtered by selected project
+  const projectFilteredSessions = useMemo(() => {
+    return sessions.filter((session) => {
       if (selectedProjectIdFilter === 'ALL') return true
       const proj = sessionProjectMap.get(session.id)
       if (!proj) return false
@@ -309,10 +342,15 @@ function FloatingSearchContent({
       }
       return proj.id === selectedProjectIdFilter || proj.name.toLowerCase() === (targetProj.name || '').toLowerCase()
     })
+  }, [sessions, selectedProjectIdFilter, sessionProjectMap, projects])
+
+  // Titles mode: Filtered & Ranked sessions
+  const filteredSessions = useMemo(() => {
+    const q = query.trim().toLowerCase()
 
     if (!q) {
       // Sort by recent updated time descending
-      return [...projectFiltered].sort((a, b) => {
+      return [...projectFilteredSessions].sort((a, b) => {
         const timeA = a.time?.updated || a.time?.created || 0
         const timeB = b.time?.updated || b.time?.created || 0
         return timeB - timeA
@@ -324,7 +362,7 @@ function FloatingSearchContent({
     // Relevance scoring
     const scored: { session: Session; score: number }[] = []
 
-    for (const s of projectFiltered) {
+    for (const s of projectFilteredSessions) {
       const rawTitle = s.title?.trim() || 'Untitled Session'
       const titleLower = rawTitle.toLowerCase()
       const dirLower = (s.directory || '').toLowerCase()
@@ -388,12 +426,118 @@ function FloatingSearchContent({
     })
 
     return scored.map((item) => item.session)
-  }, [sessions, query, selectedProjectIdFilter, sessionProjectMap, projects])
+  }, [projectFilteredSessions, query, sessionProjectMap])
 
-  const safeIndex =
-    filteredSessions.length > 0
-      ? Math.min(Math.max(0, selectedIndex), filteredSessions.length - 1)
-      : 0
+  // Messages mode: Lazy background indexing & full-text query pipeline
+  useEffect(() => {
+    if (searchMode !== 'messages') {
+      setMessageHits([])
+      setIsSearchingMessages(false)
+      return
+    }
+
+    const trimmed = query.trim()
+    if (!trimmed) {
+      setMessageHits([])
+      setIsSearchingMessages(false)
+      return
+    }
+
+    let isCancelled = false
+    const abortController = new AbortController()
+
+    const debounceTimer = setTimeout(async () => {
+      if (isCancelled) return
+
+      const cachedTargets: SessionSearchTarget[] = []
+      const uncachedSessions: Session[] = []
+
+      for (const session of projectFilteredSessions) {
+        const cachedDocs = messageCache.get(session.id, session.time?.updated)
+        const meta = {
+          ...sessionProjectMap.get(session.id),
+          directory: session.directory,
+        }
+        if (cachedDocs) {
+          cachedTargets.push({
+            sessionId: session.id,
+            sessionTitle: session.title || 'Untitled Session',
+            docs: cachedDocs,
+            meta,
+            updatedAt: session.time?.updated,
+          })
+        } else {
+          uncachedSessions.push(session)
+        }
+      }
+
+      // Instant 0ms response from cached sessions
+      const initialHits = queryAllCachedMessages(cachedTargets, trimmed)
+      if (!isCancelled) {
+        setMessageHits(initialHits)
+      }
+
+      if (uncachedSessions.length === 0) {
+        setIsSearchingMessages(false)
+        return
+      }
+
+      setIsSearchingMessages(true)
+
+      // Concurrent fetch pool (max 6 requests in-flight)
+      const CONCURRENCY_LIMIT = 6
+      const allTargets = [...cachedTargets]
+
+      for (let i = 0; i < uncachedSessions.length; i += CONCURRENCY_LIMIT) {
+        if (isCancelled || abortController.signal.aborted) break
+
+        const batch = uncachedSessions.slice(i, i + CONCURRENCY_LIMIT)
+        await Promise.all(
+          batch.map(async (session) => {
+            try {
+              if (isCancelled || abortController.signal.aborted) return
+              const rawMessages = await api.getMessages(session.id)
+              const docs = extractSearchableDocs(rawMessages)
+              messageCache.set(session.id, session.time?.updated || 0, docs)
+
+              const meta = {
+                ...sessionProjectMap.get(session.id),
+                directory: session.directory,
+              }
+              allTargets.push({
+                sessionId: session.id,
+                sessionTitle: session.title || 'Untitled Session',
+                docs,
+                meta,
+                updatedAt: session.time?.updated,
+              })
+            } catch {
+              // Ignore individual session failure or abort
+            }
+          })
+        )
+
+        if (!isCancelled) {
+          const updatedHits = queryAllCachedMessages(allTargets, trimmed)
+          setMessageHits(updatedHits)
+        }
+      }
+
+      if (!isCancelled) {
+        setIsSearchingMessages(false)
+      }
+    }, 180)
+
+    return () => {
+      isCancelled = true
+      abortController.abort()
+      clearTimeout(debounceTimer)
+    }
+  }, [searchMode, query, projectFilteredSessions, sessionProjectMap])
+
+  // Total items in current active mode
+  const currentItemCount = searchMode === 'titles' ? filteredSessions.length : messageHits.length
+  const safeIndex = currentItemCount > 0 ? Math.min(Math.max(0, selectedIndex), currentItemCount - 1) : 0
 
   // Scroll active item into view smoothly without stealing DOM focus
   useEffect(() => {
@@ -404,13 +548,37 @@ function FloatingSearchContent({
     }
   }, [safeIndex])
 
-  const handleSelectSession = useCallback(
-    (sessionId: string) => {
-      onSelectSession(sessionId)
+  const handleSelectSessionAction = useCallback(
+    (sessionId: string, messageId?: string) => {
+      onSelectSession(sessionId, messageId)
       onClose()
     },
     [onSelectSession, onClose]
   )
+
+  const handleSelectCurrent = useCallback(() => {
+    if (searchMode === 'titles') {
+      if (filteredSessions.length > 0 && filteredSessions[safeIndex]) {
+        handleSelectSessionAction(filteredSessions[safeIndex].id)
+      }
+    } else {
+      if (messageHits.length > 0 && messageHits[safeIndex]) {
+        const hit = messageHits[safeIndex]
+        handleSelectSessionAction(hit.sessionId, hit.messageId)
+      }
+    }
+  }, [searchMode, filteredSessions, messageHits, safeIndex, handleSelectSessionAction])
+
+  const handleSwitchMode = (mode: SearchMode) => {
+    setSearchMode(mode)
+    try {
+      sessionStorage.setItem('opencode_search_mode', mode)
+    } catch {
+      // Ignore
+    }
+    setSelectedIndex(0)
+    searchInputRef.current?.focus()
+  }
 
   // Keyboard navigation inside search input
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -426,29 +594,27 @@ function FloatingSearchContent({
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      if (filteredSessions.length === 0) return
+      if (currentItemCount === 0) return
       setSelectedIndex((prev) => {
-        const cur = Math.min(Math.max(0, prev), filteredSessions.length - 1)
-        return (cur + 1) % filteredSessions.length
+        const cur = Math.min(Math.max(0, prev), currentItemCount - 1)
+        return (cur + 1) % currentItemCount
       })
       return
     }
 
     if (e.key === 'ArrowUp') {
       e.preventDefault()
-      if (filteredSessions.length === 0) return
+      if (currentItemCount === 0) return
       setSelectedIndex((prev) => {
-        const cur = Math.min(Math.max(0, prev), filteredSessions.length - 1)
-        return (cur - 1 + filteredSessions.length) % filteredSessions.length
+        const cur = Math.min(Math.max(0, prev), currentItemCount - 1)
+        return (cur - 1 + currentItemCount) % currentItemCount
       })
       return
     }
 
     if (e.key === 'Enter') {
       e.preventDefault()
-      if (filteredSessions.length > 0 && filteredSessions[safeIndex]) {
-        handleSelectSession(filteredSessions[safeIndex].id)
-      }
+      handleSelectCurrent()
       return
     }
   }
@@ -483,10 +649,10 @@ function FloatingSearchContent({
       // Continuous input focus: Up/Down arrow navigation keeps focus in the search box
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        if (filteredSessions.length > 0) {
+        if (currentItemCount > 0) {
           setSelectedIndex((prev) => {
-            const cur = Math.min(Math.max(0, prev), filteredSessions.length - 1)
-            return (cur + 1) % filteredSessions.length
+            const cur = Math.min(Math.max(0, prev), currentItemCount - 1)
+            return (cur + 1) % currentItemCount
           })
         }
         searchInputRef.current?.focus()
@@ -495,10 +661,10 @@ function FloatingSearchContent({
 
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        if (filteredSessions.length > 0) {
+        if (currentItemCount > 0) {
           setSelectedIndex((prev) => {
-            const cur = Math.min(Math.max(0, prev), filteredSessions.length - 1)
-            return (cur - 1 + filteredSessions.length) % filteredSessions.length
+            const cur = Math.min(Math.max(0, prev), currentItemCount - 1)
+            return (cur - 1 + currentItemCount) % currentItemCount
           })
         }
         searchInputRef.current?.focus()
@@ -507,9 +673,7 @@ function FloatingSearchContent({
 
       if (e.key === 'Enter') {
         e.preventDefault()
-        if (filteredSessions.length > 0 && filteredSessions[safeIndex]) {
-          handleSelectSession(filteredSessions[safeIndex].id)
-        }
+        handleSelectCurrent()
         return
       }
 
@@ -599,7 +763,7 @@ function FloatingSearchContent({
 
     window.addEventListener('keydown', handleGlobalKeyDown)
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
-  }, [filteredSessions, handleSelectSession, onClose, safeIndex])
+  }, [currentItemCount, handleSelectCurrent, onClose])
 
   // Continuous input focus: clicking non-interactive modal areas keeps focus in search input
   const handleNonInteractiveMouseDown = (e: React.MouseEvent) => {
@@ -645,7 +809,11 @@ function FloatingSearchContent({
             onKeyDown={handleSearchKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            placeholder={t.search.placeholder}
+            placeholder={
+              searchMode === 'titles'
+                ? t.search.placeholderTitles
+                : t.search.placeholderMessages
+            }
             className="a1-search-input w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-orange-500/80 transition-colors placeholder:text-zinc-500"
           />
           {query && (
@@ -661,6 +829,36 @@ function FloatingSearchContent({
               <X className="w-3 h-3" />
             </button>
           )}
+        </div>
+
+        {/* Search Mode Segmented Control (Titles vs Messages) */}
+        <div className="flex items-center bg-[#16181e] p-0.5 rounded-md border border-[#272a31] shrink-0">
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('titles')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-all ${
+              searchMode === 'titles'
+                ? 'bg-[#252830] text-orange-400 font-medium shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26]'
+            }`}
+            title="搜索会话标题"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{t.search.modeTitles}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('messages')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-all ${
+              searchMode === 'messages'
+                ? 'bg-[#252830] text-orange-400 font-medium shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26]'
+            }`}
+            title="搜索消息正文与代码片段"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>{t.search.modeMessages}</span>
+          </button>
         </div>
 
         {/* Right: Project dropdown, Result count badge, Close button */}
@@ -689,9 +887,17 @@ function FloatingSearchContent({
           </div>
 
           {/* Result count badge */}
-          <div className="px-2.5 py-1 bg-[#16181e] text-[11px] font-mono text-zinc-400 rounded-md border border-[#272a31] shrink-0">
-            <strong className="text-zinc-200">{filteredSessions.length}</strong> / {sessions.length}
-          </div>
+          {searchMode === 'titles' ? (
+            <div className="px-2.5 py-1 bg-[#16181e] text-[11px] font-mono text-zinc-400 rounded-md border border-[#272a31] shrink-0">
+              <strong className="text-zinc-200">{filteredSessions.length}</strong> / {sessions.length}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#16181e] text-[11px] font-mono text-zinc-400 rounded-md border border-[#272a31] shrink-0">
+              {isSearchingMessages && <Loader2 className="w-3 h-3 animate-spin text-orange-400 shrink-0" />}
+              <strong className="text-zinc-200">{messageHits.length}</strong>
+              <span className="text-zinc-500">条命中</span>
+            </div>
+          )}
 
           {/* Close button */}
           <button
@@ -710,116 +916,235 @@ function FloatingSearchContent({
         className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-[#0c0d0e]"
         onMouseDown={handleNonInteractiveMouseDown}
       >
-        {filteredSessions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 space-y-2">
-            <Search className="w-8 h-8 text-zinc-600 mb-1" />
-            <div className="text-sm font-medium text-zinc-400">
-              {query ? t.search.searchNoResults(query) : t.search.noSessionsFound}
+        {searchMode === 'titles' ? (
+          // Titles Mode rendering
+          filteredSessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 space-y-2">
+              <Search className="w-8 h-8 text-zinc-600 mb-1" />
+              <div className="text-sm font-medium text-zinc-400">
+                {query ? t.search.searchNoResults(query) : t.search.noSessionsFound}
+              </div>
+              <div className="text-xs text-zinc-600">
+                {query ? t.search.searchTryOther : t.search.noSessionsHint}
+              </div>
             </div>
-            <div className="text-xs text-zinc-600">
-              {query ? t.search.searchTryOther : t.search.noSessionsHint}
-            </div>
-          </div>
-        ) : (
-          filteredSessions.map((session, index) => {
-            const isActive = index === safeIndex
-            const projMeta = sessionProjectMap.get(session.id) || {
-              id: 'unknown',
-              name: 'Project',
-              colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
-            }
-            const agentInitial = ((session.agent || 'A').charAt(0) || 'A').toUpperCase()
-            const timeDisplay = formatSessionTime(session.time?.updated || session.time?.created, t)
+          ) : (
+            filteredSessions.map((session, index) => {
+              const isActive = index === safeIndex
+              const projMeta = sessionProjectMap.get(session.id) || {
+                id: 'unknown',
+                name: 'Project',
+                colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+              }
+              const agentInitial = ((session.agent || 'A').charAt(0) || 'A').toUpperCase()
+              const timeDisplay = formatSessionTime(session.time?.updated || session.time?.created, t)
 
-            // Short directory or subpath hint
-            let displayDir = ''
-            if (session.directory) {
-              const parts = session.directory.replace(/\\/g, '/').split('/').filter(Boolean)
-              displayDir = parts.slice(-2).join('/')
-            }
+              let displayDir = ''
+              if (session.directory) {
+                const parts = session.directory.replace(/\\/g, '/').split('/').filter(Boolean)
+                displayDir = parts.slice(-2).join('/')
+              }
 
-            return (
-              <div
-                key={session.id}
-                data-index={index}
-                onClick={() => handleSelectSession(session.id)}
-                className={`session-search-item group px-3.5 py-2.5 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-all border ${
-                  isActive
-                    ? 'bg-[#181c24] border-orange-500/60 shadow-md text-[#f0f6fc]'
-                    : 'bg-[#101216] border-[#1d2026] hover:bg-[#15181f] hover:border-zinc-700/60 text-[#8b949e]'
-                }`}
-              >
-                {/* Left Section: Numeric index + Agent pill + Project pill + Title + Path */}
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  {/* Pure numeric sequence badge */}
-                  <span className="w-6 text-center font-mono text-[11px] text-zinc-500 shrink-0">
-                    {String(index + 1).padStart(2, '0')}
-                  </span>
+              return (
+                <div
+                  key={session.id}
+                  data-index={index}
+                  onClick={() => handleSelectSessionAction(session.id)}
+                  className={`session-search-item group px-3.5 py-2.5 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-all border ${
+                    isActive
+                      ? 'bg-[#181c24] border-orange-500/60 shadow-md text-[#f0f6fc]'
+                      : 'bg-[#101216] border-[#1d2026] hover:bg-[#15181f] hover:border-zinc-700/60 text-[#8b949e]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="w-6 text-center font-mono text-[11px] text-zinc-500 shrink-0">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
 
-                  {/* Agent pill badge */}
-                  <span
-                    className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-700/50 shrink-0"
-                    title={`Agent: ${session.agent || 'Default'}`}
-                  >
-                    {agentInitial}
-                  </span>
+                    <span
+                      className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-700/50 shrink-0"
+                      title={`Agent: ${session.agent || 'Default'}`}
+                    >
+                      {agentInitial}
+                    </span>
 
-                  {/* Project colored pill badge */}
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium border shrink-0 ${projMeta.colorClass}`}
-                    title={`工程: ${projMeta.name}`}
-                  >
-                    {projMeta.name}
-                  </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium border shrink-0 ${projMeta.colorClass}`}
+                      title={`工程: ${projMeta.name}`}
+                    >
+                      {projMeta.name}
+                    </span>
 
-                  {/* Title & optional directory preview */}
-                  <div className="min-w-0 flex-1 flex flex-col justify-center">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`truncate text-xs font-medium ${
-                          isActive ? 'text-white' : 'text-[#d0d7de]'
-                        }`}
-                        title={session.title || 'Untitled Session'}
-                      >
-                        <HighlightedText
-                          text={session.title || 'Untitled Session'}
-                          query={query}
-                        />
-                      </span>
+                    <div className="min-w-0 flex-1 flex flex-col justify-center">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`truncate text-xs font-medium ${
+                            isActive ? 'text-white' : 'text-[#d0d7de]'
+                          }`}
+                          title={session.title || 'Untitled Session'}
+                        >
+                          <HighlightedText
+                            text={session.title || 'Untitled Session'}
+                            query={query}
+                          />
+                        </span>
+                      </div>
+
+                      {displayDir && (
+                        <span className="truncate text-[11px] text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
+                          <Folder className="w-2.5 h-2.5 text-zinc-600 shrink-0" />
+                          <span className="truncate">{displayDir}</span>
+                        </span>
+                      )}
                     </div>
+                  </div>
 
-                    {displayDir && (
-                      <span className="truncate text-[11px] text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
-                        <Folder className="w-2.5 h-2.5 text-zinc-600 shrink-0" />
-                        <span className="truncate">{displayDir}</span>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    {session.tokens?.input || session.tokens?.output ? (
+                      <span className="hidden sm:inline-block text-[10px] font-mono text-zinc-500">
+                        {(session.tokens.input + session.tokens.output).toLocaleString()} tok
+                      </span>
+                    ) : null}
+
+                    <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
+                      <span>{timeDisplay}</span>
+                    </span>
+
+                    {isActive && (
+                      <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-950/40 border border-orange-800/60 px-1.5 py-0.5 rounded shrink-0">
+                        <span>Enter</span>
+                        <ArrowRight className="w-2.5 h-2.5" />
                       </span>
                     )}
                   </div>
                 </div>
+              )
+            })
+          )
+        ) : (
+          // Messages Mode rendering
+          messageHits.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 space-y-2">
+              {isSearchingMessages ? (
+                <>
+                  <Loader2 className="w-8 h-8 text-orange-400 animate-spin mb-1" />
+                  <div className="text-sm font-medium text-zinc-300">
+                    {t.search.searchingMessages}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    正在扫描工作区会话消息内容并建立高速检索索引...
+                  </div>
+                </>
+              ) : !query.trim() ? (
+                <>
+                  <Sparkles className="w-8 h-8 text-orange-400/80 mb-1" />
+                  <div className="text-sm font-medium text-zinc-300">
+                    跨会话消息全文字段搜索
+                  </div>
+                  <div className="text-xs text-zinc-500 max-w-md">
+                    输入任意函数名、报错堆栈、关键词或讨论片段，直接定位具体会话并高亮跳转至对应对话回合。
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Search className="w-8 h-8 text-zinc-600 mb-1" />
+                  <div className="text-sm font-medium text-zinc-400">
+                    {t.search.noMessageHits(query)}
+                  </div>
+                  <div className="text-xs text-zinc-600">
+                    {t.search.noMessageHitsHint}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            messageHits.map((hit, index) => {
+              const isActive = index === safeIndex
+              const timeDisplay = formatSessionTime(hit.timestamp, t)
 
-                {/* Right Section: Token stats + Time badge + Enter indicator */}
-                <div className="flex items-center gap-2.5 shrink-0">
-                  {session.tokens?.input || session.tokens?.output ? (
-                    <span className="hidden sm:inline-block text-[10px] font-mono text-zinc-500">
-                      {(session.tokens.input + session.tokens.output).toLocaleString()} tok
-                    </span>
-                  ) : null}
+              return (
+                <div
+                  key={`${hit.sessionId}-${hit.messageId}-${hit.turnIndex}`}
+                  data-index={index}
+                  onClick={() => handleSelectSessionAction(hit.sessionId, hit.messageId)}
+                  className={`session-search-item group px-3.5 py-2.5 rounded-lg flex flex-col gap-1.5 cursor-pointer transition-all border ${
+                    isActive
+                      ? 'bg-[#181c24] border-orange-500/60 shadow-md text-[#f0f6fc]'
+                      : 'bg-[#101216] border-[#1d2026] hover:bg-[#15181f] hover:border-zinc-700/60 text-[#8b949e]'
+                  }`}
+                >
+                  {/* Top line: Index + Role badge + Project pill + Session Title + Time */}
+                  <div className="flex items-center justify-between gap-3 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="w-6 text-center font-mono text-[11px] text-zinc-500 shrink-0">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
 
-                  <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
-                    <span>{timeDisplay}</span>
-                  </span>
+                      {/* Role Pill */}
+                      {hit.role === 'user' ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-950/80 text-cyan-300 border border-cyan-700/50 flex items-center gap-1 shrink-0">
+                          <User className="w-2.5 h-2.5" />
+                          <span>{t.search.userRole} #{hit.turnIndex}</span>
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-950/80 text-purple-300 border border-purple-700/50 flex items-center gap-1 shrink-0">
+                          <Bot className="w-2.5 h-2.5" />
+                          <span>{t.search.assistantRole} #{hit.turnIndex}</span>
+                        </span>
+                      )}
 
-                  {isActive && (
-                    <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-950/40 border border-orange-800/60 px-1.5 py-0.5 rounded shrink-0">
-                      <span>Enter</span>
-                      <ArrowRight className="w-2.5 h-2.5" />
-                    </span>
-                  )}
+                      {/* Project Pill */}
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium border shrink-0 ${
+                          hit.projectColorClass || 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                        }`}
+                      >
+                        {hit.projectName || 'Project'}
+                      </span>
+
+                      {/* Session Title Header */}
+                      <span
+                        className={`truncate text-xs font-semibold ${
+                          isActive ? 'text-white' : 'text-[#d0d7de]'
+                        }`}
+                        title={hit.sessionTitle}
+                      >
+                        {hit.sessionTitle}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
+                        <span>{timeDisplay}</span>
+                      </span>
+
+                      {isActive && (
+                        <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-950/40 border border-orange-800/60 px-1.5 py-0.5 rounded shrink-0">
+                          <span>Enter 直达</span>
+                          <ArrowRight className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Snippet Line with highlighted matching keywords */}
+                  <div className="pl-8">
+                    <div
+                      className={`text-xs font-mono px-2.5 py-1.5 rounded border transition-colors leading-relaxed break-all ${
+                        isActive
+                          ? 'bg-[#111318] border-orange-950/80 text-zinc-200'
+                          : 'bg-[#0d0e12] border-[#1d2026] text-zinc-400'
+                      }`}
+                    >
+                      <HighlightedText text={hit.snippet} query={query} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )
-          })
+              )
+            })
+          )
         )}
       </div>
     </>
