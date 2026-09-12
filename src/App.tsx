@@ -20,6 +20,15 @@ import { Loader2, Minimize2, MapPin } from 'lucide-react'
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
 import type { Message } from './types/opencode'
+import { ScheduledTasksModal } from './components/tasks/ScheduledTasksModal'
+import { SessionHistoryStack } from './utils/session-history'
+import {
+  getScheduledTasks,
+  shouldRunTask,
+  advanceTaskAfterRun,
+  updateScheduledTask,
+  type ScheduledTask,
+} from './utils/scheduler'
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -32,6 +41,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isMapOpen, setIsMapOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
   const [isZenMode, setIsZenMode] = useState(false)
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
   const { t } = useI18n()
@@ -223,9 +233,136 @@ export default function App() {
     }
   }, [selectSession, activeSessionId])
 
-  const handleNewSession = useCallback(() => {
-    startDraftSession()
-  }, [startDraftSession])
+  // Navigation History Stack (Back / Forward)
+  const historyStack = useRef(new SessionHistoryStack(50, activeSessionId))
+  const [canGoBack, setCanGoBack] = useState(false)
+  const [canGoForward, setCanGoForward] = useState(false)
+  const isNavigatingHistory = useRef(false)
+
+  const updateHistoryState = useCallback(() => {
+    setCanGoBack(historyStack.current.canGoBack)
+    setCanGoForward(historyStack.current.canGoForward)
+  }, [])
+
+  const handleSelectSessionWithHistory = useCallback(
+    (id: string) => {
+      if (!isNavigatingHistory.current) {
+        historyStack.current.push(id)
+        updateHistoryState()
+      }
+      selectSession(id)
+    },
+    [selectSession, updateHistoryState]
+  )
+
+  const handleHistoryBack = useCallback(() => {
+    if (!historyStack.current.canGoBack) return
+    isNavigatingHistory.current = true
+    const prevId = historyStack.current.back()
+    if (prevId) {
+      selectSession(prevId)
+    }
+    updateHistoryState()
+    isNavigatingHistory.current = false
+  }, [selectSession, updateHistoryState])
+
+  const handleHistoryForward = useCallback(() => {
+    if (!historyStack.current.canGoForward) return
+    isNavigatingHistory.current = true
+    const nextId = historyStack.current.forward()
+    if (nextId) {
+      selectSession(nextId)
+    }
+    updateHistoryState()
+    isNavigatingHistory.current = false
+  }, [selectSession, updateHistoryState])
+
+  // Sync initial session into history stack once loaded
+  useEffect(() => {
+    if (activeSessionId && historyStack.current.current() !== activeSessionId) {
+      if (!isNavigatingHistory.current) {
+        historyStack.current.push(activeSessionId)
+        updateHistoryState()
+      }
+    }
+  }, [activeSessionId, updateHistoryState])
+
+  const handleNewSession = useCallback(
+    (directory?: string) => {
+      if (directory) {
+        const matched = projects.find((p) => p.worktree === directory)
+        if (matched) {
+          setSelectedProjectId(matched.id)
+        }
+      }
+      startDraftSession()
+    },
+    [projects, setSelectedProjectId, startDraftSession]
+  )
+
+  // Scheduled Tasks runner (checks every 15s)
+  useEffect(() => {
+    const runner = async () => {
+      const tasks = getScheduledTasks()
+      const now = Date.now()
+      for (const task of tasks) {
+        if (shouldRunTask(task, now)) {
+          try {
+            console.log(`[ScheduledTask] Running task "${task.title}"...`)
+            const newSession = await createNewSession({
+              title: task.title,
+              directory: task.directory,
+              agent: task.agent,
+              model: task.model,
+            })
+            await api.sendPrompt(newSession.id, task.prompt)
+            const advanced = advanceTaskAfterRun(task, now)
+            updateScheduledTask(task.id, {
+              enabled: advanced.enabled,
+              lastRun: advanced.lastRun,
+              nextRun: advanced.nextRun,
+              lastStatus: 'success',
+              lastSessionId: newSession.id,
+            })
+            setToastMessage(`计划任务 "${task.title}" 已自动触发执行`)
+            setTimeout(() => setToastMessage(null), 3000)
+          } catch (err: any) {
+            console.error(`[ScheduledTask] Failed to execute task "${task.title}":`, err)
+            updateScheduledTask(task.id, {
+              lastStatus: 'error',
+              lastError: err?.message || 'Execution error',
+            })
+          }
+        }
+      }
+    }
+
+    const timer = setInterval(runner, 15000)
+    return () => clearInterval(timer)
+  }, [createNewSession])
+
+  const handleRunScheduledTaskNow = useCallback(
+    async (task: ScheduledTask) => {
+      const newSession = await createNewSession({
+        title: task.title,
+        directory: task.directory,
+        agent: task.agent,
+        model: task.model,
+      })
+      await api.sendPrompt(newSession.id, task.prompt)
+      const advanced = advanceTaskAfterRun(task, Date.now())
+      updateScheduledTask(task.id, {
+        enabled: advanced.enabled,
+        lastRun: advanced.lastRun,
+        nextRun: advanced.nextRun,
+        lastStatus: 'success',
+        lastSessionId: newSession.id,
+      })
+      setToastMessage(`已手动触发计划任务 "${task.title}"`)
+      setTimeout(() => setToastMessage(null), 3000)
+    },
+    [createNewSession]
+  )
 
   const handleSendPrompt = useCallback(
     async (
@@ -501,14 +638,25 @@ export default function App() {
           selectedProjectId={selectedProjectId}
           onSelectProject={setSelectedProjectId}
           groupedSessions={groupedSessions}
+          sessions={sessions}
           activeSessionId={activeSessionId}
-          onSelectSession={selectSession}
+          onSelectSession={handleSelectSessionWithHistory}
           onNewSession={handleNewSession}
-          onDeleteSession={deleteSession}
+          onDeleteSession={(id) => {
+            historyStack.current.remove(id)
+            updateHistoryState()
+            deleteSession(id)
+          }}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}
+          onOpenScheduledTasks={() => setIsScheduledTasksOpen(true)}
+          onToggleSidebar={() => toggleSidebar()}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onHistoryBack={handleHistoryBack}
+          onHistoryForward={handleHistoryForward}
           onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
           onShowInMap={handleAddSessionToMap}
         />
@@ -695,6 +843,14 @@ export default function App() {
         sessions={sessions}
         projects={projects}
         initialSelectedProjectId={selectedProjectId}
+      />
+
+      {/* 5.5 Scheduled Tasks Modal */}
+      <ScheduledTasksModal
+        isOpen={isScheduledTasksOpen}
+        onClose={() => setIsScheduledTasksOpen(false)}
+        projects={projects}
+        onRunTaskNow={handleRunScheduledTaskNow}
       />
 
       {/* 6. Right-Side File Diff Drawer (Zero Layout Shift Overlay) */}

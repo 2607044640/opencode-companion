@@ -1,52 +1,63 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
-  LayoutGrid,
-  FolderPlus,
+  PanelLeftClose,
+  ArrowLeft,
+  ArrowRight,
+  History,
+  Clock,
+  Search,
+  Pin,
+  PinOff,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronRight,
+  Folder,
   Settings,
   HelpCircle,
-  Search,
-  SquarePen,
   Trash2,
-  Folder,
-  Layers,
-  ChevronRight,
   Edit3,
   MapPin,
   Copy,
   Check,
+  Plus,
+  SlidersHorizontal,
 } from 'lucide-react'
-import type { Project } from '../../types/opencode'
+import type { Project, Session } from '../../types/opencode'
 import type { SessionGroup } from '../../hooks/useSessions'
 import { matchCanonicalWorkspace } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
+import {
+  getPinnedSessionIds,
+  togglePinSessionId,
+  isSessionPinned,
+} from '../../utils/pinning'
+import {
+  doesSessionBelongToProject,
+  formatCompactTime,
+} from '../../utils/sidebar-helpers'
 
 interface SidebarProps {
   projects: Project[]
   selectedProjectId: string | null
   onSelectProject: (id: string | null) => void
   groupedSessions: SessionGroup[]
+  sessions?: Session[]
   activeSessionId: string | null
   onSelectSession: (id: string) => void
-  onNewSession: () => void
+  onNewSession: (directory?: string) => void
   onDeleteSession: (id: string) => void
   searchQuery: string
   onSearchChange: (q: string) => void
   onOpenSettings: () => void
   onOpenSearch?: () => void
+  onOpenScheduledTasks?: () => void
+  onToggleSidebar?: () => void
+  canGoBack?: boolean
+  canGoForward?: boolean
+  onHistoryBack?: () => void
+  onHistoryForward?: () => void
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
-}
-
-const PROJECT_COLORS: Record<string, string> = {
-  cyan: 'bg-cyan-900/50 text-cyan-400 border-cyan-700/50',
-  blue: 'bg-blue-900/50 text-blue-400 border-blue-700/50',
-  green: 'bg-emerald-900/50 text-emerald-400 border-emerald-700/50',
-  purple: 'bg-purple-900/50 text-purple-400 border-purple-700/50',
-  magenta: 'bg-pink-900/50 text-pink-400 border-pink-700/50',
-  pink: 'bg-pink-900/50 text-pink-400 border-pink-700/50',
-  amber: 'bg-amber-900/50 text-amber-400 border-amber-700/50',
-  orange: 'bg-orange-900/50 text-orange-400 border-orange-700/50',
-  mint: 'bg-emerald-900/50 text-emerald-400 border-emerald-700/50',
 }
 
 function getProjectDisplayName(proj?: Project | null): string {
@@ -63,7 +74,7 @@ export function Sidebar({
   projects,
   selectedProjectId,
   onSelectProject,
-  groupedSessions,
+  sessions = [],
   activeSessionId,
   onSelectSession,
   onNewSession,
@@ -72,22 +83,35 @@ export function Sidebar({
   onSearchChange,
   onOpenSettings,
   onOpenSearch,
+  onOpenScheduledTasks,
+  onToggleSidebar,
+  canGoBack = false,
+  canGoForward = false,
+  onHistoryBack,
+  onHistoryForward,
   onUpdateSessionTitle,
   onShowInMap,
 }: SidebarProps) {
   const { lang } = useI18n()
   const isZh = lang === 'zh-CN'
-  const selectedProject = selectedProjectId
-    ? projects.find(
-        (p) =>
-          p.id === selectedProjectId ||
-          Boolean(p.associatedIds && p.associatedIds.includes(selectedProjectId))
-      )
-    : null
-  const currentProjectName = selectedProjectId ? getProjectDisplayName(selectedProject) : (isZh ? '全部项目' : 'All Projects')
 
+  // Pinned session IDs state
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => getPinnedSessionIds())
+
+  // Accordion expansion state for project folders (default all open)
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = { _pinned: true }
+    projects.forEach((p) => {
+      initial[p.id] = true
+    })
+    return initial
+  })
+
+  // Renaming state
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+
+  // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
     sessionId: string
     title: string
@@ -97,10 +121,55 @@ export function Sidebar({
   const [copiedId, setCopiedId] = useState(false)
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
+  // Filter canonical projects
+  const canonicalProjects = useMemo(() => {
+    return projects.filter(
+      (p) => p.id !== 'global' && Boolean(matchCanonicalWorkspace(p.worktree, p.name))
+    )
+  }, [projects])
+
+  // Map of sessions for quick lookup
+  const sessionMap = useMemo(() => {
+    const map = new Map<string, Session>()
+    sessions.forEach((s) => map.set(s.id, s))
+    return map
+  }, [sessions])
+
+  // Pinned sessions list
+  const pinnedSessions = useMemo(() => {
+    return pinnedIds
+      .map((id) => sessionMap.get(id))
+      .filter((s): s is Session => Boolean(s))
+  }, [pinnedIds, sessionMap])
+
+  // Filter sessions by search query if any
+  const filteredSessions = useMemo(() => {
+    if (!searchQuery.trim()) return sessions
+    const q = searchQuery.toLowerCase()
+    return sessions.filter(
+      (s) =>
+        (s.title || '').toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q)
+    )
+  }, [sessions, searchQuery])
+
+  // Map sessions into projects
+  const projectSessionsMap = useMemo(() => {
+    const map = new Map<string, Session[]>()
+    canonicalProjects.forEach((proj) => {
+      const matched = filteredSessions.filter((sess) =>
+        doesSessionBelongToProject(sess, proj)
+      )
+      map.set(proj.id, matched)
+    })
+    return map
+  }, [canonicalProjects, filteredSessions])
+
   useEffect(() => {
     setEditingSessionId(null)
   }, [activeSessionId])
 
+  // Dismiss context menu on outside click or Esc
   useEffect(() => {
     if (!contextMenu) return
     const handleDown = (e: MouseEvent | KeyboardEvent) => {
@@ -118,294 +187,514 @@ export function Sidebar({
     }
   }, [contextMenu])
 
-  return (
-    <aside className="h-full flex flex-row shrink-0 border-r border-[#24272b] bg-[#0e1012] select-none">
-      {/* 1. Left Project Navigation Pane */}
-      <div className="w-fit min-w-[120px] max-w-[176px] h-full flex flex-col border-r border-[#1f2226] bg-[#0c0d0e]">
-        {/* Top Header */}
-        <div className="h-12 px-3 flex items-center gap-2 border-b border-[#1f2226] text-[#8b949e]">
-          <LayoutGrid className="w-4 h-4 text-[#8b949e]" />
-          <span className="text-xs font-medium uppercase tracking-wider text-[#656d76]">
-            {isZh ? '工作区' : 'Workspace'}
-          </span>
-        </div>
+  const toggleProjectExpand = (projId: string) => {
+    setExpandedProjects((prev) => ({
+      ...prev,
+      [projId]: !prev[projId],
+    }))
+  }
 
-        {/* Projects Section */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          <div className="flex items-center justify-between px-2 py-1.5 text-xs text-[#8b949e] font-medium">
-            <span className="flex items-center gap-1.5">
-              <Folder className="w-3.5 h-3.5" />
-              {isZh ? '工程列表' : 'Projects'}
-            </span>
+  const handleTogglePin = (sessionId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const res = togglePinSessionId(sessionId)
+    setPinnedIds(res.pinnedIds)
+  }
+
+  const handleCommitTitle = () => {
+    const trimmed = editingTitle.trim()
+    if (editingSessionId && trimmed) {
+      const current = sessionMap.get(editingSessionId)
+      if (current && trimmed !== current.title) {
+        onUpdateSessionTitle?.(editingSessionId, trimmed)
+      }
+    }
+    setEditingSessionId(null)
+  }
+
+  // Find project name for a session
+  const getSessionProjectName = (session: Session): string => {
+    for (const proj of canonicalProjects) {
+      if (doesSessionBelongToProject(session, proj)) {
+        const canonical = matchCanonicalWorkspace(proj.worktree, proj.name)
+        return canonical?.name || getProjectDisplayName(proj)
+      }
+    }
+    return 'APISpace'
+  }
+
+  return (
+    <aside className="w-72 h-full flex flex-col shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none">
+      {/* 1. Top Action Buttons Bar (图4功能 - 并列一行，纯图标，带悬浮说明) */}
+      <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#21242b] bg-[#111317]">
+        {/* Left: Sidebar Toggle, Back, Forward */}
+        <div className="flex items-center gap-1">
+          {/* Toggle Sidebar [|] */}
+          <div className="relative group">
             <button
-              onClick={() => onSelectProject(null)}
-              className="text-[10px] text-[#656d76] hover:text-[#e6edf3] transition-colors"
-              title={isZh ? '查看全部工程' : 'View all projects'}
+              type="button"
+              onClick={onToggleSidebar}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+              title={isZh ? '收起侧边栏 (Ctrl+B)' : 'Hide Sidebar (Ctrl+B)'}
             >
-              <FolderPlus className="w-3.5 h-3.5" />
+              <PanelLeftClose className="w-4 h-4" />
             </button>
+            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center gap-1 px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? '收起侧边栏' : 'Hide Sidebar'}</span>
+              <kbd className="text-[9px] font-mono text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">Ctrl+B</kbd>
+            </div>
           </div>
 
-          {/* All Projects Option */}
-          <button
-            onClick={() => onSelectProject(null)}
-            className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-              selectedProjectId === null
-                ? 'bg-[#1e2227] text-[#e6edf3]'
-                : 'text-[#8b949e] hover:bg-[#16181b] hover:text-[#c9d1d9]'
-            }`}
-          >
-            <div className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold border border-zinc-700 bg-zinc-800 text-zinc-300">
-              <Layers className="w-3 h-3" />
+          {/* History Back (←) */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={onHistoryBack}
+              disabled={!canGoBack}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
+              title={isZh ? '后退到上一个会话' : 'Back to previous session'}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? '后退' : 'Back'}</span>
             </div>
-            <span className="truncate">{isZh ? '全部项目' : 'All Projects'}</span>
-          </button>
+          </div>
 
-          {/* Project List: strictly canonical workspaces */}
-          {projects
-            .filter((p) => p.id !== 'global' && Boolean(matchCanonicalWorkspace(p.worktree, p.name)))
-            .map((proj) => {
-              const matchedCanonical = matchCanonicalWorkspace(proj.worktree, proj.name)
-              const colorKey = proj.icon?.color || matchedCanonical?.defaultColor || 'blue'
-              const colorClass =
-                PROJECT_COLORS[colorKey] ||
-                PROJECT_COLORS[matchedCanonical?.defaultColor || 'blue'] ||
-                'bg-zinc-800 text-zinc-300 border-zinc-700'
-              const projName = matchedCanonical?.name || getProjectDisplayName(proj)
-              const initial = (projName || 'P').charAt(0).toUpperCase()
-              const isSelected =
+          {/* History Forward (→) */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={onHistoryForward}
+              disabled={!canGoForward}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
+              title={isZh ? '前进到下一个会话' : 'Forward to next session'}
+            >
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? '前进' : 'Forward'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: New Session (+), Conversation History (Ctrl+K), Scheduled Tasks (⏱) */}
+        <div className="flex items-center gap-1">
+          {/* New Conversation (+) */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={() => onNewSession()}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-orange-400 hover:bg-[#1f232b] transition-colors cursor-pointer"
+              title={isZh ? '新建会话 (Ctrl+N)' : 'New Conversation (Ctrl+N)'}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1.5 hidden group-hover:flex items-center gap-1 px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? '新建对话' : 'New Conversation'}</span>
+              <kbd className="text-[9px] font-mono text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">Ctrl+N</kbd>
+            </div>
+          </div>
+
+          {/* Conversation History (Clock-arrow / Ctrl+K) */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={onOpenSearch}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+              title={isZh ? '历史记录与搜索 (Ctrl+K)' : 'Conversation History (Ctrl+K)'}
+            >
+              <History className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1.5 hidden group-hover:flex items-center gap-1 px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? '对话历史' : 'Conversation History'}</span>
+              <kbd className="text-[9px] font-mono text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">Ctrl+K</kbd>
+            </div>
+          </div>
+
+          {/* Scheduled Tasks (⏱) */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={onOpenScheduledTasks}
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-orange-400 hover:bg-[#1f232b] transition-colors cursor-pointer"
+              title={isZh ? '计划任务调度 (Scheduled Tasks)' : 'Scheduled Tasks'}
+            >
+              <Clock className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1.5 hidden group-hover:flex items-center px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? '计划任务' : 'Scheduled Tasks'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Compact Search Input Bar */}
+      <div className="p-2 border-b border-[#21242b] bg-[#0e1014]">
+        <div
+          className="relative cursor-pointer group"
+          onClick={() => onOpenSearch?.()}
+        >
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#656d76] group-hover:text-zinc-300 transition-colors" />
+          <input
+            id="session-search-input"
+            type="text"
+            readOnly={Boolean(onOpenSearch)}
+            placeholder={isZh ? '搜索会话...' : 'Search conversations...'}
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            onClick={(e) => {
+              if (onOpenSearch) {
+                e.preventDefault()
+                e.stopPropagation()
+                onOpenSearch()
+              }
+            }}
+            onFocus={(e) => {
+              if (onOpenSearch) {
+                e.target.blur()
+                onOpenSearch()
+              }
+            }}
+            className="w-full bg-[#15181d] border border-[#242830] text-xs text-[#e6edf3] pl-8 pr-12 py-1.5 rounded-md placeholder-[#656d76] focus:outline-none focus:border-[#388bfd] cursor-pointer"
+          />
+          <kbd className="absolute right-2 top-2 px-1 py-0.5 text-[9px] font-mono text-zinc-500 bg-zinc-800/80 border border-zinc-700/60 rounded pointer-events-none group-hover:text-zinc-300 transition-colors">
+            Ctrl K
+          </kbd>
+        </div>
+      </div>
+
+      {/* 3. Main Tree Scroll Area */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-4">
+        {/* Pinned Conversations (图1) */}
+        {pinnedSessions.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">
+              <span className="flex items-center gap-1.5">
+                <Pin className="w-3 h-3 text-orange-400 rotate-45" />
+                {isZh ? '置顶会话' : 'Pinned Conversations'}
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">
+                {pinnedSessions.length}
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              {pinnedSessions.map((session) => {
+                const isActive = activeSessionId === session.id
+                const projectName = getSessionProjectName(session)
+                const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
+
+                return (
+                  <div
+                    key={`pinned-${session.id}`}
+                    onClick={() => onSelectSession(session.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setContextMenu({
+                        sessionId: session.id,
+                        title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                        x: e.clientX,
+                        y: e.clientY,
+                      })
+                    }}
+                    className={`group relative flex flex-col px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-all ${
+                      isActive
+                        ? 'bg-[#1c212a] text-[#f0f6fc] border border-orange-500/40 shadow-sm'
+                        : 'text-[#c9d1d9] hover:bg-[#161920] hover:text-white border border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="truncate flex-1 font-medium text-left" title={session.title}>
+                        {session.title || (isZh ? '新建会话' : 'New session')}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isActive ? (
+                          <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                        ) : (
+                          <span className="text-[10px] text-zinc-500 font-mono">{timeLabel}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => handleTogglePin(session.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-orange-400 rounded transition-opacity cursor-pointer"
+                          title={isZh ? '取消置顶' : 'Unpin'}
+                        >
+                          <PinOff className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 mt-0.5">
+                      <Folder className="w-3 h-3 text-zinc-500" />
+                      <span className="truncate">{projectName}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Projects Tree Section (可展开和伸缩，图2 & 图3) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">
+            <span className="flex items-center gap-1.5">
+              <Folder className="w-3.5 h-3.5 text-zinc-400" />
+              {isZh ? '工程列表' : 'Projects'}
+            </span>
+            <div className="flex items-center gap-1 text-zinc-500">
+              <button
+                type="button"
+                onClick={() => onSelectProject(null)}
+                className="p-1 hover:text-zinc-200 transition-colors"
+                title={isZh ? '全部项目' : 'All Projects'}
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+
+          {/* Project Folders Accordion */}
+          <div className="space-y-1.5">
+            {canonicalProjects.map((proj) => {
+              const canonical = matchCanonicalWorkspace(proj.worktree, proj.name)
+              const projName = canonical?.name || getProjectDisplayName(proj)
+              const isExpanded = expandedProjects[proj.id] ?? true
+              const projSessions = projectSessionsMap.get(proj.id) || []
+              const isSelectedProject =
                 selectedProjectId === proj.id ||
                 Boolean(proj.associatedIds && selectedProjectId && proj.associatedIds.includes(selectedProjectId))
 
               return (
-                <button
-                  key={proj.id}
-                  onClick={() => onSelectProject(proj.id)}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-                    isSelected
-                      ? 'bg-[#1e2227] text-[#e6edf3]'
-                      : 'text-[#8b949e] hover:bg-[#16181b] hover:text-[#c9d1d9]'
-                  }`}
-                >
+                <div key={proj.id} className="rounded-lg overflow-hidden">
+                  {/* Folder Header Row */}
                   <div
-                    className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold border ${colorClass}`}
+                    onClick={() => {
+                      toggleProjectExpand(proj.id)
+                      onSelectProject(proj.id)
+                    }}
+                    className={`group flex items-center justify-between px-2 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors ${
+                      isSelectedProject
+                        ? 'bg-[#1a1d24] text-white'
+                        : 'text-[#8b949e] hover:bg-[#14161b] hover:text-[#e6edf3]'
+                    }`}
                   >
-                    {initial}
-                  </div>
-                  <span className="truncate flex-1 text-left">{projName}</span>
-                  {isSelected && <ChevronRight className="w-3 h-3 text-zinc-500" />}
-                </button>
-              )
-            })}
-        </div>
-
-        {/* Bottom Actions */}
-        <div className="p-2 border-t border-[#1f2226] space-y-1">
-          <button
-            onClick={onOpenSettings}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs text-[#8b949e] hover:bg-[#16181b] hover:text-[#e6edf3] transition-colors"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>{isZh ? '系统设置' : 'Settings'}</span>
-          </button>
-          <a
-            href="https://opencode.ai/docs"
-            target="_blank"
-            rel="noreferrer"
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs text-[#8b949e] hover:bg-[#16181b] hover:text-[#e6edf3] transition-colors"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>{isZh ? '帮助文档' : 'Help'}</span>
-          </a>
-        </div>
-      </div>
-
-      {/* 2. Middle Session List Pane (Replicating Image 2) */}
-      <div className="w-72 h-full flex flex-col bg-[#111316]">
-        {/* Search & New Session Bar */}
-        <div className="p-3 border-b border-[#1f2226] space-y-2">
-          <div
-            className="relative cursor-pointer group"
-            onClick={() => onOpenSearch?.()}
-          >
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-[#656d76] group-hover:text-zinc-300 transition-colors" />
-            <input
-              id="session-search-input"
-              type="text"
-              readOnly={Boolean(onOpenSearch)}
-              placeholder={isZh ? `在 ${currentProjectName} 中搜索会话...` : `Search sessions in ${currentProjectName}...`}
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              onClick={(e) => {
-                if (onOpenSearch) {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  onOpenSearch()
-                }
-              }}
-              onFocus={(e) => {
-                if (onOpenSearch) {
-                  e.target.blur()
-                  onOpenSearch()
-                }
-              }}
-              className="w-full bg-[#16181d] border border-[#272a30] text-xs text-[#e6edf3] pl-8 pr-14 py-1.5 rounded-md placeholder-[#656d76] focus:outline-none focus:border-[#388bfd] cursor-pointer"
-            />
-            <kbd className="absolute right-2 top-2 px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800/80 border border-zinc-700/60 rounded pointer-events-none group-hover:text-zinc-300 transition-colors">
-              Ctrl K
-            </kbd>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">
-              {currentProjectName}
-            </span>
-            <button
-              onClick={onNewSession}
-              className="flex items-center gap-1.5 px-2 py-1 bg-[#1f2329] hover:bg-[#2b313a] text-zinc-200 text-xs font-medium rounded border border-[#30363d] transition-colors shadow-sm"
-              title={isZh ? '开启新会话' : 'Start a new session'}
-            >
-              <SquarePen className="w-3 h-3 text-orange-400" />
-              <span>{isZh ? '新建会话' : 'New session'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Sessions Grouped List */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          {groupedSessions.length === 0 ? (
-            <div className="text-center py-10 text-xs text-[#656d76]">
-              {isZh ? '暂无会话记录' : 'No sessions found'}
-            </div>
-          ) : (
-            groupedSessions.map((group) => (
-              <div key={group.label} className="space-y-1">
-                <div className="px-2 text-[11px] font-semibold text-[#656d76] tracking-wider uppercase">
-                  {group.label}
-                </div>
-                {group.sessions.map((session) => {
-                  const isActive = activeSessionId === session.id
-                  const agentInitial = ((session.agent || 'A').charAt(0) || 'A').toUpperCase()
-                  const isEditing = editingSessionId === session.id
-
-                  const handleCommitTitle = () => {
-                    const trimmed = editingTitle.trim()
-                    if (trimmed && trimmed !== session.title) {
-                      onUpdateSessionTitle?.(session.id, trimmed)
-                    }
-                    setEditingSessionId(null)
-                  }
-
-                  return (
-                    <div
-                      key={session.id}
-                      onClick={() => {
-                        if (isActive) {
-                          setEditingSessionId(session.id)
-                          setEditingTitle(session.title || '')
-                        } else {
-                          onSelectSession(session.id)
-                        }
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setContextMenu({
-                          sessionId: session.id,
-                          title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
-                          x: e.clientX,
-                          y: e.clientY,
-                        })
-                      }}
-                      className={`group relative flex items-center gap-2.5 px-2.5 py-2 rounded-md text-xs cursor-pointer transition-all ${
-                        isActive
-                          ? 'bg-[#1f242c] text-[#f0f6fc] border border-[#388bfd]/30 font-medium'
-                          : 'text-[#8b949e] hover:bg-[#16191f] hover:text-[#c9d1d9]'
-                      }`}
-                    >
-                      {/* Agent Badge Icon (orange A as shown in screenshot) */}
-                      <div className="w-4 h-4 shrink-0 rounded flex items-center justify-center text-[10px] font-bold bg-amber-950/70 text-amber-400 border border-amber-700/50">
-                        {agentInitial}
-                      </div>
-
-                      {/* Session Title (Click when already active to inline edit) */}
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editingTitle}
-                          onChange={(e) => setEditingTitle(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.nativeEvent.isComposing || e.keyCode === 229) return
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              handleCommitTitle()
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setEditingSessionId(null)
-                            }
-                          }}
-                          onBlur={handleCommitTitle}
-                          onClick={(e) => e.stopPropagation()}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          autoFocus
-                          className="bg-[#14171d] text-[#f0f6fc] border border-orange-500/80 rounded px-1.5 py-0.5 text-xs outline-none flex-1 min-w-0 focus:ring-1 focus:ring-orange-500/50"
-                        />
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isExpanded ? (
+                        <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                       ) : (
-                        <span
-                          className="truncate flex-1 text-left"
-                          title={session.title || (isZh ? '未命名会话' : 'Untitled session')}
-                          onClick={(e) => {
-                            if (isActive) {
-                              e.stopPropagation()
-                              setEditingSessionId(session.id)
-                              setEditingTitle(session.title || '')
-                            }
-                          }}
-                        >
-                          {session.title || (isZh ? '新建会话' : 'New session')}
-                        </span>
+                        <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                       )}
+                      <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      <span className="truncate">{projName}</span>
+                    </div>
 
-                      {/* Delete action button on hover */}
+                    {/* Right Hover Actions on Project Header */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[10px] text-zinc-600 font-mono mr-1">
+                        {projSessions.length}
+                      </span>
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (confirm(isZh ? `确定要删除会话 "${session.title || session.id}" 吗？` : `Delete session "${session.title || session.id}"?`)) {
-                            onDeleteSession(session.id)
-                          }
+                          onNewSession(proj.worktree)
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 rounded transition-opacity"
-                        title={isZh ? '删除会话' : 'Delete session'}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700/60 text-zinc-400 hover:text-white transition-opacity"
+                        title={isZh ? `在 ${projName} 中新建对话` : `New session in ${projName}`}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Plus className="w-3 h-3" />
                       </button>
                     </div>
-                  )
-                })}
-              </div>
-            ))
-          )}
+                  </div>
+
+                  {/* Expanded Nested Sessions (图3) */}
+                  {isExpanded && (
+                    <div className="pl-5 pr-1 py-1 space-y-1 border-l border-zinc-800/60 ml-3.5 mt-0.5">
+                      {projSessions.length === 0 ? (
+                        <div className="py-2 text-[11px] text-zinc-600 italic">
+                          {isZh ? '暂无会话' : 'No sessions'}
+                        </div>
+                      ) : (
+                        projSessions.map((session) => {
+                          const isActive = activeSessionId === session.id
+                          const isPinned = isSessionPinned(session.id, pinnedIds)
+                          const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
+                          const isEditing = editingSessionId === session.id
+
+                          return (
+                            <div
+                              key={session.id}
+                              onClick={() => {
+                                if (isActive) {
+                                  setEditingSessionId(session.id)
+                                  setEditingTitle(session.title || '')
+                                } else {
+                                  onSelectSession(session.id)
+                                }
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setContextMenu({
+                                  sessionId: session.id,
+                                  title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                                  x: e.clientX,
+                                  y: e.clientY,
+                                })
+                              }}
+                              className={`group relative flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-all ${
+                                isActive
+                                  ? 'bg-[#1d232c] text-[#f0f6fc] border border-blue-500/40 font-medium'
+                                  : 'text-[#8b949e] hover:bg-[#15181e] hover:text-[#c9d1d9] border border-transparent'
+                              }`}
+                            >
+                              {/* Left: Active Indicator / Title */}
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                {isActive ? (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 animate-pulse" />
+                                ) : (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                )}
+
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    value={editingTitle}
+                                    onChange={(e) => setEditingTitle(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        handleCommitTitle()
+                                      } else if (e.key === 'Escape') {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        setEditingSessionId(null)
+                                      }
+                                    }}
+                                    onBlur={handleCommitTitle}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    autoFocus
+                                    className="bg-[#14171d] text-[#f0f6fc] border border-orange-500/80 rounded px-1.5 py-0.5 text-xs outline-none flex-1 min-w-0"
+                                  />
+                                ) : (
+                                  <span
+                                    className="truncate text-left"
+                                    title={session.title || (isZh ? '未命名会话' : 'Untitled session')}
+                                  >
+                                    {session.title || (isZh ? '新建会话' : 'New session')}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Right: Timestamp & Action buttons (图3: 📌 is pinned on the right) */}
+                              <div className="flex items-center gap-1 shrink-0">
+                                {/* Time label when not hovering */}
+                                <span className={`text-[10px] text-zinc-500 font-mono ${isPinned ? 'hidden' : 'group-hover:hidden'}`}>
+                                  {timeLabel}
+                                </span>
+
+                                {/* Pin button on the right (📌) */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleTogglePin(session.id, e)}
+                                  className={`p-0.5 rounded transition-all cursor-pointer ${
+                                    isPinned
+                                      ? 'text-orange-400 opacity-100'
+                                      : 'opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-orange-400'
+                                  }`}
+                                  title={isPinned ? (isZh ? '取消置顶' : 'Unpin') : (isZh ? '置顶此会话' : 'Pin session')}
+                                >
+                                  <Pin className={`w-3 h-3 ${isPinned ? 'fill-orange-400' : ''}`} />
+                                </button>
+
+                                {/* More options button (...) */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setContextMenu({
+                                      sessionId: session.id,
+                                      title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    })
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-500 hover:text-white transition-opacity"
+                                  title={isZh ? '更多操作' : 'More options'}
+                                >
+                                  <MoreHorizontal className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Sidebar Session Right-Click Context Menu */}
+      {/* 4. Bottom Action Bar */}
+      <div className="p-2 border-t border-[#21242b] flex items-center justify-between text-xs text-[#8b949e] bg-[#0e1014]">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[#161920] hover:text-[#f0f6fc] transition-colors cursor-pointer"
+        >
+          <Settings className="w-3.5 h-3.5" />
+          <span>{isZh ? '系统设置' : 'Settings'}</span>
+        </button>
+
+        <a
+          href="https://opencode.ai/docs"
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-[#161920] hover:text-[#f0f6fc] transition-colors"
+          title={isZh ? '帮助文档' : 'Documentation'}
+        >
+          <HelpCircle className="w-3.5 h-3.5" />
+          <span>{isZh ? '帮助' : 'Help'}</span>
+        </a>
+      </div>
+
+      {/* 5. Right-Click Context Menu */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 210),
-            top: Math.min(contextMenu.y, window.innerHeight - 190),
+            top: Math.min(contextMenu.y, window.innerHeight - 220),
           }}
           className="fixed z-50 min-w-[190px] rounded-xl border border-[#2a2e38] bg-[#12141a]/95 backdrop-blur-md p-1 shadow-2xl text-xs select-none animation-fade-in"
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {/* Header Title */}
           <div className="px-2.5 py-1.5 text-[11px] text-zinc-400 font-mono truncate border-b border-zinc-800/60 mb-1 max-w-[200px]">
             {contextMenu.title}
           </div>
+
+          {/* Toggle Pin in Context Menu */}
+          <button
+            type="button"
+            onClick={() => {
+              const targetId = contextMenu.sessionId
+              handleTogglePin(targetId)
+              setContextMenu(null)
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          >
+            <Pin className="w-3.5 h-3.5 text-orange-400" />
+            <span>{isSessionPinned(contextMenu.sessionId, pinnedIds) ? (isZh ? '取消置顶' : 'Unpin') : (isZh ? '置顶会话' : 'Pin Session')}</span>
+          </button>
 
           {/* Rename */}
           <button
