@@ -165,6 +165,93 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // Relay presets dynamic endpoint: resolves relay channel presets via GatewayAPIManager without hardcoding secrets
+  if (reqPath === '/api/relays/presets') {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      })
+      res.end()
+      return
+    }
+    if (req.method === 'GET') {
+      try {
+        let scriptPath = 'C:\\AICore\\skills\\GatewayAPIManager\\scripts\\manage_gateway_channels.py'
+        if (!fs.existsSync(scriptPath)) {
+          scriptPath = 'C:\\GlobalAIRules\\skills\\GatewayAPIManager\\scripts\\manage_gateway_channels.py'
+        }
+        let channels = []
+        if (fs.existsSync(scriptPath)) {
+          const raw = execSync(`python "${scriptPath}" --json list`, {
+            timeout: 10000,
+            encoding: 'utf8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          })
+          channels = JSON.parse(raw)
+        }
+
+        const presets = []
+        // 1. TokenShop (Channel 13 / tokenshop.homes)
+        const tokenShop = channels.find(c => c.base_url && c.base_url.includes('tokenshop.homes'))
+        if (tokenShop) {
+          presets.push({
+            id: 'relay_tokenshop',
+            name: 'TokenShop (Grok)',
+            baseUrl: tokenShop.base_url,
+            apiKey: tokenShop.key,
+            redeemUrl: 'https://tokenshop.homes/redeem',
+            currency: 'USD',
+            quotaRate: 500000,
+            cnyRate: 7.2,
+          })
+        }
+        // 2. NovAI / Once (Channel 10 / once-cf.novai.su)
+        const novai = channels.find(c => c.base_url && c.base_url.includes('once-cf.novai.su'))
+        if (novai) {
+          presets.push({
+            id: 'relay_novai',
+            name: 'NovAI (Once)',
+            baseUrl: novai.base_url,
+            apiKey: novai.key,
+            redeemUrl: 'https://once-cf.novai.su',
+            currency: 'USD',
+            quotaRate: 500000,
+            cnyRate: 7.2,
+          })
+        }
+        // 3. Moniker fallback
+        const moniker = channels.find(c => c.base_url && c.base_url.includes('aimoniker.top'))
+        if (moniker && presets.length < 2) {
+          presets.push({
+            id: 'relay_moniker',
+            name: 'Moniker AI',
+            baseUrl: moniker.base_url,
+            apiKey: moniker.key,
+            redeemUrl: 'https://aimoniker.top',
+            currency: 'USD',
+            quotaRate: 500000,
+            cnyRate: 7.2,
+          })
+        }
+
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(JSON.stringify({ ok: true, presets }))
+      } catch (err) {
+        res.writeHead(500, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(JSON.stringify({ ok: false, error: err.message, presets: [] }))
+      }
+      return
+    }
+  }
+
   if (reqPath === '/api/map') {
     const dataDir = path.join(__dirname, 'data')
     const mapFile = path.join(dataDir, 'talk_map.json')

@@ -11,6 +11,7 @@ import {
   getRelayProviders,
   updateRelayProvider,
   fetchRelayQuota,
+  syncRelayPresets,
   aggregateBalances,
   formatBalance,
   type RelayProvider,
@@ -30,6 +31,46 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
   const reloadProviders = useCallback(() => {
     setProviders(getRelayProviders())
   }, [])
+
+  // Auto-sync presets on mount if no providers are present
+  useEffect(() => {
+    let mounted = true
+    const initPresets = async () => {
+      const initial = getRelayProviders()
+      if (initial.length === 0) {
+        const synced = await syncRelayPresets()
+        if (mounted && synced.length > 0) {
+          setProviders(synced)
+          for (const p of synced) {
+            fetchRelayQuota(p).then((res) => {
+              if (res.ok) {
+                updateRelayProvider(p.id, {
+                  balance: res.balance,
+                  totalQuota: res.totalQuota,
+                  usedQuota: res.usedQuota,
+                  isUnmetered: res.isUnmetered,
+                  note: res.note,
+                  status: 'ok',
+                  error: undefined,
+                  lastUpdated: Date.now(),
+                })
+              } else {
+                updateRelayProvider(p.id, {
+                  status: 'error',
+                  error: res.error || 'Fetch failed',
+                })
+              }
+              if (mounted) reloadProviders()
+            })
+          }
+        }
+      }
+    }
+    initPresets()
+    return () => {
+      mounted = false
+    }
+  }, [reloadProviders])
 
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
@@ -65,6 +106,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
           balance: res.balance,
           totalQuota: res.totalQuota,
           usedQuota: res.usedQuota,
+          isUnmetered: res.isUnmetered,
+          note: res.note,
           status: 'ok',
           error: undefined,
           lastUpdated: Date.now(),
@@ -105,6 +148,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
               balance: res.balance,
               totalQuota: res.totalQuota,
               usedQuota: res.usedQuota,
+              isUnmetered: res.isUnmetered,
+              note: res.note,
               status: 'ok',
               error: undefined,
               lastUpdated: Date.now(),
@@ -267,7 +312,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
                       </div>
 
                       <div className="text-xs font-mono font-semibold text-emerald-400 shrink-0">
-                        {formatBalance(p.balance, p.currency)}
+                        {p.isUnmetered ? (p.note || '正常') : formatBalance(p.balance, p.currency)}
                       </div>
                     </div>
 

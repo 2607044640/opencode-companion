@@ -18,6 +18,7 @@ import {
   deleteRelayProvider,
   fetchRelayQuota,
   formatBalance,
+  syncRelayPresets,
   type RelayProvider,
   DEFAULT_QUOTA_RATE,
   DEFAULT_CNY_RATE,
@@ -38,16 +39,23 @@ const PRESETS = [
   {
     label: 'TokenShop 站',
     name: 'TokenShop',
-    baseUrl: 'https://api.tokenshop.homes',
+    baseUrl: 'https://tokenshop.homes',
     redeemUrl: 'https://tokenshop.homes/redeem',
-    currency: 'CNY' as const,
+    currency: 'USD' as const,
+  },
+  {
+    label: 'NovAI (Once) 站',
+    name: 'NovAI (Once)',
+    baseUrl: 'https://once-cf.novai.su',
+    redeemUrl: 'https://once-cf.novai.su',
+    currency: 'USD' as const,
   },
   {
     label: '本地 New API 网关',
     name: 'Local New API',
     baseUrl: 'http://127.0.0.1:3000',
     redeemUrl: 'http://127.0.0.1:3000',
-    currency: 'CNY' as const,
+    currency: 'USD' as const,
   },
 ]
 
@@ -58,6 +66,7 @@ export const RelayHubSettings: React.FC = () => {
   const [showKey, setShowKey] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<{ id: string; ok: boolean; message: string } | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const [form, setForm] = useState<RelayFormData>({
     name: '',
@@ -177,6 +186,8 @@ export const RelayHubSettings: React.FC = () => {
           balance: res.balance,
           totalQuota: res.totalQuota,
           usedQuota: res.usedQuota,
+          isUnmetered: res.isUnmetered,
+          note: res.note,
           status: 'ok',
           error: undefined,
           lastUpdated: Date.now(),
@@ -184,7 +195,9 @@ export const RelayHubSettings: React.FC = () => {
         setTestResult({
           id: p.id,
           ok: true,
-          message: `连接成功！当前可用余额: ${formatBalance(res.balance, res.currency)}`,
+          message: res.isUnmetered
+            ? `连接成功！中转节点正常运行 (${res.note || '点卡直连'})`
+            : `连接成功！当前可用余额: ${formatBalance(res.balance, res.currency)}`,
         })
       } else {
         updateRelayProvider(p.id, {
@@ -214,6 +227,26 @@ export const RelayHubSettings: React.FC = () => {
     }
   }
 
+  const handleSyncPresets = async () => {
+    setIsSyncing(true)
+    setTestResult(null)
+    try {
+      const synced = await syncRelayPresets()
+      setProviders(synced)
+      for (const p of synced) {
+        handleTestProvider(p)
+      }
+    } catch (err) {
+      setTestResult({
+        id: 'sync',
+        ok: false,
+        message: `同步预设失败: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Header & Description */}
@@ -229,14 +262,26 @@ export const RelayHubSettings: React.FC = () => {
         </div>
 
         {!isEditing && (
-          <button
-            type="button"
-            onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-sm"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>添加中转站</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isSyncing}
+              onClick={handleSyncPresets}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1f2430] hover:bg-[#282f3f] border border-[#2d3445] text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+              title="从本地网关自动同步可用中转站"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+              <span>{isSyncing ? '同步中...' : '同步网关预设'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>添加中转站</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -501,7 +546,7 @@ export const RelayHubSettings: React.FC = () => {
                   <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end border-t md:border-t-0 pt-2 md:pt-0 border-[#1e222c]">
                     <div className="text-right">
                       <div className="text-sm font-mono font-bold text-emerald-400">
-                        {formatBalance(p.balance, p.currency)}
+                        {p.isUnmetered ? (p.note || '正常') : formatBalance(p.balance, p.currency)}
                       </div>
                       <div className="text-[10px] text-zinc-500">
                         {p.lastUpdated

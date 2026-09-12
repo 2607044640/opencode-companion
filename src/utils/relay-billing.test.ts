@@ -10,6 +10,7 @@ import {
   fetchRelayQuota,
   formatBalance,
   aggregateBalances,
+  syncRelayPresets,
   RELAY_PROVIDERS_STORAGE_KEY,
   type RelayProvider,
 } from './relay-billing'
@@ -169,6 +170,17 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       const empty = parseQuotaResponse({}, baseProvider)
       assert.equal(empty.balance, 0)
     })
+
+    it('parses model catalog probe response as unmetered live station', () => {
+      const modelsData = {
+        object: 'list',
+        data: [{ id: 'grok-4.5', object: 'model' }, { id: 'grok-4.6', object: 'model' }],
+      }
+      const res = parseQuotaResponse(modelsData, baseProvider)
+      assert.equal(res.balance, 0)
+      assert.equal(res.isUnmetered, true)
+      assert.equal(res.note, '可用 (点卡直连)')
+    })
   })
 
   describe('fetchRelayQuota Mock Tests', () => {
@@ -275,6 +287,92 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       ])
       assert.equal(statusCheck.hasError, true)
       assert.equal(statusCheck.isLoading, true)
+    })
+  })
+
+  describe('syncRelayPresets', () => {
+    it('populates empty storage with preset stations', async () => {
+      const storage = createMockStorage()
+      const mockFetch = (async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            presets: [
+              {
+                id: 'relay_tokenshop',
+                name: 'TokenShop',
+                baseUrl: 'https://tokenshop.homes',
+                apiKey: 'sk-token',
+                redeemUrl: 'https://tokenshop.homes/redeem',
+                currency: 'USD',
+              },
+              {
+                id: 'relay_novai',
+                name: 'NovAI (Once)',
+                baseUrl: 'https://once-cf.novai.su',
+                apiKey: 'sk-nova',
+                redeemUrl: 'https://once-cf.novai.su',
+                currency: 'USD',
+              },
+            ],
+          }),
+        } as unknown as Response
+      }) as typeof fetch
+
+      const res = await syncRelayPresets(storage, mockFetch)
+      assert.equal(res.length, 2)
+      assert.equal(res[0].id, 'relay_tokenshop')
+      assert.equal(res[1].id, 'relay_novai')
+      assert.equal(getRelayProviders(storage).length, 2)
+    })
+
+    it('merges presets into existing storage without duplicating', async () => {
+      const storage = createMockStorage()
+      addRelayProvider(
+        {
+          name: 'TokenShop',
+          baseUrl: 'https://tokenshop.homes',
+          apiKey: '',
+          currency: 'USD',
+        },
+        storage
+      )
+
+      const mockFetch = (async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            presets: [
+              {
+                id: 'relay_tokenshop',
+                name: 'TokenShop',
+                baseUrl: 'https://tokenshop.homes',
+                apiKey: 'sk-updated',
+                redeemUrl: 'https://tokenshop.homes/redeem',
+                currency: 'USD',
+              },
+              {
+                id: 'relay_novai',
+                name: 'NovAI',
+                baseUrl: 'https://once-cf.novai.su',
+                apiKey: 'sk-nova',
+                currency: 'USD',
+              },
+            ],
+          }),
+        } as unknown as Response
+      }) as typeof fetch
+
+      const res = await syncRelayPresets(storage, mockFetch)
+      assert.equal(res.length, 2)
+      // Existing TokenShop had empty key, updated with preset key
+      const ts = res.find((p) => p.name === 'TokenShop')
+      assert.equal(ts?.apiKey, 'sk-updated')
+      assert.equal(ts?.redeemUrl, 'https://tokenshop.homes/redeem')
     })
   })
 })

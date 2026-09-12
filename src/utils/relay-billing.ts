@@ -10,6 +10,8 @@ export interface RelayProvider {
   balance?: number // Computed currency balance
   totalQuota?: number // Raw quota/limit from upstream
   usedQuota?: number // Raw used quota from upstream
+  isUnmetered?: boolean // True if relay operates without token-level balance or uses direct catalog
+  note?: string // Status note (e.g. '可用 (点卡直连)')
   lastUpdated?: number // Timestamp ms of last successful fetch
   status?: 'ok' | 'error' | 'loading'
   error?: string
@@ -20,6 +22,8 @@ export interface RelayQuotaResult {
   balance: number
   totalQuota?: number
   usedQuota?: number
+  isUnmetered?: boolean
+  note?: string
   currency: 'USD' | 'CNY'
   error?: string
   raw?: unknown
@@ -120,7 +124,7 @@ export function deleteRelayProvider(id: string, storage?: Storage): RelayProvide
 export function parseQuotaResponse(
   data: unknown,
   provider: RelayProvider
-): { balance: number; totalQuota?: number; usedQuota?: number } {
+): { balance: number; totalQuota?: number; usedQuota?: number; isUnmetered?: boolean; note?: string } {
   const quotaRate = provider.quotaRate && provider.quotaRate > 0 ? provider.quotaRate : DEFAULT_QUOTA_RATE
   const cnyRate = provider.cnyRate && provider.cnyRate > 0 ? provider.cnyRate : DEFAULT_CNY_RATE
 
@@ -179,6 +183,15 @@ export function parseQuotaResponse(
         balance: Math.max(0, Number(bal.toFixed(2))),
       }
     }
+
+    // 5. Model catalog probe response: { object: 'list', data: [...] } -> Key verified & active
+    if (record.object === 'list' && Array.isArray(record.data)) {
+      return {
+        balance: 0,
+        isUnmetered: true,
+        note: '可用 (点卡直连)',
+      }
+    }
   }
 
   return { balance: 0 }
@@ -203,12 +216,13 @@ export async function fetchRelayQuota(
 
   // Determine potential probe URLs
   const urls: string[] = []
-  if (base.includes('/billing') || base.includes('/subscription') || base.includes('/user/self')) {
+  if (base.includes('/billing') || base.includes('/subscription') || base.includes('/user/self') || base.includes('/models')) {
     urls.push(base)
   } else {
     urls.push(`${base}/v1/dashboard/billing/subscription`)
     urls.push(`${base}/dashboard/billing/subscription`)
     urls.push(`${base}/api/user/self`)
+    urls.push(`${base}/v1/models`)
   }
 
   let lastError = 'Failed to fetch quota from provider'
@@ -249,6 +263,8 @@ export async function fetchRelayQuota(
           balance: parsed.balance,
           totalQuota: parsed.totalQuota,
           usedQuota: parsed.usedQuota,
+          isUnmetered: parsed.isUnmetered,
+          note: parsed.note,
           currency: provider.currency,
           raw: json,
         }
@@ -265,6 +281,61 @@ export async function fetchRelayQuota(
     balance: 0,
     currency: provider.currency,
     error: lastError,
+  }
+}
+
+/**
+ * Synchronizes relay presets from local Companion server (/api/relays/presets).
+ */
+export async function syncRelayPresets(
+  storage?: Storage,
+  fetchImpl: typeof fetch = fetch
+): Promise<RelayProvider[]> {
+  try {
+    const resp = await fetchImpl('/api/relays/presets', {
+      method: 'GET',
+      signal: AbortSignal.timeout(6000),
+    })
+    if (!resp.ok) return getRelayProviders(storage)
+    const json = (await resp.json()) as { ok?: boolean; presets?: RelayProvider[] }
+    if (!json || !Array.isArray(json.presets) || json.presets.length === 0) {
+      return getRelayProviders(storage)
+    }
+
+    const current = getRelayProviders(storage)
+    let modified = false
+
+    for (const preset of json.presets) {
+      const pBase = (preset.baseUrl || '').trim().replace(/\/+$/, '')
+      const existingIndex = current.findIndex(
+        (p) => p.id === preset.id || (p.baseUrl && p.baseUrl.trim().replace(/\/+$/, '') === pBase)
+      )
+
+      if (existingIndex === -1) {
+        current.push({
+          ...preset,
+          quotaRate: preset.quotaRate ?? DEFAULT_QUOTA_RATE,
+          cnyRate: preset.cnyRate ?? DEFAULT_CNY_RATE,
+        })
+        modified = true
+      } else {
+        if (preset.apiKey && !current[existingIndex].apiKey) {
+          current[existingIndex].apiKey = preset.apiKey
+          modified = true
+        }
+        if (preset.redeemUrl && !current[existingIndex].redeemUrl) {
+          current[existingIndex].redeemUrl = preset.redeemUrl
+          modified = true
+        }
+      }
+    }
+
+    if (modified || current.length === 0) {
+      saveRelayProviders(current, storage)
+    }
+    return current
+  } catch {
+    return getRelayProviders(storage)
   }
 }
 
@@ -315,10 +386,10 @@ export function aggregateBalances(providers: RelayProvider[]): BalanceSummary {
     const val = typeof p.balance === 'number' && !isNaN(p.balance) ? p.balance : 0
     if (p.currency === 'USD') {
       totalUsd += val
-      hasUsd = true
+      if (val > 0) hasUsd = true
     } else {
       totalCny += val
-      hasCny = true
+      if (val > 0) hasCny = true
     }
   }
 
@@ -330,7 +401,8 @@ export function aggregateBalances(providers: RelayProvider[]): BalanceSummary {
   } else if (hasCny) {
     totalFormatted = `¥${totalCny.toFixed(2)}`
   } else {
-    totalFormatted = '¥0.00'
+    const hasActive = providers.some((p) => p.status === 'ok')
+    totalFormatted = hasActive ? '服务正常' : '¥0.00'
   }
 
   return {
