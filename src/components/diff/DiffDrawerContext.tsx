@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { DiffHunk } from '../../utils/tool-diff'
 import { parseUnifiedHunks } from '../../utils/tool-diff'
+import type { EditItem } from '../../utils/worked-summary'
 
 export interface DiffDrawerPayload {
   messageId: string
@@ -72,4 +73,20 @@ export function useDiffDrawer(): DiffDrawerContextType {
     throw new Error('useDiffDrawer must be used within a DiffDrawerProvider')
   }
   return ctx
+}
+
+export function editItemToDiffPayload(item: EditItem, messageId?: string): DiffDrawerPayload {
+  return {
+    messageId: messageId || item.rawPart.messageID,
+    partId: item.partId,
+    filePath: item.filePath,
+    fileName: item.fileName,
+    status: item.status,
+    additions: item.additions,
+    deletions: item.deletions,
+    unified: item.unified,
+    tool: item.tool,
+    rawInput: item.rawPart.state?.input,
+    rawOutput: item.rawPart.state?.output,
+  }
 }
