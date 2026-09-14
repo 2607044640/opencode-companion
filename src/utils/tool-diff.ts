@@ -12,6 +12,33 @@ export interface DiffHunk {
   lines: DiffLineItem[]
 }
 
+function isUnifiedDiffPreamble(line: string): boolean {
+  return (
+    line.startsWith('diff --git') ||
+    line.startsWith('index ') ||
+    line.startsWith('Index:') ||
+    line.startsWith('===') ||
+    line.startsWith('---') ||
+    line.startsWith('+++') ||
+    line.startsWith('new file mode') ||
+    line.startsWith('deleted file mode') ||
+    line.startsWith('old mode') ||
+    line.startsWith('new mode') ||
+    line.startsWith('similarity index') ||
+    line.startsWith('rename from') ||
+    line.startsWith('rename to') ||
+    line.startsWith('copy from') ||
+    line.startsWith('copy to')
+  )
+}
+
+function isBareDiffMarker(line: string): boolean {
+  return (
+    (line.startsWith('+') && !line.startsWith('+++')) ||
+    (line.startsWith('-') && !line.startsWith('---'))
+  )
+}
+
 /**
  * Parses unified diff text into structured hunks with accurate line numbers
  */
@@ -25,10 +52,6 @@ export function parseUnifiedHunks(unified: string): DiffHunk[] {
   let newCounter = 0
 
   for (const line of rawLines) {
-    if (line.startsWith('---') || line.startsWith('+++')) {
-      continue
-    }
-
     if (line.startsWith('@@')) {
       if (currentHunk) {
         hunks.push(currentHunk)
@@ -48,7 +71,13 @@ export function parseUnifiedHunks(unified: string): DiffHunk[] {
     }
 
     if (!currentHunk) {
-      // If content appears before first hunk header, create an implicit hunk
+      // Preamble (Index:/===/diff --git) must not become a fake @@ -1 +1 @@ hunk.
+      if (isUnifiedDiffPreamble(line) || line.trim() === '') {
+        continue
+      }
+      if (!isBareDiffMarker(line)) {
+        continue
+      }
       currentHunk = {
         header: '@@ -1 +1 @@',
         oldStart: 1,
@@ -57,6 +86,10 @@ export function parseUnifiedHunks(unified: string): DiffHunk[] {
       }
       oldCounter = 1
       newCounter = 1
+    }
+
+    if (line.startsWith('---') || line.startsWith('+++')) {
+      continue
     }
 
     if (line.startsWith('+')) {

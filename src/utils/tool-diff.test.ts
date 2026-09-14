@@ -71,4 +71,58 @@ describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
     assert.equal(counts.additions, 2)
     assert.equal(counts.deletions, 0)
   })
+
+  test('parseUnifiedHunks skips Index/===/---/+++ preamble before first @@ hunk', () => {
+    const diff = [
+      'Index: /home/developer/projects/APISpace/src/utils/tool-diff.ts',
+      '===================================================================',
+      '--- /home/developer/projects/APISpace/src/utils/tool-diff.ts',
+      '+++ /home/developer/projects/APISpace/src/utils/tool-diff.ts',
+      '@@ -168,3 +168,3 @@ export function parseUnifiedHunks',
+      ' const a = 1',
+      '-const b = 2',
+      '+const b = 20',
+    ].join('\n')
+
+    const hunks = parseUnifiedHunks(diff)
+    assert.equal(hunks.length, 1)
+    const h = hunks[0]
+    assert.equal(h.oldStart, 168)
+    assert.equal(h.newStart, 168)
+    assert.equal(h.lines.length, 3)
+    assert.equal(h.lines[0].kind, 'ctx')
+    assert.equal(h.lines[0].text, 'const a = 1')
+    assert.equal(h.lines[0].oldNo, 168)
+    assert.equal(
+      hunks.some((hunk) => hunk.lines.some((line) => line.text.includes('Index:'))),
+      false
+    )
+    assert.equal(
+      hunks.some((hunk) => hunk.lines.some((line) => line.text.includes('===='))),
+      false
+    )
+  })
+
+  test('parseUnifiedHunks skips diff --git / index SHA preamble', () => {
+    const diff = [
+      'diff --git a/src/foo.ts b/src/foo.ts',
+      'index abcdef0..1234567 100644',
+      '--- a/src/foo.ts',
+      '+++ b/src/foo.ts',
+      '@@ -1,2 +1,2 @@',
+      '-old',
+      '+new',
+    ].join('\n')
+
+    const hunks = parseUnifiedHunks(diff)
+    assert.equal(hunks.length, 1)
+    assert.equal(hunks[0].oldStart, 1)
+    assert.equal(hunks[0].lines.length, 2)
+    assert.equal(hunks[0].lines[0].kind, 'del')
+    assert.equal(hunks[0].lines[0].text, 'old')
+    assert.equal(
+      hunks.some((hunk) => hunk.lines.some((line) => line.text.startsWith('diff --git'))),
+      false
+    )
+  })
 })
