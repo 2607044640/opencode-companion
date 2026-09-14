@@ -1,6 +1,8 @@
+import { ChevronRight } from 'lucide-react'
 import { FileTypeIcon } from '../common/FileTypeIcon'
 import type { EditItem } from '../../utils/worked-summary'
-import { useDiffDrawer } from '../diff/DiffDrawerContext'
+import { useDiffDrawer, editItemToDiffPayload } from '../diff/DiffDrawerContext'
+import { tr } from '../../utils/i18n'
 
 interface EditRowProps {
   item: EditItem
@@ -11,19 +13,7 @@ export function EditRow({ item, messageId }: EditRowProps) {
   const { open } = useDiffDrawer()
 
   const handleClick = () => {
-    open({
-      messageId: messageId || item.rawPart.messageID,
-      partId: item.partId,
-      filePath: item.filePath,
-      fileName: item.fileName,
-      status: item.status,
-      additions: item.additions,
-      deletions: item.deletions,
-      unified: item.unified,
-      tool: item.tool,
-      rawInput: item.rawPart.state?.input,
-      rawOutput: item.rawPart.state?.output,
-    })
+    open(editItemToDiffPayload(item, messageId))
   }
 
   return (
@@ -31,7 +21,11 @@ export function EditRow({ item, messageId }: EditRowProps) {
       onClick={handleClick}
       type="button"
       className="w-full flex items-center justify-between px-2.5 py-1.5 rounded bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800/50 text-left transition-all group select-none cursor-pointer"
-      title={`点击查看差异: ${item.filePath}`}
+      title={tr(
+        `点击查看差异: ${item.filePath}`,
+        `Click to open diff viewer: ${item.filePath}`,
+        `Klicken, um Diff-Viewer zu öffnen: ${item.filePath}`
+      )}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
         <FileTypeIcon filename={item.fileName} className="w-3.5 h-3.5 shrink-0" />
@@ -61,6 +55,7 @@ export function EditRow({ item, messageId }: EditRowProps) {
             new
           </span>
         )}
+        <ChevronRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 transition-colors shrink-0" />
       </div>
     </button>
   )
