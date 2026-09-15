@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X,
   CornerDownLeft,
@@ -14,6 +14,7 @@ import {
 import { useI18n } from '../../utils/i18n'
 import { FileTypeIcon } from '../common/FileTypeIcon'
 import type { RevertMode } from '../../hooks/useChatStream'
+import { classifyRevertBadge } from '../../utils/revert-engine'
 
 export interface ConfirmUndoFileDiff {
   file: string
@@ -31,6 +32,7 @@ export interface ConfirmUndoModalProps {
   files: ConfirmUndoFileDiff[]
   loading?: boolean
   isReverting?: boolean
+  error?: string | null
 }
 
 interface ModeOption {
@@ -49,10 +51,15 @@ export function ConfirmUndoModal({
   files,
   loading = false,
   isReverting = false,
+  error = null,
 }: ConfirmUndoModalProps) {
   const { t } = useI18n()
   const modalRef = useRef<HTMLDivElement>(null)
   const [selectedModeIndex, setSelectedModeIndex] = useState<number>(0)
+  const [isPending, setIsPending] = useState(false)
+  const pendingRef = useRef(false)
+  const wasReverting = useRef(false)
+  const busy = isReverting || isPending
 
   const modes: ModeOption[] = [
     {
@@ -91,8 +98,32 @@ export function ConfirmUndoModal({
   useEffect(() => {
     if (isOpen) {
       setSelectedModeIndex(0)
+      setIsPending(false)
+      pendingRef.current = false
     }
   }, [isOpen])
+
+  useEffect(() => {
+    if (wasReverting.current && !isReverting) {
+      setIsPending(false)
+      pendingRef.current = false
+    }
+    wasReverting.current = isReverting
+  }, [isReverting])
+
+  useEffect(() => {
+    if (error) {
+      setIsPending(false)
+      pendingRef.current = false
+    }
+  }, [error])
+
+  const submit = useCallback((mode: RevertMode) => {
+    if (isReverting || pendingRef.current) return
+    pendingRef.current = true
+    setIsPending(true)
+    onConfirm(mode)
+  }, [isReverting, onConfirm])
 
   // Keyboard navigation: ArrowUp/Down cycle modes, Enter confirms, Escape closes
   useEffect(() => {
@@ -106,7 +137,7 @@ export function ConfirmUndoModal({
         e.preventDefault()
         e.stopPropagation()
         e.stopImmediatePropagation()
-        onClose()
+        if (!busy) onClose()
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
         e.stopPropagation()
@@ -121,15 +152,13 @@ export function ConfirmUndoModal({
         e.preventDefault()
         e.stopPropagation()
         e.stopImmediatePropagation()
-        if (!isReverting) {
-          onConfirm(currentMode.id)
-        }
+        submit(currentMode.id)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [isOpen, isReverting, currentMode.id, modes.length, onConfirm, onClose])
+  }, [isOpen, busy, currentMode.id, modes.length, submit, onClose])
 
   if (!isOpen) return null
 
@@ -140,7 +169,7 @@ export function ConfirmUndoModal({
       data-modal="confirm-undo"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-[2px] p-4 animate-in fade-in duration-150"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isReverting) {
+        if (e.target === e.currentTarget && !busy) {
           onClose()
         }
       }}
@@ -163,7 +192,7 @@ export function ConfirmUndoModal({
           </div>
           <button
             onClick={onClose}
-            disabled={isReverting}
+            disabled={busy}
             className="text-zinc-400 hover:text-zinc-200 p-1 rounded-md transition-colors hover:bg-zinc-800/60 disabled:opacity-40"
             title={t.common.cancel}
           >
@@ -241,13 +270,7 @@ export function ConfirmUndoModal({
                     </div>
                   ) : (
                     files.map((item, idx) => {
-                      const isDelete =
-                        item.status === 'added' ||
-                        (item.additions === 0 && item.deletions === 0 && item.status !== 'modified')
-                      const isModify =
-                        item.status === 'modified' ||
-                        (!isDelete && (item.additions > 0 || item.deletions > 0))
-
+                      const badge = classifyRevertBadge(item)
                       return (
                         <div
                           key={idx}
@@ -264,14 +287,14 @@ export function ConfirmUndoModal({
                           </div>
 
                           <div className="shrink-0 flex items-center text-xs font-mono font-medium">
-                            {isDelete ? (
+                            {badge === 'delete' ? (
                               <span className="text-rose-400">Delete</span>
-                            ) : isModify ? (
+                            ) : badge === 'modify' ? (
                               <span className="flex items-center gap-1.5">
                                 <span className="text-emerald-400">+{item.additions}</span>
                                 <span className="text-rose-400">-{item.deletions}</span>
                               </span>
-                            ) : item.status === 'deleted' ? (
+                            ) : badge === 'restore' ? (
                               <span className="text-emerald-400">Restore</span>
                             ) : (
                               <span className="text-zinc-500">Updated</span>
@@ -292,6 +315,12 @@ export function ConfirmUndoModal({
           </div>
         </div>
 
+        {error ? (
+          <div className="px-5 py-2 text-[11px] text-rose-300 border-t border-rose-900/40 bg-rose-950/40">
+            {error}
+          </div>
+        ) : null}
+
         {/* Footer */}
         <div className="px-5 py-3 flex items-center justify-between border-t border-zinc-800/60 bg-[#121319]/80">
           <div className="text-[11px] text-zinc-500 hidden sm:block">
@@ -301,18 +330,18 @@ export function ConfirmUndoModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={isReverting}
+              disabled={busy}
               className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors rounded-md hover:bg-zinc-800/50 disabled:opacity-40"
             >
               {t.common.cancel}
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(currentMode.id)}
-              disabled={isReverting}
+              onClick={() => submit(currentMode.id)}
+              disabled={busy}
               className="px-4 py-1.5 text-xs font-medium text-white bg-[#5b68ff] hover:bg-[#4d5af0] active:bg-[#434fc9] disabled:opacity-50 rounded-lg flex items-center gap-1.5 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/40"
             >
-              {isReverting ? (
+              {busy ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>{t.chat.reverting}</span>

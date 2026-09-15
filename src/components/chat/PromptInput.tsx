@@ -13,12 +13,13 @@ import {
   Sliders,
   FileUp,
 } from 'lucide-react'
-import type { AgentInfo, ProviderInfo, Session, CommandItem, Project } from '../../types/opencode'
+import type { AgentInfo, ProviderInfo, Session, CommandItem, Project, TodoItem } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
 import { api } from '../../services/api'
 import { PromptPopover, type PopoverItem } from './PromptPopover'
 import { ProjectDropdown } from './ProjectDropdown'
-import { getShortcuts, matchesShortcut, type ShortcutsMap } from '../../utils/shortcuts'
+import { TodoButton } from './TodoButton'
+import { getShortcuts, matchesShortcut, isIMEActive, type ShortcutsMap } from '../../utils/shortcuts'
 import { isCuratedModel, isModelVisible } from '../../utils/model-filter'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n } from '../../utils/i18n'
@@ -52,6 +53,7 @@ interface PromptInputProps {
   onSelectProject?: (projectId: string | null) => void
   onNewProject?: (name: string, path: string) => Promise<void> | void
   sessions?: Session[]
+  todos?: TodoItem[]
 }
 
 export function PromptInput({
@@ -67,6 +69,7 @@ export function PromptInput({
   onSelectProject,
   onNewProject,
   sessions,
+  todos,
 }: PromptInputProps) {
   const { prefs } = usePreferences()
   const { t, lang } = useI18n()
@@ -93,6 +96,19 @@ export function PromptInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const containerBoxRef = useRef<HTMLDivElement>(null)
+
+  // Chinese IME Shield: composition listeners and state detection
+  const isComposingRef = useRef(false)
+  const lastCompositionEndTimeRef = useRef(0)
+
+  const handleCompositionStart = () => {
+    isComposingRef.current = true
+  }
+
+  const handleCompositionEnd = () => {
+    isComposingRef.current = false
+    lastCompositionEndTimeRef.current = Date.now()
+  }
 
   // Configurable shortcuts from localStorage
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
@@ -594,6 +610,11 @@ export function PromptInput({
 
   // Keyboard navigation for popover & enter submission
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Chinese IME Shield: completely bypass shortcut evaluation & submission during IME composition or candidate confirmation cooldown
+    if (isIMEActive(e, isComposingRef.current, lastCompositionEndTimeRef.current, 60)) {
+      return
+    }
+
     if (popoverOpen && popoverItems.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -660,23 +681,32 @@ export function PromptInput({
       className={
         isZenMode
           ? 'w-full select-none opacity-40 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl'
-          : 'max-w-4xl mx-auto w-full px-4 pb-4 select-none'
+          : `mx-auto w-full px-4 sm:px-6 lg:px-8 pb-4 select-none ${
+              prefs.conversationWidth === 'narrow'
+                ? 'max-w-2xl'
+                : prefs.conversationWidth === 'wide'
+                ? 'max-w-6xl'
+                : 'max-w-4xl xl:max-w-5xl'
+            }`
       }
     >
       {/* Project Selector Pill directly above prompt input (Image 2) */}
       {!isZenMode && (
-        <div className="flex items-center justify-between mb-1.5 px-1">
-          <ProjectDropdown
-            projects={projects || []}
-            selectedProjectId={selectedProjectId || null}
-            sessions={sessions || []}
-            onSelectProject={onSelectProject || (() => {})}
-            onNewProject={onNewProject}
-            onQuickStart={() => {
-              setText('快速分析当前代码库与架构')
-              textareaRef.current?.focus()
-            }}
-          />
+        <div className="flex items-center justify-between mb-1.5 px-0">
+          <div className="flex items-center gap-1.5">
+            <ProjectDropdown
+              projects={projects || []}
+              selectedProjectId={selectedProjectId || null}
+              sessions={sessions || []}
+              onSelectProject={onSelectProject || (() => {})}
+              onNewProject={onNewProject}
+              onQuickStart={() => {
+                setText('快速分析当前代码库与架构')
+                textareaRef.current?.focus()
+              }}
+            />
+            {todos && todos.length > 0 && <TodoButton todos={todos} />}
+          </div>
         </div>
       )}
 
@@ -752,6 +782,8 @@ export function PromptInput({
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
           onPaste={handlePaste}
           placeholder={isZenMode ? '沉浸阅读中... 输入消息按 Enter 发送' : placeholder}
           className="w-full bg-transparent text-sm text-zinc-100 placeholder-zinc-500 px-4 pt-3.5 pb-2 resize-none focus:outline-none leading-relaxed font-sans max-h-48"

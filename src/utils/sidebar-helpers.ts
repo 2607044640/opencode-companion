@@ -75,3 +75,45 @@ export function formatCompactTime(timestamp?: number, now: number = Date.now()):
   const years = Math.floor(days / 365)
   return `${years}y`
 }
+
+/**
+ * Progressive disclosure / pagination configuration for sidebar folders.
+ * Default shows 7 sessions, expanding by 5 on each "See more" click.
+ */
+export const DEFAULT_FOLDER_LIMIT = 7
+export const FOLDER_PAGE_STEP = 5
+
+export interface FolderPaginationResult<T> {
+  visibleItems: T[]
+  hasMore: boolean
+  remaining: number
+  nextStep: number
+}
+
+/**
+ * Returns the sliced visible items and pagination metadata for a folder list.
+ */
+export function getVisibleSessions<T>(
+  items: T[],
+  limit: number = DEFAULT_FOLDER_LIMIT
+): FolderPaginationResult<T> {
+  const safeLimit = Math.max(1, limit)
+  const visibleItems = items.slice(0, safeLimit)
+  const remaining = Math.max(0, items.length - safeLimit)
+  return {
+    visibleItems,
+    hasMore: remaining > 0,
+    remaining,
+    nextStep: Math.min(FOLDER_PAGE_STEP, remaining),
+  }
+}
+
+/**
+ * Calculates the next limit after clicking "See more" (+5).
+ */
+export function calculateNextLimit(
+  currentLimit: number = DEFAULT_FOLDER_LIMIT,
+  step: number = FOLDER_PAGE_STEP
+): number {
+  return Math.max(1, currentLimit) + step
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   PanelLeftClose,
+  PanelLeftOpen,
   ArrowLeft,
   ArrowRight,
   History,
@@ -23,6 +24,7 @@ import {
   SlidersHorizontal,
   Archive,
   ArchiveRestore,
+  GripVertical,
 } from 'lucide-react'
 import type { Project, Session } from '../../types/opencode'
 import type { SessionGroup } from '../../hooks/useSessions'
@@ -32,6 +34,7 @@ import {
   getPinnedSessionIds,
   togglePinSessionId,
   isSessionPinned,
+  reorderPinnedSessionIds,
 } from '../../utils/pinning'
 import {
   getArchivedSessionIds,
@@ -43,15 +46,21 @@ import {
 import {
   doesSessionBelongToProject,
   formatCompactTime,
+  DEFAULT_FOLDER_LIMIT,
+  getVisibleSessions,
+  calculateNextLimit,
 } from '../../utils/sidebar-helpers'
+import { isSessionUnread } from '../../utils/session-unread'
 
 interface SidebarProps {
+  isOpen?: boolean
   projects: Project[]
   selectedProjectId: string | null
   onSelectProject: (id: string | null) => void
   groupedSessions: SessionGroup[]
   sessions?: Session[]
   activeSessionId: string | null
+  unreadSessionIds?: string[]
   onSelectSession: (id: string) => void
   onNewSession: (directory?: string) => void
   onDeleteSession: (id: string) => void
@@ -80,11 +89,13 @@ function getProjectDisplayName(proj?: Project | null): string {
 }
 
 export function Sidebar({
+  isOpen = true,
   projects,
   selectedProjectId,
   onSelectProject,
   sessions = [],
   activeSessionId,
+  unreadSessionIds,
   onSelectSession,
   onNewSession,
   onDeleteSession,
@@ -138,9 +149,24 @@ export function Sidebar({
     return initial
   })
 
+  // Progressive disclosure limits for folder sessions (default 7, +5 on each "See more")
+  const [folderLimits, setFolderLimits] = useState<Record<string, number>>({})
+
+  const handleSeeMore = (folderKey: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    setFolderLimits((prev) => ({
+      ...prev,
+      [folderKey]: calculateNextLimit(prev[folderKey] ?? DEFAULT_FOLDER_LIMIT),
+    }))
+  }
+
   // Renaming state
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+
+  // Drag-and-drop state for pinned sessions reordering
+  const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null)
+  const [dragOverSessionId, setDragOverSessionId] = useState<string | null>(null)
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
@@ -282,8 +308,61 @@ export function Sidebar({
     return 'APISpace'
   }
 
+  if (isOpen === false) {
+    return (
+      <aside className="w-12 h-full flex flex-col items-center py-2.5 shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none justify-between">
+        {/* Top: Expand Sidebar Icon + Quick Actions */}
+        <div className="flex flex-col items-center gap-2">
+          {/* Toggle Sidebar [|] */}
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+            title={isZh ? '展开侧边栏 (Ctrl+B)' : 'Show Sidebar (Ctrl+B)'}
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </button>
+
+          <div className="w-6 border-t border-[#21242b] my-0.5" />
+
+          {/* New Session (+) */}
+          <button
+            type="button"
+            onClick={() => onNewSession()}
+            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+            title={isZh ? '新会话' : 'New Session'}
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+
+          {/* Search (Ctrl+K) */}
+          <button
+            type="button"
+            onClick={onOpenSearch}
+            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+            title={isZh ? '全局搜索 (Ctrl+K)' : 'Search Sessions (Ctrl+K)'}
+          >
+            <Search className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Bottom: Settings */}
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+            title={isZh ? '设置' : 'Settings'}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </aside>
+    )
+  }
+
   return (
-    <aside className="w-72 h-full flex flex-col shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none">
+    <aside className="w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none">
       {/* 1. Top Action Buttons Bar (图4功能 - 并列一行，纯图标，带悬浮说明) */}
       <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#21242b] bg-[#111317]">
         {/* Left: Sidebar Toggle, Back, Forward */}
@@ -443,17 +522,56 @@ export function Sidebar({
                 const isActive = activeSessionId === session.id
                 const projectName = getSessionProjectName(session)
                 const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
+                const isDragging = draggingSessionId === session.id
+                const isDragOver = dragOverSessionId === session.id && !isDragging
+                const safeTitle = (session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session')
 
                 return (
                   <div
                     key={`pinned-${session.id}`}
+                    draggable={editingSessionId !== session.id}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('application/x-opencode-pinned-id', session.id)
+                      e.dataTransfer.effectAllowed = 'move'
+                      setDraggingSessionId(session.id)
+                    }}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes('application/x-opencode-pinned-id')) {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                        if (dragOverSessionId !== session.id) {
+                          setDragOverSessionId(session.id)
+                        }
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverSessionId === session.id) {
+                        setDragOverSessionId(null)
+                      }
+                    }}
+                    onDrop={(e) => {
+                      if (e.dataTransfer.types.includes('application/x-opencode-pinned-id')) {
+                        e.preventDefault()
+                        const sourceId = e.dataTransfer.getData('application/x-opencode-pinned-id')
+                        if (sourceId && sourceId !== session.id) {
+                          const nextIds = reorderPinnedSessionIds(sourceId, session.id)
+                          setPinnedIds(nextIds)
+                        }
+                        setDraggingSessionId(null)
+                        setDragOverSessionId(null)
+                      }
+                    }}
+                    onDragEnd={() => {
+                      setDraggingSessionId(null)
+                      setDragOverSessionId(null)
+                    }}
                     onClick={() => onSelectSession(session.id)}
                     onContextMenu={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
                       setContextMenu({
                         sessionId: session.id,
-                        title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                        title: safeTitle,
                         x: e.clientX,
                         y: e.clientY,
                       })
@@ -462,14 +580,28 @@ export function Sidebar({
                       isActive
                         ? 'bg-[#1c212a] text-[#f0f6fc] border border-orange-500/40 shadow-sm'
                         : 'text-[#c9d1d9] hover:bg-[#161920] hover:text-white border border-transparent'
+                    } ${isDragging ? 'opacity-40 border-dashed border-orange-500/60' : ''} ${
+                      isDragOver ? 'ring-2 ring-orange-500/80 bg-orange-950/20 border-orange-500/60' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1">
-                      <span className="truncate flex-1 font-medium text-left" title={session.title}>
-                        {session.title || (isZh ? '新建会话' : 'New session')}
-                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span title={isZh ? '拖拽调整置顶顺序' : 'Drag to reorder'} className="shrink-0 flex items-center">
+                          <GripVertical
+                            className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+                          />
+                        </span>
+                        <span className="truncate flex-1 font-medium text-left" title={safeTitle}>
+                          {safeTitle}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {isActive ? (
+                        {isSessionUnread(session.id, unreadSessionIds || []) ? (
+                          <span
+                            className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] ring-1 ring-blue-400/50 shrink-0 animate-pulse"
+                            title={isZh ? '新消息未读' : 'Unread'}
+                          />
+                        ) : isActive ? (
                           <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
                         ) : (
                           <span className="text-[10px] text-zinc-500 font-mono">{timeLabel}</span>
@@ -556,6 +688,12 @@ export function Sidebar({
                       )}
                       <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                       <span className="truncate">{projName}</span>
+                      {projSessions.some((s) => isSessionUnread(s.id, unreadSessionIds || [])) && (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6] shrink-0"
+                          title={isZh ? '包含未读会话' : 'Contains unread session'}
+                        />
+                      )}
                     </div>
 
                     {/* Right Hover Actions on Project Header */}
@@ -585,8 +723,17 @@ export function Sidebar({
                           {isZh ? '暂无会话' : 'No sessions'}
                         </div>
                       ) : (
-                        projSessions.map((session) => {
-                          const isActive = activeSessionId === session.id
+                        (() => {
+                          const currentLimit = folderLimits[proj.id] ?? DEFAULT_FOLDER_LIMIT
+                          const { visibleItems, hasMore, remaining, nextStep } = getVisibleSessions(
+                            projSessions,
+                            currentLimit
+                          )
+
+                          return (
+                            <>
+                              {visibleItems.map((session) => {
+                                const isActive = activeSessionId === session.id
                           const isPinned = isSessionPinned(session.id, pinnedIds)
                           const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
                           const isEditing = editingSessionId === session.id
@@ -607,7 +754,7 @@ export function Sidebar({
                                 e.stopPropagation()
                                 setContextMenu({
                                   sessionId: session.id,
-                                  title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                                  title: (session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session'),
                                   x: e.clientX,
                                   y: e.clientY,
                                 })
@@ -618,9 +765,14 @@ export function Sidebar({
                                   : 'text-[#8b949e] hover:bg-[#15181e] hover:text-[#c9d1d9] border border-transparent'
                               }`}
                             >
-                              {/* Left: Active Indicator / Title */}
+                              {/* Left: Active Indicator / Unread Indicator / Title */}
                               <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                {isActive ? (
+                                {isSessionUnread(session.id, unreadSessionIds || []) ? (
+                                  <span
+                                    className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] ring-1 ring-blue-400/50 shrink-0 animate-pulse"
+                                    title={isZh ? '新消息未读' : 'Unread'}
+                                  />
+                                ) : isActive ? (
                                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 animate-pulse" />
                                 ) : (
                                   <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -652,9 +804,9 @@ export function Sidebar({
                                 ) : (
                                   <span
                                     className="truncate text-left"
-                                    title={session.title || (isZh ? '未命名会话' : 'Untitled session')}
+                                    title={(session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session')}
                                   >
-                                    {session.title || (isZh ? '新建会话' : 'New session')}
+                                    {(session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session')}
                                   </span>
                                 )}
                               </div>
@@ -710,8 +862,36 @@ export function Sidebar({
                               </div>
                             </div>
                           )
-                        })
-                      )}
+                        })}
+
+                        {/* See more button at the very bottom (default 7, +5 per click) */}
+                        {hasMore && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleSeeMore(proj.id, e)}
+                            className="w-full flex items-center justify-between px-2.5 py-1.5 mt-1 rounded text-[11px] font-medium text-zinc-400 hover:text-zinc-200 bg-[#161922]/60 hover:bg-[#1f2430] border border-zinc-800/50 hover:border-zinc-700/80 transition-all cursor-pointer group"
+                            title={
+                              isZh
+                                ? `点击展开更多会话 (加载 +${nextStep} 个，还剩 ${remaining} 个)`
+                                : `Click to see more sessions (+${nextStep}, ${remaining} left)`
+                            }
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <ChevronDown className="w-3 h-3 text-zinc-500 group-hover:text-zinc-300 transition-transform group-hover:translate-y-0.5" />
+                              <span>{isZh ? '查看更多 (See more)' : 'See more'}</span>
+                              <span className="text-[10px] text-zinc-500 font-mono">
+                                (+{nextStep})
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500 font-mono group-hover:text-zinc-400">
+                              {remaining} {isZh ? '个未显示' : 'left'}
+                            </span>
+                          </button>
+                        )}
+                      </>
+                    )
+                  })()
+                )}
                     </div>
                   )}
                 </div>
@@ -743,8 +923,17 @@ export function Sidebar({
 
             {expandedProjects._archived && (
               <div className="pl-5 pr-1 py-1 space-y-1 border-l border-amber-900/40 ml-3.5 mt-0.5">
-                {archivedSessions.map((session) => {
-                  const isActive = activeSessionId === session.id
+                {(() => {
+                  const currentLimit = folderLimits['_archived'] ?? DEFAULT_FOLDER_LIMIT
+                  const { visibleItems, hasMore, remaining, nextStep } = getVisibleSessions(
+                    archivedSessions,
+                    currentLimit
+                  )
+
+                  return (
+                    <>
+                      {visibleItems.map((session) => {
+                        const isActive = activeSessionId === session.id
                   const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
 
                   return (
@@ -756,7 +945,7 @@ export function Sidebar({
                         e.stopPropagation()
                         setContextMenu({
                           sessionId: session.id,
-                          title: session.title || (isZh ? '未命名会话' : 'Untitled session'),
+                          title: (session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session'),
                           x: e.clientX,
                           y: e.clientY,
                         })
@@ -769,8 +958,11 @@ export function Sidebar({
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         <Archive className="w-3 h-3 text-amber-500/60 shrink-0" />
-                        <span className="truncate text-left" title={session.title}>
-                          {session.title || (isZh ? '新建会话' : 'New session')}
+                        <span
+                          className="truncate text-left"
+                          title={(session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session')}
+                        >
+                          {(session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session')}
                         </span>
                       </div>
 
@@ -807,7 +999,35 @@ export function Sidebar({
                     </div>
                   )
                 })}
-              </div>
+
+                {/* See more button for archived sessions */}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleSeeMore('_archived', e)}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 mt-1 rounded text-[11px] font-medium text-amber-300/80 hover:text-amber-200 bg-amber-950/20 hover:bg-amber-950/40 border border-amber-900/30 hover:border-amber-800/50 transition-all cursor-pointer group"
+                    title={
+                      isZh
+                        ? `点击展开更多归档会话 (加载 +${nextStep} 个，还剩 ${remaining} 个)`
+                        : `Click to see more archived sessions (+${nextStep}, ${remaining} left)`
+                    }
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <ChevronDown className="w-3 h-3 text-amber-500/70 group-hover:text-amber-400 transition-transform group-hover:translate-y-0.5" />
+                      <span>{isZh ? '查看更多 (See more)' : 'See more'}</span>
+                      <span className="text-[10px] text-amber-500/60 font-mono">
+                        (+{nextStep})
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-amber-500/60 font-mono group-hover:text-amber-400">
+                      {remaining} {isZh ? '个未显示' : 'left'}
+                    </span>
+                  </button>
+                )}
+              </>
+            )
+          })()}
+        </div>
             )}
           </div>
         )}

@@ -96,12 +96,32 @@ export async function bootstrapMap(input: BootstrapMapInput): Promise<BootstrapR
         updated: {},
       }
     }
-    const sessions = await input.client.listSessions(directory)
-    const status = await input.client.listStatus(directory)
+    let sessions: readonly ListedSession[] = []
+    let status: Record<string, SessionRunState> = {}
+
+    if (directory === "all") {
+      const results = await Promise.all(
+        projects.map(async (p) => {
+          try {
+            const sess = await input.client.listSessions(p.worktree)
+            const stat = await input.client.listStatus(p.worktree)
+            return { sess, stat }
+          } catch {
+            return { sess: [] as readonly ListedSession[], stat: {} as Record<string, SessionRunState> }
+          }
+        }),
+      )
+      sessions = results.flatMap((r) => r.sess)
+      status = Object.assign({}, ...results.map((r) => r.stat))
+    } else {
+      sessions = await input.client.listSessions(directory)
+      status = await input.client.listStatus(directory)
+    }
+
     const map = syncSessions({
       map: saved,
       sessions,
-      directory,
+      directory: directory === "all" ? (projects[0]?.worktree ?? "") : directory,
       newCardId: input.newCardId,
     })
     return {

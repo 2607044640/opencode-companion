@@ -28,6 +28,19 @@ dist-ssr
 .env
 .env.*
 .env.local
+*.pem
+*.key
+*.p12
+*.pfx
+*secret*
+*credential*
+*password*
+*.token
+*tokens.json
+*token.json
+one-api.db
+api_secrets.json
+gateway/logs/
 
 # Runtime Data
 data/*.json
@@ -39,5 +52,3 @@ __pycache__/
 # OS & Security
 Thumbs.db
 desktop.ini
-*.pem
-*.key

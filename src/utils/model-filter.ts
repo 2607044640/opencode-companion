@@ -1,21 +1,21 @@
 // Curated Model Filter Engine
-// Strictly enforces allowed models (grok4.6, flash3.8, and the 2 free models connected to OpenCode)
-// while hiding unwanted models and all OpenCode Zen bloat.
+// Strictly enforces allowed models (grok-4.6, grok-4.5, gemini-3.8-flash, gemini-3.7-flash)
+// while hiding unwanted models, legacy free cascade, and all OpenCode Zen bloat.
 
 export const ALLOWED_CANONICAL_MODEL_IDS = new Set([
   'grok-4.6',
+  'grok-4.5',
   'gemini-3.8-flash',
-  'free-auto-cascade',
   'gemini-3.7-flash',
 ])
 
 /**
  * Returns true if the model matches the user's curated whitelist:
  * - grok-4.6
+ * - grok-4.5
  * - gemini-3.8-flash
- * - free-auto-cascade (Free Cascade connected to OpenCode)
- * - gemini-3.7-flash (Free Flash connected to OpenCode)
- * Explicitly rejects OpenCode Zen provider and all unlisted models.
+ * - gemini-3.7-flash (Our Flash 3.7 connected to OpenCode)
+ * Explicitly rejects OpenCode Zen provider, free cascade, and all unlisted models.
  */
 export function isCuratedModel(providerId?: string, modelId?: string, modelName?: string): boolean {
   if (!modelId) return false
@@ -29,7 +29,7 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
   // 1. Direct canonical match
   if (ALLOWED_CANONICAL_MODEL_IDS.has(id)) return true
 
-  // 2. Grok 4.6
+  // 2. Grok 4.6 & Grok 4.5
   if (
     id === 'grok-4.6' ||
     id === 'grok4.6' ||
@@ -37,6 +37,17 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
     id.includes('grok4.6') ||
     name.includes('grok 4.6') ||
     name.includes('grok-4.6')
+  ) {
+    return true
+  }
+
+  if (
+    id === 'grok-4.5' ||
+    id === 'grok4.5' ||
+    id.includes('grok-4.5') ||
+    id.includes('grok4.5') ||
+    name.includes('grok 4.5') ||
+    name.includes('grok-4.5')
   ) {
     return true
   }
@@ -54,19 +65,7 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
     return true
   }
 
-  // 4. Two Free Models connected to OpenCode:
-  // (a) free-auto-cascade
-  if (
-    id === 'free-auto-cascade' ||
-    id.includes('auto-cascade') ||
-    id.includes('free-cascade') ||
-    name.includes('智能级联') ||
-    name.includes('free cascade')
-  ) {
-    return true
-  }
-
-  // (b) gemini-3.7-flash (Free)
+  // 4. Flash 3.7 (gemini-3.7-flash)
   if (
     id === 'gemini-3.7-flash' ||
     id.includes('3.7-flash') ||

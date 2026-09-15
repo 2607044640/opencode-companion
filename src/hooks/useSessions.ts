@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { Project, Session } from '../types/opencode'
-import { api, normalizeSession, canonicalizeDirectory } from '../services/api'
+import { api, normalizeSession, canonicalizeDirectory, sanitizeSessionTitle } from '../services/api'
 import { sseManager } from '../services/sse'
 import {
   calculateCloseTabState,
@@ -416,9 +416,13 @@ export function useSessions() {
   const updateSession = useCallback(
     async (sessionId: string, patch: Partial<Session>) => {
       if (sessionId === DRAFT_SESSION_ID) return
+      const sanitizedPatch = { ...patch }
+      if (patch.title !== undefined) {
+        sanitizedPatch.title = sanitizeSessionTitle(patch.title)
+      }
       // 1. Optimistic update in local state
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, ...patch } : s))
+        prev.map((s) => (s.id === sessionId ? { ...s, ...sanitizedPatch } : s))
       )
 
       // 2. Persist to backend if title is being updated
@@ -426,7 +430,7 @@ export function useSessions() {
         try {
           const current = sessions.find((s) => s.id === sessionId)
           await api.updateSession(sessionId, {
-            title: patch.title,
+            title: sanitizedPatch.title,
             directory: current?.directory,
           })
         } catch (err) {

@@ -9,13 +9,17 @@ export interface ThemeColors {
   accent: string
 }
 
+export type LanguagePreference = 'system' | 'zh-CN' | 'en-US' | 'de-DE'
+
 export interface UserPreferences {
   showReasoning: boolean
   autoCollapsePrompt: boolean
   collapseToolBatch: boolean
+  collapseSidebarOnStartup?: boolean
+  autoGitCheckpoint?: boolean
   promptCharThreshold: number
   promptLineThreshold: number
-  language: 'zh-CN' | 'en-US'
+  language: LanguagePreference
   showModelSelector: boolean
   showTimelineQuickJump: boolean
   modelVisibility?: Record<string, boolean>
@@ -87,6 +91,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   showReasoning: true,
   autoCollapsePrompt: true,
   collapseToolBatch: true,
+  collapseSidebarOnStartup: false,
+  autoGitCheckpoint: true,
   promptCharThreshold: 240,
   promptLineThreshold: 4,
   language: 'zh-CN',
@@ -106,12 +112,25 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
 }
 
 const STORAGE_KEY = 'opencode_companion_user_preferences'
+const SIDEBAR_PREF_INITIALIZED_KEY = 'opencode_sidebar_startup_pref_initialized'
 
 export function getPreferences(): UserPreferences {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      return { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) }
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      let prefs: UserPreferences = { ...DEFAULT_PREFERENCES }
+      if (raw) {
+        prefs = { ...prefs, ...JSON.parse(raw) }
+      }
+      // Explicit user request: auto-enable this setting on first boot if not yet initialized
+      if (!localStorage.getItem(SIDEBAR_PREF_INITIALIZED_KEY)) {
+        localStorage.setItem(SIDEBAR_PREF_INITIALIZED_KEY, 'true')
+        if (prefs.collapseSidebarOnStartup === undefined || prefs.collapseSidebarOnStartup === false) {
+          prefs.collapseSidebarOnStartup = true
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
+        }
+      }
+      return prefs
     }
   } catch {
     // ignore parse failure
@@ -146,4 +165,24 @@ export function usePreferences() {
   }, [])
 
   return { prefs, updatePreferences: savePreferences }
+}
+
+export function resolveSystemLanguage(): 'zh-CN' | 'en-US' | 'de-DE' {
+  if (typeof navigator !== 'undefined' && navigator.language) {
+    const lang = navigator.language.toLowerCase()
+    if (lang.startsWith('zh')) return 'zh-CN'
+    if (lang.startsWith('de')) return 'de-DE'
+    return 'en-US'
+  }
+  return 'zh-CN'
+}
+
+export function resolveLanguage(pref?: LanguagePreference | string): 'zh-CN' | 'en-US' | 'de-DE' {
+  if (!pref || pref === 'system') {
+    return resolveSystemLanguage()
+  }
+  if (pref === 'de-DE' || pref === 'en-US' || pref === 'zh-CN') {
+    return pref as 'zh-CN' | 'en-US' | 'de-DE'
+  }
+  return 'zh-CN'
 }

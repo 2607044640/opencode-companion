@@ -171,15 +171,35 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       assert.equal(empty.balance, 0)
     })
 
-    it('parses model catalog probe response as unmetered live station', () => {
+    it('parses TokenShop and GGUU /v1/usage balance responses', () => {
+      // TokenShop positive balance
+      const tsUsage = {
+        balance: 11.09801688,
+        daily_usage: [{ date: '2026-09-04', requests: 7, total_tokens: 4360, cost: 0.018412 }],
+      }
+      const res1 = parseQuotaResponse(tsUsage, baseProvider)
+      assert.equal(res1.balance, 11.10)
+      assert.equal(res1.isUnmetered, false)
+
+      // GGUU negative / overdraft balance
+      const gguuUsage = {
+        balance: -0.01303133,
+        daily_usage: [{ date: '2026-09-07', requests: 93, cost: 1.16866 }],
+      }
+      const res2 = parseQuotaResponse(gguuUsage, baseProvider)
+      assert.equal(res2.balance, -0.01)
+      assert.equal(res2.isUnmetered, false)
+    })
+
+    it('parses model catalog probe response as connected $0.00 station', () => {
       const modelsData = {
         object: 'list',
         data: [{ id: 'grok-4.5', object: 'model' }, { id: 'grok-4.6', object: 'model' }],
       }
       const res = parseQuotaResponse(modelsData, baseProvider)
       assert.equal(res.balance, 0)
-      assert.equal(res.isUnmetered, true)
-      assert.equal(res.note, '可用 (点卡直连)')
+      assert.equal(res.isUnmetered, false)
+      assert.equal(res.note, '已连接 ($0.00)')
     })
   })
 
@@ -291,8 +311,19 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
   })
 
   describe('syncRelayPresets', () => {
-    it('populates empty storage with preset stations', async () => {
-      const storage = createMockStorage()
+    it('populates empty storage with preset stations and purges NovAI', async () => {
+      // Storage has stale NovAI entry
+      const storage = createMockStorage({
+        [RELAY_PROVIDERS_STORAGE_KEY]: JSON.stringify([
+          {
+            id: 'relay_novai',
+            name: 'NovAI (Once)',
+            baseUrl: 'https://once-cf.novai.su',
+            apiKey: 'sk-old-nova',
+            currency: 'USD',
+          },
+        ]),
+      })
       const mockFetch = (async () => {
         return {
           ok: true,
@@ -302,18 +333,18 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             presets: [
               {
                 id: 'relay_tokenshop',
-                name: 'TokenShop',
+                name: 'TokenShop (Grok)',
                 baseUrl: 'https://tokenshop.homes',
                 apiKey: 'sk-token',
                 redeemUrl: 'https://tokenshop.homes/redeem',
                 currency: 'USD',
               },
               {
-                id: 'relay_novai',
-                name: 'NovAI (Once)',
-                baseUrl: 'https://once-cf.novai.su',
-                apiKey: 'sk-nova',
-                redeemUrl: 'https://once-cf.novai.su',
+                id: 'relay_gguu',
+                name: 'GGUU (Flash 3.8)',
+                baseUrl: 'https://gguuai.com',
+                apiKey: 'sk-gguu',
+                redeemUrl: 'https://gguuai.com/redeem',
                 currency: 'USD',
               },
             ],
@@ -322,9 +353,11 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       }) as typeof fetch
 
       const res = await syncRelayPresets(storage, mockFetch)
+      // Stale NovAI must be purged! Only TokenShop and GGUU remain
       assert.equal(res.length, 2)
       assert.equal(res[0].id, 'relay_tokenshop')
-      assert.equal(res[1].id, 'relay_novai')
+      assert.equal(res[1].id, 'relay_gguu')
+      assert.equal(res.some((p) => p.baseUrl.includes('novai')), false)
       assert.equal(getRelayProviders(storage).length, 2)
     })
 
@@ -349,17 +382,17 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             presets: [
               {
                 id: 'relay_tokenshop',
-                name: 'TokenShop',
+                name: 'TokenShop (Grok)',
                 baseUrl: 'https://tokenshop.homes',
                 apiKey: 'sk-updated',
                 redeemUrl: 'https://tokenshop.homes/redeem',
                 currency: 'USD',
               },
               {
-                id: 'relay_novai',
-                name: 'NovAI',
-                baseUrl: 'https://once-cf.novai.su',
-                apiKey: 'sk-nova',
+                id: 'relay_gguu',
+                name: 'GGUU (Flash 3.8)',
+                baseUrl: 'https://gguuai.com',
+                apiKey: 'sk-gguu',
                 currency: 'USD',
               },
             ],
@@ -369,9 +402,10 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
 
       const res = await syncRelayPresets(storage, mockFetch)
       assert.equal(res.length, 2)
-      // Existing TokenShop had empty key, updated with preset key
-      const ts = res.find((p) => p.name === 'TokenShop')
+      // Existing TokenShop had empty key, updated with preset key and name
+      const ts = res.find((p) => p.baseUrl.includes('tokenshop.homes'))
       assert.equal(ts?.apiKey, 'sk-updated')
+      assert.equal(ts?.name, 'TokenShop (Grok)')
       assert.equal(ts?.redeemUrl, 'https://tokenshop.homes/redeem')
     })
   })

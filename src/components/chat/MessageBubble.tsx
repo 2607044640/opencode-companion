@@ -14,19 +14,27 @@ import {
   ChevronDown,
   ChevronUp,
   Undo2,
+  Sparkles,
+  AlertTriangle,
+  AlertCircle,
+  Loader2,
+  FileCode,
 } from 'lucide-react'
 import type { Message, TextPart, ReasoningPart, ToolPart, FilePart, MessagePart } from '../../types/opencode'
+import { extractRelayErrorMessage } from '../../services/api'
 import { ToolCard } from './ToolCard'
 import { ToolBatchCard } from './ToolBatchCard'
 import { ReasoningCard } from './ReasoningCard'
 import { WorkedSummaryCard } from './WorkedSummaryCard'
 import { partitionAssistantTurn } from '../../utils/worked-summary'
 import { usePreferences } from '../../utils/preferences'
-import { useI18n } from '../../utils/i18n'
+import { useI18n, tr } from '../../utils/i18n'
 import { evaluatePromptCollapsing } from './quick-jump'
+import { useDiffDrawer, editItemToDiffPayload } from '../diff/DiffDrawerContext'
 
 interface MessageBubbleProps {
   message: Message
+  allMessageIds?: string[]
   onRetry?: () => void
   isZenMode?: boolean
   onRevertToMessage?: (messageId: string) => void
@@ -141,6 +149,81 @@ function parseThinkingFromText(rawText: string): ContentSegment[] {
 
 function createMarkdownComponents(isZenMode?: boolean) {
   return {
+    table: ({ children, ...props }: any) => (
+      <div className="my-3.5 overflow-x-auto rounded-lg border border-[#272b33] bg-[#111317] shadow-sm">
+        <table className="w-full border-collapse text-left text-xs sm:text-sm text-zinc-200" {...props}>
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ children, ...props }: any) => (
+      <thead className="bg-[#171a21] border-b border-[#272b33] text-zinc-200 font-semibold tracking-wide" {...props}>
+        {children}
+      </thead>
+    ),
+    tbody: ({ children, ...props }: any) => (
+      <tbody className="divide-y divide-[#1f232b]" {...props}>
+        {children}
+      </tbody>
+    ),
+    tr: ({ children, ...props }: any) => (
+      <tr className="hover:bg-[#161922] transition-colors odd:bg-transparent even:bg-[#13161c]/60" {...props}>
+        {children}
+      </tr>
+    ),
+    th: ({ children, ...props }: any) => (
+      <th className="px-3.5 py-2.5 text-xs font-semibold text-zinc-200 border-r border-[#272b33] last:border-r-0 whitespace-nowrap tracking-wide" {...props}>
+        {children}
+      </th>
+    ),
+    td: ({ children, ...props }: any) => (
+      <td className="px-3.5 py-2 text-xs text-zinc-300 border-r border-[#1f232b] last:border-r-0 leading-relaxed font-normal" {...props}>
+        {children}
+      </td>
+    ),
+    h1: ({ children, ...props }: any) => (
+      <h1 className="text-base sm:text-lg font-bold text-zinc-100 mt-4 mb-2 pb-1 border-b border-zinc-800" {...props}>
+        {children}
+      </h1>
+    ),
+    h2: ({ children, ...props }: any) => (
+      <h2 className="text-sm sm:text-base font-semibold text-zinc-100 mt-3.5 mb-1.5 pb-0.5 border-b border-zinc-800/60" {...props}>
+        {children}
+      </h2>
+    ),
+    h3: ({ children, ...props }: any) => (
+      <h3 className="text-xs sm:text-sm font-semibold text-zinc-200 mt-2.5 mb-1" {...props}>
+        {children}
+      </h3>
+    ),
+    p: ({ children, ...props }: any) => (
+      <p className="my-2 leading-relaxed text-zinc-200" {...props}>
+        {children}
+      </p>
+    ),
+    ul: ({ children, ...props }: any) => (
+      <ul className="my-2 ml-4 list-disc space-y-1 text-zinc-300 text-xs sm:text-sm" {...props}>
+        {children}
+      </ul>
+    ),
+    ol: ({ children, ...props }: any) => (
+      <ol className="my-2 ml-4 list-decimal space-y-1 text-zinc-300 text-xs sm:text-sm" {...props}>
+        {children}
+      </ol>
+    ),
+    li: ({ children, ...props }: any) => (
+      <li className="leading-relaxed" {...props}>
+        {children}
+      </li>
+    ),
+    hr: ({ ...props }: any) => (
+      <hr className="my-3 border-t border-zinc-800" {...props} />
+    ),
+    blockquote: ({ children, ...props }: any) => (
+      <blockquote className="my-2.5 pl-3 border-l-2 border-purple-500/70 text-zinc-400 italic bg-purple-950/15 py-1 rounded-r text-xs sm:text-sm" {...props}>
+        {children}
+      </blockquote>
+    ),
     pre: ({ ...props }: any) => (
       <div className="relative my-2 rounded-md bg-[#0a0b0d] border border-[#272a30] overflow-hidden">
         <pre
@@ -155,8 +238,8 @@ function createMarkdownComponents(isZenMode?: boolean) {
       const isInline = !className
       return isInline ? (
         <code
-          className={`bg-zinc-800/70 text-pink-400 px-1.5 py-0.5 rounded font-mono ${
-            isZenMode ? 'text-xs sm:text-[13px]' : 'text-xs'
+          className={`bg-[#1c2028] text-[#e6edf3] border border-[#2d3340] px-1.5 py-0.5 rounded font-mono ${
+            isZenMode ? 'text-xs sm:text-[13px]' : 'text-[11px] sm:text-xs'
           }`}
           {...props}
         >
@@ -204,7 +287,7 @@ function createMarkdownComponents(isZenMode?: boolean) {
                 } catch {}
               }}
               className="text-blue-400 hover:text-blue-300 underline underline-offset-2 cursor-pointer font-medium"
-              title="点击立即切换至该会话"
+              title={tr('点击立即切换至该会话', 'Click to switch to this session', 'Klicken, um zu dieser Sitzung zu wechseln')}
             >
               {children}
             </a>
@@ -296,7 +379,7 @@ function UserMessageBubble({
   isBusy,
   isReverting,
 }: UserMessageBubbleProps) {
-  const { t } = useI18n()
+  const { t, tr } = useI18n()
   const [copied, setCopied] = useState(false)
 
   const { lineCount, charCount, isCollapsible, defaultCollapsed } = useMemo(
@@ -328,21 +411,17 @@ function UserMessageBubble({
       data-prompt-preview={fullText.slice(0, 80)}
       data-message-id={message.info.id}
       id={`msg_${message.info.id}`}
-      className={`flex flex-col items-end my-4 px-4 ${isZenMode ? 'sm:px-0' : ''}`}
+      className="w-full my-4"
     >
       <div
-        className={`max-w-2xl bg-[#1d2127] border border-[#2d333b] rounded-xl px-4 py-3 text-zinc-100 shadow-sm transition-all ${
-          isReverted
-            ? 'opacity-40 pointer-events-none select-none filter grayscale-[35%]'
-            : ''
-        } ${
+        className={`w-full bg-[#181a20] border border-[#2d313a] rounded-xl px-4.5 py-3.5 text-zinc-100 shadow-sm transition-all ${
           isZenMode
-            ? 'text-[15px] leading-relaxed py-3.5 px-5 bg-[#1e2229] border-[#343b44] shadow-md'
+            ? 'text-[15px] leading-relaxed py-4 px-5 bg-[#1a1d24] border-[#343b46] shadow-md'
             : 'text-sm'
         }`}
       >
         {/* User message header: shows prompt target binding & metrics */}
-        <div className="flex items-center justify-between gap-3 mb-1.5 text-[11px] text-zinc-400 pb-1.5 border-b border-zinc-800">
+        <div className="flex items-center justify-between gap-3 mb-2 text-[11px] text-zinc-400 pb-2 border-b border-[#252830]">
           <div className="flex items-center gap-1.5 font-medium text-zinc-300">
             <User className="w-3.5 h-3.5 text-zinc-400" />
             <span>You</span>
@@ -366,24 +445,24 @@ function UserMessageBubble({
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-purple-300 hover:text-purple-200 bg-purple-950/40 hover:bg-purple-950/70 border border-purple-800/40 transition-colors"
-                title={isExpanded ? '收起提问内容' : '展开提问内容'}
+                title={isExpanded ? tr('收起提问内容', 'Collapse prompt', 'Prompt einklappen') : tr('展开提问内容', 'Expand prompt', 'Prompt ausklappen')}
               >
                 {isExpanded ? (
                   <>
                     <ChevronUp className="w-3 h-3 text-purple-400" />
-                    <span>收起</span>
+                    <span>{tr('收起', 'Collapse', 'Einklappen')}</span>
                   </>
                 ) : (
                   <>
                     <ChevronDown className="w-3 h-3 text-purple-400" />
-                    <span>展开</span>
+                    <span>{tr('展开', 'Expand', 'Ausklappen')}</span>
                   </>
                 )}
               </button>
             )}
             {isCollapsible && (
               <span className="text-[10px] text-zinc-500 font-mono">
-                {lineCount} 行 · {charCount.toLocaleString()} 字
+                {lineCount} {tr('行', 'lines', 'Zeilen')} · {charCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')}
               </span>
             )}
             {onRevertToMessage && (
@@ -399,7 +478,7 @@ function UserMessageBubble({
             <button
               onClick={handleCopy}
               className="hover:text-zinc-200 transition-colors p-0.5 rounded hover:bg-zinc-800"
-              title="复制提示词"
+              title={tr('复制提示词', 'Copy prompt', 'Prompt kopieren')}
             >
               {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
             </button>
@@ -451,7 +530,7 @@ function UserMessageBubble({
                     ? 'from-[#1e2229] via-[#1e2229]/90'
                     : 'from-[#1d2127] via-[#1d2127]/90'
                 } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
-                title="点击展开完整提示词"
+                title={tr('点击展开完整提示词', 'Click to expand full prompt', 'Klicken, um vollständigen Prompt anzuzeigen')}
               />
             )}
 
@@ -468,13 +547,16 @@ function UserMessageBubble({
                 {isExpanded ? (
                   <>
                     <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>收起完整提示词</span>
+                    <span>{tr('收起完整提示词', 'Collapse full prompt', 'Vollständigen Prompt einklappen')}</span>
                   </>
                 ) : (
                   <>
                     <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
                     <span>
-                      展开完整提示词 <span className="font-mono text-[10px] opacity-80">({lineCount} 行 / {charCount.toLocaleString()} 字)</span>
+                      {tr('展开完整提示词', 'Expand full prompt', 'Vollständigen Prompt anzeigen')}{' '}
+                      <span className="font-mono text-[10px] opacity-80">
+                        ({lineCount} {tr('行', 'lines', 'Zeilen')} / {charCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')})
+                      </span>
                     </span>
                   </>
                 )}
@@ -493,7 +575,7 @@ function UserMessageBubble({
           <button
             onClick={handleCopy}
             className="hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800 text-zinc-400"
-            title="复制"
+            title={tr('复制', 'Copy', 'Kopieren')}
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
@@ -536,6 +618,7 @@ function UserMessageBubble({
 
 export function MessageBubble({
   message,
+  allMessageIds,
   onRetry,
   isZenMode,
   onRevertToMessage,
@@ -545,14 +628,25 @@ export function MessageBubble({
   isReverting,
 }: MessageBubbleProps) {
   const { prefs } = usePreferences()
-  const { t } = useI18n()
+  const { t, tr } = useI18n()
+  const { open: openDiffDrawer } = useDiffDrawer()
   const [copied, setCopied] = useState(false)
+  const [isReportExpanded, setIsReportExpanded] = useState(true)
   const isUser = message.info.role === 'user'
 
   const turn = useMemo(
-    () => partitionAssistantTurn(message.parts, message.info),
-    [message.parts, message.info]
+    () => partitionAssistantTurn(message.parts, message.info, Date.now(), isBusy),
+    [message.parts, message.info, isBusy]
   )
+
+  const answerFullText = useMemo(
+    () => turn.answerParts.map((p) => p.text).join('\n\n'),
+    [turn.answerParts]
+  )
+  const answerCharCount = answerFullText.length
+  const answerLineCount = answerFullText ? answerFullText.split('\n').length : 0
+  const isAnswerCollapsible =
+    (answerCharCount > 360 || answerLineCount > 6) && !turn.isLive
 
   const markdownComponents = useMemo(
     () => createMarkdownComponents(isZenMode),
@@ -589,6 +683,9 @@ export function MessageBubble({
   }
 
   const tokens = message.info.tokens
+  const errorMessage = message.info.error ? extractRelayErrorMessage(message.info.error) : null
+  const firstEditGroup = turn.groups.find((g) => g.kind === 'edit')
+  const hasEdits = Boolean(firstEditGroup)
 
   if (isUser) {
     return (
@@ -615,17 +712,19 @@ export function MessageBubble({
       data-message-role="assistant"
       data-message-id={message.info.id}
       id={`msg_${message.info.id}`}
-      className={`flex flex-col my-5 px-4 ${isZenMode ? 'sm:px-0 my-6' : ''}`}
+      className={`w-full my-4 ${isZenMode ? 'my-6' : ''}`}
     >
+      {allMessageIds &&
+        allMessageIds
+          .filter((id) => id !== message.info.id)
+          .map((id) => (
+            <span key={id} id={`msg_${id}`} data-message-id={id} className="sr-only" />
+          ))}
       <div
-        className={`max-w-4xl mx-auto border border-l-2 ${badge.accent} shadow-sm transition-all ${
-          isReverted
-            ? 'opacity-40 pointer-events-none select-none filter grayscale-[35%]'
-            : ''
-        } ${
+        className={`w-full border border-[#2d313a] rounded-xl shadow-sm transition-all ${
           isZenMode
-            ? 'p-5 sm:p-6 rounded-2xl bg-[#12151a]/85 border-[#282d36] shadow-md'
-            : 'p-4 rounded-xl bg-[#121417]/70 border-[#22262c]'
+            ? 'p-5 sm:p-6 rounded-2xl bg-[#12151a]/85 border-[#343b46] shadow-md'
+            : 'p-4 sm:p-5 bg-[#121417]/70'
         }`}
       >
         {/* Assistant Header: Per-message actual author & model badges */}
@@ -686,8 +785,19 @@ export function MessageBubble({
             )}
           </div>
 
-          {/* Right Action Controls: Retry & Copy */}
+          {/* Right Action Controls: Diff, Retry & Copy */}
           <div className="flex items-center gap-2">
+            {hasEdits && firstEditGroup && firstEditGroup.kind === 'edit' && (
+              <button
+                type="button"
+                onClick={() => openDiffDrawer(editItemToDiffPayload(firstEditGroup.item, message.info.id))}
+                className="flex items-center gap-1 px-2 py-0.5 hover:bg-emerald-950/60 text-emerald-400 hover:text-emerald-200 rounded text-[11px] transition-colors border border-emerald-800/40"
+                title={tr('在侧边抽屉查看文件差异', 'Open file diff drawer', 'Datei-Diff-Drawer öffnen')}
+              >
+                <FileCode className="w-3 h-3" />
+                <span>Diff</span>
+              </button>
+            )}
             {onRetry && (
               <button
                 onClick={onRetry}
@@ -715,7 +825,7 @@ export function MessageBubble({
           {turn.hasWork ? (
             <>
               {/* Top Antigravity-Style Collapsible Tool Calling & Thinking Bar */}
-              <WorkedSummaryCard turn={turn} messageId={message.info.id} />
+              <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} />
 
               {/* Assistant Attached Images */}
               {turn.fileParts.map((filePart) => (
@@ -738,33 +848,160 @@ export function MessageBubble({
               ))}
 
               {/* Main Response Markdown Surface (Directly underneath the collapsed tools bar) */}
-              {turn.answerParts.map((part) => {
-                const text = part.text
-                if (!text.trim()) return null
-
-                return (
-                  <div
-                    key={part.id}
-                    className={`prose prose-invert max-w-none transition-all ${
-                      isZenMode
-                        ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-zinc-100'
-                        : 'text-sm text-zinc-200'
-                    }`}
-                  >
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeHighlight]}
-                      components={markdownComponents}
-                    >
-                      {text}
-                    </ReactMarkdown>
+              {turn.answerParts.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-[#1f2228]/80">
+                  {/* Model Response Header: Title + Collapse/Expand Badge matching User Prompt Style */}
+                  <div className="flex items-center justify-between py-1 px-1 mb-2 text-xs text-zinc-400">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Sparkles className="w-3.5 h-3.5 text-orange-400/80 shrink-0" />
+                      <span className="font-semibold text-zinc-300">
+                        {tr('模型回答 / 汇报', 'Model Response / Report', 'Modellantwort / Bericht')}
+                      </span>
+                    </div>
+                    {isAnswerCollapsible && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setIsReportExpanded(!isReportExpanded)}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-purple-300 hover:text-purple-200 bg-purple-950/40 hover:bg-purple-950/70 border border-purple-800/40 transition-colors"
+                          title={isReportExpanded ? tr('收起回答 (露出一部分)', 'Collapse response (show partial)', 'Antwort einklappen (Teilansicht)') : tr('展开完整回答', 'Expand full response', 'Vollständige Antwort anzeigen')}
+                        >
+                          {isReportExpanded ? (
+                            <>
+                              <ChevronUp className="w-3 h-3 text-purple-400" />
+                              <span>{tr('收起', 'Collapse', 'Einklappen')}</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="w-3 h-3 text-purple-400" />
+                              <span>{tr('展开', 'Expand', 'Ausklappen')}</span>
+                            </>
+                          )}
+                        </button>
+                        <span className="text-[10px] text-zinc-500 font-mono">
+                          {answerLineCount} {tr('行', 'lines', 'Zeilen')} · {answerCharCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )
-              })}
+
+                  {/* Partial-reveal content container: shows top lines with bottom fade mask when collapsed */}
+                  <div className="relative">
+                    <div
+                      className={`space-y-3 transition-all ${
+                        isAnswerCollapsible && !isReportExpanded
+                          ? isZenMode
+                            ? 'max-h-36 overflow-hidden'
+                            : 'max-h-32 overflow-hidden'
+                          : ''
+                      }`}
+                    >
+                      {turn.answerParts.map((part) => {
+                        const text = part.text
+                        if (!text.trim()) return null
+
+                        return (
+                          <div
+                            key={part.id}
+                            className={`prose prose-invert max-w-none transition-all ${
+                              isZenMode
+                                ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-zinc-100'
+                                : 'text-sm text-zinc-200'
+                            }`}
+                          >
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeHighlight]}
+                              components={markdownComponents}
+                            >
+                              {text}
+                            </ReactMarkdown>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Bottom gradient fade mask when collapsed - allows clicking to expand */}
+                    {isAnswerCollapsible && !isReportExpanded && (
+                      <div
+                        onClick={() => setIsReportExpanded(true)}
+                        className={`absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t ${
+                          isZenMode
+                            ? 'from-[#12151a] via-[#12151a]/90'
+                            : 'from-[#121417] via-[#121417]/90'
+                        } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
+                        title={tr('点击展开完整回答', 'Click to expand full response', 'Klicken, um vollständige Antwort anzuzeigen')}
+                      />
+                    )}
+
+                    {/* Expand / Collapse Toggle Bar at the bottom matching UserMessageBubble */}
+                    {isAnswerCollapsible && (
+                      <button
+                        onClick={() => setIsReportExpanded(!isReportExpanded)}
+                        className={`w-full mt-2 pt-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-all select-none rounded border ${
+                          isReportExpanded
+                            ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/30 hover:bg-zinc-800/60 py-1 border-zinc-800'
+                            : 'text-purple-300 hover:text-purple-100 bg-purple-950/30 hover:bg-purple-950/50 py-1 border-purple-900/40 shadow-sm'
+                        }`}
+                      >
+                        {isReportExpanded ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>{tr('收起完整回答', 'Collapse full response', 'Vollständige Antwort einklappen')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
+                            <span>
+                              {tr('展开完整回答', 'Expand full response', 'Vollständige Antwort anzeigen')}{' '}
+                              <span className="font-mono text-[10px] opacity-80">
+                                ({answerLineCount} {tr('行', 'lines', 'Zeilen')} / {answerCharCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')})
+                              </span>
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             // Fallback for turns without any tools or reasoning
-            groupMessageParts(message.parts, prefs.collapseToolBatch).map((item, idx) => {
+            <>
+            {message.parts.length === 0 && !errorMessage && (
+              (isBusy && turn.isLive) ? (
+                <div className="flex items-center gap-2.5 py-4 px-4 rounded-lg bg-purple-950/20 border border-purple-800/30 text-purple-300 text-xs font-mono animate-pulse">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                  <span>{tr('正在等待模型响应或工具执行...', 'Waiting for model response or tool execution...', 'Warten auf Modellantwort...')}</span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 py-3.5 px-4 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-xs">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 space-y-1">
+                    <div className="font-semibold text-amber-300">
+                      {tr('未收到模型响应 (生成中断或已中止)', 'No response received (Generation interrupted or aborted)', 'Keine Antwort erhalten (abgebrochen)')}
+                    </div>
+                    <p className="text-zinc-400 text-[11px] leading-relaxed">
+                      {tr(
+                        '该轮次在输出内容前被中断（例如触发看门狗超时或后端重载）。您可以点击右上角或此处的“重试”按钮重新生成。',
+                        'This turn was interrupted before producing content (e.g. timeout or daemon reload). You can click Retry to run again.',
+                        'Diese Runde wurde vor der Ausgabe abgebrochen. Klicken Sie auf Wiederholen.'
+                      )}
+                    </p>
+                  </div>
+                  {onRetry && (
+                    <button
+                      onClick={onRetry}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[11px] font-medium transition-colors flex items-center gap-1 shrink-0 shadow-sm"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{tr('重试此轮', 'Retry Turn', 'Wiederholen')}</span>
+                    </button>
+                  )}
+                </div>
+              )
+            )}
+            {groupMessageParts(message.parts, prefs.collapseToolBatch).map((item, idx) => {
               if (item.type === 'tool-batch') {
                 return <ToolBatchCard key={`batch_${idx}`} tools={item.tools} />
               }
@@ -816,7 +1053,7 @@ export function MessageBubble({
                         return (
                           <ReasoningCard
                             key={`${part.id}_think_${sIdx}`}
-                            title="模型思考过程 (Thinking)"
+                            title={tr('模型思考过程 (Thinking)', 'Model Thinking Process (Thinking)', 'Denkprozess des Modells (Thinking)')}
                             part={{
                               id: `${part.id}_think_${sIdx}`,
                               sessionID: part.sessionID,
@@ -854,22 +1091,35 @@ export function MessageBubble({
               }
 
               return null
-            })
+            })}
+            </>
+          )}
+
+          {/* Render Relay Error Callout inside Assistant Card */}
+          {errorMessage && (
+            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3.5 text-red-300 text-xs sm:text-sm font-mono flex items-start gap-3 shadow-inner">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1 space-y-1.5">
+                <div className="font-semibold text-red-400 flex items-center justify-between">
+                  <span>{tr('中转服务响应异常', 'Relay Response Error', 'Relay-Antwortfehler')}</span>
+                  {onRetry && (
+                    <button
+                      onClick={onRetry}
+                      className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-[11px] font-medium rounded transition-colors flex items-center gap-1 shrink-0 shadow-sm"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>{tr('重试此轮', 'Retry Turn', 'Wiederholen')}</span>
+                    </button>
+                  )}
+                </div>
+                <div className="text-zinc-300 break-words whitespace-pre-wrap font-sans text-xs select-text leading-relaxed">
+                  {errorMessage}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
-
-      {/* Checkpoint Divider if this assistant message is the revert boundary */}
-      {isRevertPoint && (
-        <div className="max-w-4xl mx-auto flex items-center gap-2 my-3 select-none text-[11px] text-amber-400/80 font-mono">
-          <div className="h-px bg-amber-500/30 flex-1" />
-          <span className="flex items-center gap-1.5 bg-amber-950/60 border border-amber-800/50 px-2.5 py-0.5 rounded-full text-amber-300 shadow-sm">
-            <RotateCcw className="w-3 h-3 text-amber-400" />
-            {t.chat.revertDivider}
-          </span>
-          <div className="h-px bg-amber-500/30 flex-1" />
-        </div>
-      )}
     </div>
   )
 }

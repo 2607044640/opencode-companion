@@ -1,6 +1,7 @@
-import { usePreferences } from './preferences'
+import { usePreferences, getPreferences, resolveLanguage, type LanguagePreference } from './preferences'
 
-export type SupportedLanguage = 'zh-CN' | 'en-US'
+export type SupportedLanguage = 'zh-CN' | 'en-US' | 'de-DE'
+export type { LanguagePreference }
 
 export interface TranslationDictionary {
   common: {
@@ -90,8 +91,12 @@ export interface TranslationDictionary {
     showReasoningDesc: string
     autoCollapsePromptLabel: string
     autoCollapsePromptDesc: string
+    collapseSidebarOnStartupLabel: string
+    collapseSidebarOnStartupDesc: string
     collapseToolBatchLabel: string
     collapseToolBatchDesc: string
+    autoGitCheckpointLabel: string
+    autoGitCheckpointDesc: string
     expandShellLabel: string
     expandShellDesc: string
     expandEditLabel: string
@@ -161,6 +166,21 @@ export interface TranslationDictionary {
     revertModeSummarizeTitle: string
     revertModeSummarizeDesc: string
     noFilesModifiedBadge: string
+    modelReportTitle: string
+    expandReport: string
+    collapseReport: string
+    expandFullReport: string
+    collapseFullReport: string
+    clickToExpandReport: string
+    expandPrompt: string
+    collapsePrompt: string
+    copyPrompt: string
+    copyPromptSuccess: string
+    expandFullPrompt: string
+    collapseFullPrompt: string
+    clickToExpandPrompt: string
+    thinkingProcess: string
+    switchSessionTitle: string
   }
   models: {
     manageTitle: string
@@ -261,8 +281,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       showReasoningDesc: '在时间线中以折叠卡片形式显示 DeepSeek / Grok 等模型的思考推理',
       autoCollapsePromptLabel: '自动收起过长的用户提示词',
       autoCollapsePromptDesc: '提示词超过 240 字或 4 行时自动收起并附带渐变遮罩，方便滑轮速读',
+      collapseSidebarOnStartupLabel: '启动时默认收起左侧侧边栏',
+      collapseSidebarOnStartupDesc: '打开应用或刷新页面时，默认不展开左侧会话历史栏（按 Ctrl+B 可随时展开）',
       collapseToolBatchLabel: '工具执行批次自动归拢',
       collapseToolBatchDesc: '连续 3 个及以上工具调用自动归拢为紧凑单行条，点击可随时展开',
+      autoGitCheckpointLabel: '对话结束后自动 Git Checkpoint',
+      autoGitCheckpointDesc: '本轮有工作区改动时本地提交（不推送）；空 diff / 纯问答跳过。密钥与 .env 永不入库。设置仅保存在本机。',
       expandShellLabel: '默认展开 Shell 工具详情',
       expandShellDesc: '在时间线中默认展开终端命令输出详情',
       expandEditLabel: '默认展开文件修改详情',
@@ -332,6 +356,21 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       revertModeSummarizeTitle: '压缩/总结上下文',
       revertModeSummarizeDesc: '调用 AI 对此检查点之前的对话进行摘要提炼，节省 Token，不改动代码。',
       noFilesModifiedBadge: '此模式不会修改任何本地磁盘文件。',
+      modelReportTitle: '模型回答 / 汇报',
+      expandReport: '展开',
+      collapseReport: '收起',
+      expandFullReport: '展开完整回答',
+      collapseFullReport: '收起完整回答',
+      clickToExpandReport: '点击展开完整回答',
+      expandPrompt: '展开提问内容',
+      collapsePrompt: '收起提问内容',
+      copyPrompt: '复制提示词',
+      copyPromptSuccess: '已复制',
+      expandFullPrompt: '展开完整提示词',
+      collapseFullPrompt: '收起完整提示词',
+      clickToExpandPrompt: '点击展开完整提示词',
+      thinkingProcess: '模型思考过程 (Thinking)',
+      switchSessionTitle: '点击立即切换至该会话',
     },
     models: {
       manageTitle: '管理模型',
@@ -430,8 +469,12 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       showReasoningDesc: 'Display reasoning chains from DeepSeek / Grok models as collapsible cards',
       autoCollapsePromptLabel: 'Auto-collapse long prompts',
       autoCollapsePromptDesc: 'Automatically collapse user prompts exceeding 240 characters or 4 lines',
+      collapseSidebarOnStartupLabel: 'Collapse left sidebar on startup',
+      collapseSidebarOnStartupDesc: 'Keep the left sidebar collapsed by default when opening or reloading the app (press Ctrl+B to toggle)',
       collapseToolBatchLabel: 'Auto-collapse tool batches',
       collapseToolBatchDesc: 'Automatically group 3 or more consecutive tool calls into a single compact bar',
+      autoGitCheckpointLabel: 'Auto Git checkpoint after each turn',
+      autoGitCheckpointDesc: 'When a turn changes workspace files, create a local commit (never push). Skip empty diffs. Secrets and .env are never staged. This toggle stays in local preferences.',
       expandShellLabel: 'Expand Shell tool output by default',
       expandShellDesc: 'Always expand terminal command output in the timeline',
       expandEditLabel: 'Expand file edit details by default',
@@ -501,6 +544,21 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       revertModeSummarizeTitle: 'Summarize Context',
       revertModeSummarizeDesc: 'Compacts context tokens up to this checkpoint without touching code.',
       noFilesModifiedBadge: 'No local files will be modified in this mode.',
+      modelReportTitle: 'Model Response / Report',
+      expandReport: 'Expand',
+      collapseReport: 'Collapse',
+      expandFullReport: 'Expand full response',
+      collapseFullReport: 'Collapse full response',
+      clickToExpandReport: 'Click to expand full response',
+      expandPrompt: 'Expand prompt',
+      collapsePrompt: 'Collapse prompt',
+      copyPrompt: 'Copy prompt',
+      copyPromptSuccess: 'Copied',
+      expandFullPrompt: 'Expand full prompt',
+      collapseFullPrompt: 'Collapse full prompt',
+      clickToExpandPrompt: 'Click to expand full prompt',
+      thinkingProcess: 'Model Thinking Process (Thinking)',
+      switchSessionTitle: 'Click to switch to this session',
     },
     models: {
       manageTitle: 'Manage models',
@@ -511,24 +569,282 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       manageBtn: 'Manage models',
     },
   },
+  'de-DE': {
+    common: {
+      cancel: 'Abbrechen',
+      confirm: 'Bestätigen',
+      close: 'Schließen',
+      save: 'Speichern',
+      delete: 'Löschen',
+      reset: 'Zurücksetzen',
+      search: 'Suchen',
+      loading: 'Wird geladen...',
+      all: 'Alle',
+      error: 'Fehler',
+      retry: 'Wiederholen',
+      success: 'Erfolgreich',
+    },
+    header: {
+      hideSidebar: 'Seitenleiste ausblenden (Strg+B)',
+      showSidebar: 'Seitenleiste einblenden (Strg+B)',
+      copyJson: 'Alle JSON kopieren',
+      revert: 'Rückgängig machen',
+      revertTitle: 'Letzte Runde rückgängig machen (Revert last exchange)',
+      idle: 'Bereit',
+      generating: 'Generierung läuft...',
+      retrying: (attempt: number) => `Wiederhole (${attempt})`,
+      newTab: 'Neuer Chat-Tab',
+      closeTab: 'Tab schließen',
+      tokensIn: 'Prompt-Eingabetoken',
+      tokensOut: 'Generierungs-Ausgabetoken',
+      tokensReasoning: 'Denk- / Reasoning-Token',
+      tokensCache: 'Cache-Treffertoken',
+      securityBoundary: 'Physische Sicherheitsgrenze: Streng an 127.0.0.1 gebunden (WSL2)',
+      tokenBreakdownTitle: 'Token-Verbrauch Aufschlüsselung',
+      tokenTotal: 'Gesamt',
+      tokenPrompt: '📥 Eingabe (Prompt)',
+      tokenCompletion: '📤 Ausgabe (Completion)',
+      tokenHoverTooltip: 'Zeigen für vollständigen Token-Verbrauch & Workspace-Details',
+      workspaceDir: 'Arbeitsbereich',
+      backendReady: 'Backend-Dienst bereit',
+      copyJsonTooltip: 'Sitzungs-JSON kopieren (Klick zum Kopieren · 500ms halten zum Exportieren)',
+      copyJsonSuccess: 'Sitzungs-JSON in die Zwischenablage kopiert!',
+      exportSuccess: 'Sitzungs-JSON auf dem Desktop gespeichert!',
+      noActiveSession: 'Keine aktive Sitzung',
+    },
+    zen: {
+      exitZenTitle: (shortcut?: string) => `Fokusmodus beenden (${shortcut || 'F11'} oder Esc)`,
+      exitZenLabel: 'Fokusmodus beenden',
+    },
+    search: {
+      placeholder: 'Sitzungstitel suchen (↑↓ zum Navigieren, Enter zum Öffnen, Esc zum Schließen)...',
+      modeTitles: 'Titel durchsuchen',
+      modeMessages: 'Nachrichten durchsuchen',
+      placeholderTitles: 'Sitzungstitel suchen (↑↓ zum Navigieren, Enter zum Öffnen, Esc zum Schließen)...',
+      placeholderMessages: 'Volltextsuche: Nachrichteninhalte, Code oder Fehlermeldungen eingeben...',
+      searchingMessages: 'Nachrichten werden durchsucht...',
+      noMessageHits: (query: string) => `Keine Treffer für „${query}“ in den Nachrichten gefunden`,
+      noMessageHitsHint: 'Versuchen Sie kürzere Suchbegriffe oder wechseln Sie oben rechts auf „Alle Projekte“',
+      userRole: 'Benutzer',
+      assistantRole: 'Assistent',
+      clearInput: 'Eingabe löschen',
+      filterByProject: 'Nach Projekt filtern',
+      allProjects: 'Alle Projekte',
+      close: 'Schließen (Esc)',
+      noSessionsFound: 'Keine Sitzungen gefunden',
+      noSessionsHint: 'Starten Sie eine neue Sitzung, um den Verlauf zu durchsuchen',
+      searchNoResults: (query: string) => `Keine Sitzungen für „${query}“ gefunden`,
+      searchTryOther: 'Versuchen Sie andere Suchbegriffe oder Projektfilter',
+      timeJustNow: 'Gerade eben',
+      timeMinutesAgo: (n: number) => `vor ${n} Min.`,
+      timeHoursAgo: (n: number) => `vor ${n} Std.`,
+      timeYesterday: 'Gestern',
+      timeDaysAgo: (n: number) => `vor ${n} Tagen`,
+    },
+    settings: {
+      title: 'Einstellungen',
+      desktopSection: 'Desktop',
+      serverSection: 'Server',
+      generalTab: 'Allgemein',
+      shortcutsTab: 'Tastaturkürzel',
+      daemonTab: 'Backend & Sicherheit',
+      modelsTab: 'Modelle',
+      languageLabel: 'Sprache',
+      languageDesc: 'Oberflächensprache für OpenCode Companion auswählen',
+      autoAcceptLabel: 'Ausführungsberechtigungen automatisch akzeptieren',
+      autoAcceptDesc: 'Berechtigungen und Tool-Ausführungsanfragen werden automatisch genehmigt',
+      showReasoningLabel: 'Denkprozesse des Modells anzeigen',
+      showReasoningDesc: 'Zeigt Reasoning von Modellen (DeepSeek, Grok etc.) als einklappbare Karten an',
+      autoCollapsePromptLabel: 'Lange Benutzer-Prompts automatisch einklappen',
+      autoCollapsePromptDesc: 'Prompts mit mehr als 240 Zeichen oder 4 Zeilen automatisch mit Verlaufseffekt einklappen',
+      collapseSidebarOnStartupLabel: 'Seitenleiste beim Start standardmäßig einklappen',
+      collapseSidebarOnStartupDesc: 'Die linke Seitenleiste beim Öffnen der App standardmäßig einklappen (Strg+B zum Umschalten)',
+      collapseToolBatchLabel: 'Aufeinanderfolgende Tool-Aufrufe zusammenfassen',
+      collapseToolBatchDesc: 'Fasst 3 oder mehr aufeinanderfolgende Tool-Aufrufe kompakt zusammen',
+      autoGitCheckpointLabel: 'Nach jeder Runde automatisch Git-Checkpoint',
+      autoGitCheckpointDesc: 'Bei Arbeitskopie-Änderungen lokalen Commit erstellen (kein Push). Leere Diffs überspringen. Geheimnisse und .env werden nie gestaged. Einstellung bleibt lokal.',
+      expandShellLabel: 'Shell-Tool-Details standardmäßig ausklappen',
+      expandShellDesc: 'Befehlsausgaben im Chat standardmäßig ausgeklappt anzeigen',
+      expandEditLabel: 'Dateibearbeitungs-Details standardmäßig ausklappen',
+      expandEditDesc: 'Codeänderungen und Diffs im Chat standardmäßig ausgeklappt anzeigen',
+      showModelSelectorLabel: 'Modellauswahl in der Eingabeleiste anzeigen',
+      showModelSelectorDesc: 'Modellauswahl-Pille und Popup unten anzeigen (Alt+M zum Ein-/Ausblenden)',
+      showTimelineQuickJumpLabel: 'Schnellnavigations-Schaltflächen anzeigen',
+      showTimelineQuickJumpDesc: 'Schaltflächen zum schnellen Springen oben/unten im Chatverlauf anzeigen',
+      quickJumpUpTooltip: 'Klick: Nach oben scrollen | 1 Sek. halten: Ganz nach oben springen (↑ / Doppelklick ↑)',
+      quickJumpDownTooltip: 'Klick: Nach unten scrollen | 1 Sek. halten: Ganz nach unten springen (↓ / Doppelklick ↓)',
+      shortcutsTitle: 'Tastenkombinationen',
+      shortcutsDesc: 'Tastenkombinationen anzeigen und anpassen',
+      resetShortcutsBtn: 'Auf Standard zurücksetzen',
+      categoryAll: 'Alle',
+      categoryGeneral: 'Allgemein & Chat',
+      categoryMap: 'Blueprint-Karte',
+      searchShortcutsPlaceholder: 'Kürzel oder Funktionen suchen...',
+      pressKeyPrompt: 'Tastenkombination drücken... (Esc zum Abbrechen)',
+      clickToRebind: 'Klicken, um Kürzel neu zuzuweisen',
+      daemonTitle: 'Backend-Verbindung & Physische Sicherheit',
+      targetEndpoint: 'Ziel-Backend-Endpunkt',
+      locked127: '127.0.0.1 Physische Bindung',
+      daemonLoopbackDesc: 'Direkte Verbindung zum OpenCode-Daemon auf Port 5001 innerhalb von WSL2 (opencode-jail).',
+      testHealth: 'Verbindung testen',
+      onlineReady: 'Dienst online und bereit',
+      unreachable: 'Nicht erreichbar',
+      threatWarningTitle: 'Physische Sicherheitswarnung (Zero-Auth)',
+      threatWarningDesc: 'Der OpenCode-Daemon besitzt keine integrierte Authentifizierung und gewährt vollen Bash-Zugriff (/pty) sowie Dateizugriff. Server und Companion sind strikt an 127.0.0.1 gebunden.',
+      proxyTokenTitle: 'Reverse-Proxy-Authentifizierungstoken (Optional)',
+      proxyTokenDesc: 'Geben Sie Anmeldedaten ein, wenn Sie über einen Reverse-Proxy zugreifen:',
+      proxyTokenPlaceholder: 'Bearer-Token / API-Schlüssel',
+      modelsTitle: 'Verfügbare Modellanbieter',
+      modelsDesc: 'Über den OpenCode-Daemon mit dem lokalen New API / One API Gateway verbunden.',
+      resetModalTitle: 'Tastenkombinationen zurücksetzen',
+      resetModalDesc1: 'Möchten Sie wirklich alle Tastenkombinationen auf die Standardwerte zurücksetzen?',
+      resetModalDesc2: 'Dadurch werden alle benutzerdefinierten Tastenbelegungen gelöscht.',
+      resetModalConfirm: 'Zurücksetzen bestätigen',
+      tagGlobal: 'Global',
+      tagMap: 'Karte',
+    },
+    chat: {
+      undoUpToThisPoint: 'Änderungen bis zu diesem Punkt rückgängig machen (Undo changes up to this point)',
+      revertedBadge: 'Rückgängig gemacht',
+      revertDivider: 'Bis zu diesem Checkpoint zurückgesetzt',
+      revertBannerTitle: (time?: string) => `Sitzung auf ${time || 'gewählte Nachricht'} zurückgesetzt, Code-Snapshot wiederhergestellt`,
+      revertBannerDesc: 'Nachfolgende Änderungen wurden atomar rückgängig gemacht.',
+      unrevertBtn: 'Wiederherstellen (Restore)',
+      reverting: 'Wird rückgängig gemacht...',
+      unreverting: 'Wird wiederhergestellt...',
+      hideModelUI: 'Modellauswahl ausblenden (Alt+M)',
+      showModelUI: 'Modellauswahl anzeigen (Alt+M)',
+      confirmUndoTitle: 'Rückgängigmachen bestätigen',
+      confirmUndoBtn: 'Bestätigen',
+      loadingDiff: 'Betroffene Dateien werden überprüft...',
+      noFilesAffected: 'Das Rückgängigmachen dieser Runde betrifft keine lokalen Dateien.',
+      rolledBackCount: (count: number) => `${count} zurückgesetzte Nachrichten`,
+      restoreMessage: 'Nachricht wiederherstellen',
+      restoringMessage: 'Wiederherstellung läuft...',
+      expandRolledBack: 'Zurückgesetzte Nachrichten anzeigen',
+      collapseRolledBack: 'Zurückgesetzte Nachrichten einklappen',
+      revertModeBothTitle: 'Code & Chat zurücksetzen (Standard)',
+      revertModeBothDesc: 'Stellt Dateien auf den Snapshot zurück und setzt den Chat-Verlauf zurück.',
+      revertModeConvOnlyTitle: 'Nur Chat zurücksetzen (Code behalten)',
+      revertModeConvOnlyDesc: 'Lokale Dateien bleiben unverändert. Setzt nur den Chat-Verlauf zurück.',
+      revertModeCodeOnlyTitle: 'Nur Code zurücksetzen (Chat behalten)',
+      revertModeCodeOnlyDesc: 'Stellt lokale Dateien auf den Snapshot zurück, behält aber den Chat-Verlauf bei.',
+      revertModeSummarizeTitle: 'Kontext zusammenfassen',
+      revertModeSummarizeDesc: 'Fasst den Kontext vor diesem Checkpoint mit KI zusammen, ohne Code zu verändern.',
+      noFilesModifiedBadge: 'In diesem Modus werden keine lokalen Dateien geändert.',
+      modelReportTitle: 'Modellantwort / Bericht',
+      expandReport: 'Ausklappen',
+      collapseReport: 'Einklappen',
+      expandFullReport: 'Vollständige Antwort anzeigen',
+      collapseFullReport: 'Vollständige Antwort einklappen',
+      clickToExpandReport: 'Klicken, um vollständige Antwort anzuzeigen',
+      expandPrompt: 'Prompt ausklappen',
+      collapsePrompt: 'Prompt einklappen',
+      copyPrompt: 'Prompt kopieren',
+      copyPromptSuccess: 'Kopiert!',
+      expandFullPrompt: 'Vollständigen Prompt anzeigen',
+      collapseFullPrompt: 'Vollständigen Prompt einklappen',
+      clickToExpandPrompt: 'Klicken, um vollständigen Prompt anzuzeigen',
+      thinkingProcess: 'Denkprozess des Modells (Thinking)',
+      switchSessionTitle: 'Klicken, um zu dieser Sitzung zu wechseln',
+    },
+    models: {
+      manageTitle: 'Modelle verwalten',
+      manageSubtitle: 'Auswählen, welche Modelle in der Modellauswahl erscheinen.',
+      searchPlaceholder: 'Modelle suchen',
+      connectProvider: 'Anbieter verbinden',
+      noModelsFound: 'Keine passenden Modelle gefunden',
+      manageBtn: 'Modelle verwalten',
+    },
+  },
 }
 
-export function getTranslations(lang: SupportedLanguage = 'zh-CN'): TranslationDictionary {
-  return translations[lang] || translations['zh-CN']
+export function getTranslations(lang: SupportedLanguage | string = 'zh-CN'): TranslationDictionary {
+  const resolved = resolveLanguage(lang)
+  return translations[resolved] || translations['zh-CN']
+}
+
+export interface MultilingualInput {
+  zh: string
+  en: string
+  de?: string
+}
+
+/**
+ * Universal bilingual / multilingual translation helper.
+ * Enforces both `zh` and `en` to be provided. German (`de`) is optional and falls back to `en` -> `zh`.
+ *
+ * Examples:
+ *   tr({ zh: '展开', en: 'Expand', de: 'Ausklappen' })
+ *   tr('展开', 'Expand', 'Ausklappen')
+ */
+export function tr(input: MultilingualInput, overrideLang?: SupportedLanguage): string
+export function tr(zh: string, en: string, de?: string, overrideLang?: SupportedLanguage): string
+export function tr(
+  first: MultilingualInput | string,
+  second?: string | SupportedLanguage,
+  third?: string,
+  fourth?: SupportedLanguage
+): string {
+  let zh = ''
+  let en = ''
+  let de: string | undefined
+  let targetLang: SupportedLanguage | undefined
+
+  if (typeof first === 'object' && first !== null) {
+    zh = first.zh
+    en = first.en
+    de = first.de
+    targetLang = second as SupportedLanguage | undefined
+  } else {
+    zh = first || ''
+    en = typeof second === 'string' ? second : ''
+    de = third
+    targetLang = fourth
+  }
+
+  const activeLang = targetLang || resolveLanguage(getPreferences().language)
+
+  if (activeLang === 'zh-CN') {
+    return zh
+  }
+  if (activeLang === 'de-DE') {
+    return de || en || zh
+  }
+  return en || zh
 }
 
 export function useI18n() {
   const { prefs, updatePreferences } = usePreferences()
-  const lang: SupportedLanguage = prefs.language || 'zh-CN'
-  const t = getTranslations(lang)
+  const preferenceLang = prefs.language || 'zh-CN'
+  const activeLang = resolveLanguage(preferenceLang)
+  const t = getTranslations(activeLang)
 
-  const setLanguage = (nextLang: SupportedLanguage) => {
+  const boundTr = (
+    first: MultilingualInput | string,
+    second?: string,
+    third?: string
+  ) => {
+    if (typeof first === 'object' && first !== null) {
+      return tr(first, activeLang)
+    }
+    return tr(first, second as string, third, activeLang)
+  }
+
+  const setLanguage = (nextLang: LanguagePreference) => {
     updatePreferences({ language: nextLang })
   }
 
   return {
-    lang,
+    lang: activeLang,
+    preferenceLang,
+    activeLang,
+    isZh: activeLang === 'zh-CN',
+    isEn: activeLang === 'en-US',
+    isDe: activeLang === 'de-DE',
     setLanguage,
     t,
+    tr: boundTr,
   }
 }
+

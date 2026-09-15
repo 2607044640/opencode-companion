@@ -12,21 +12,24 @@ import {
   ChevronRight,
   Copy,
   Check,
+  AlertCircle,
 } from 'lucide-react'
 import type { ToolPart } from '../../types/opencode'
 
 interface ToolCardProps {
   part: ToolPart
+  isLive?: boolean
 }
 
-export function ToolCard({ part }: ToolCardProps) {
+export function ToolCard({ part, isLive }: ToolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedSection, setCopiedSection] = useState<'input' | 'output' | null>(null)
 
   const { tool, state } = part
   const status = state?.status || 'completed'
-  const isRunning = status === 'running' || status === 'pending'
+  const isRunning = (isLive ?? true) && (status === 'running' || status === 'pending')
+  const isInterrupted = !(isLive ?? true) && (status === 'running' || status === 'pending')
   const isError = status === 'error'
 
   // Extract primary display info based on tool
@@ -103,6 +106,11 @@ export function ToolCard({ part }: ToolCardProps) {
             <span className="flex items-center gap-1 text-purple-400">
               <Loader2 className="w-3 h-3 animate-spin" />
               <span className="text-[10px]">Running</span>
+            </span>
+          ) : isInterrupted ? (
+            <span className="flex items-center gap-1 text-amber-400/90" title="Tool execution interrupted">
+              <AlertCircle className="w-3 h-3" />
+              <span className="text-[10px]">Interrupted</span>
             </span>
           ) : isError ? (
             <span className="flex items-center gap-1 text-rose-400">

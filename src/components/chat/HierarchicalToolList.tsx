@@ -16,13 +16,15 @@ import type { WorkGroup, ExploreItem, CommandItem, ThoughtItem } from '../../uti
 import { formatWorkedLabel } from '../../utils/worked-summary'
 import { EditRow } from './EditRow'
 import { ToolCard } from './ToolCard'
+import { tr } from '../../utils/i18n'
 
 interface HierarchicalToolListProps {
   groups: WorkGroup[]
   messageId?: string
+  isLive?: boolean
 }
 
-function ExploreGroupCard({ items }: { items: ExploreItem[] }) {
+function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: boolean }) {
   const [expanded, setExpanded] = useState(false)
 
   // Count unique files and search items
@@ -40,7 +42,7 @@ function ExploreGroupCard({ items }: { items: ExploreItem[] }) {
     summaryLabel = `Searched ${searchCount} ${searchCount === 1 ? 'query' : 'queries'}`
   }
 
-  const hasRunning = items.some((i) => i.status === 'running' || i.status === 'pending')
+  const hasRunning = (isLive ?? true) && items.some((i) => i.status === 'running' || i.status === 'pending')
   const hasError = items.some((i) => i.status === 'error')
 
   return (
@@ -118,8 +120,8 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Terminal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-          <span className="font-medium text-zinc-300 truncate">
-            Ran {items.length} {items.length === 1 ? 'command' : 'commands'}
+          <span className="font-medium text-zinc-300 truncate font-mono text-[11px]" title={items.length === 1 ? items[0].command : undefined}>
+            {items.length === 1 ? `Ran ${items[0].command}` : `Ran ${items.length} commands`}
           </span>
         </div>
 
@@ -147,17 +149,17 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
                     handleCopyCommand(cmd.partId, cmd.command)
                   }}
                   className="flex items-center gap-1 px-1.5 py-0.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 rounded transition-colors shrink-0"
-                  title="复制命令 (Copy command)"
+                  title={tr('复制命令 (Copy command)', 'Copy command', 'Befehl kopieren')}
                 >
                   {copiedCmdId === cmd.partId ? (
                     <>
                       <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                      <span className="text-[10px] text-emerald-400 font-sans">已复制</span>
+                      <span className="text-[10px] text-emerald-400 font-sans">{tr('已复制', 'Copied', 'Kopiert')}</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-3 h-3 shrink-0" />
-                      <span className="text-[10px] font-sans text-zinc-400">复制命令</span>
+                      <span className="text-[10px] font-sans text-zinc-400">{tr('复制命令', 'Copy command', 'Befehl kopieren')}</span>
                     </>
                   )}
                 </button>
@@ -177,17 +179,17 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
                         handleCopyOutput(cmd.partId, cmd.outputPreview)
                       }}
                       className="flex items-center gap-1 px-1.5 py-0.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/80 rounded transition-colors"
-                      title="复制输出 (Copy output)"
+                      title={tr('复制输出 (Copy output)', 'Copy output', 'Ausgabe kopieren')}
                     >
                       {copiedOutId === cmd.partId ? (
                         <>
                           <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                          <span className="text-[10px] text-emerald-400 font-sans">已复制</span>
+                          <span className="text-[10px] text-emerald-400 font-sans">{tr('已复制', 'Copied', 'Kopiert')}</span>
                         </>
                       ) : (
                         <>
                           <Copy className="w-3 h-3 shrink-0" />
-                          <span className="text-[10px] font-sans">复制输出</span>
+                          <span className="text-[10px] font-sans">{tr('复制输出', 'Copy output', 'Ausgabe kopieren')}</span>
                         </>
                       )}
                     </button>
@@ -205,11 +207,20 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
   )
 }
 
-function ThoughtGroupCard({ items, durationMs }: { items: ThoughtItem[]; durationMs: number }) {
+function ThoughtGroupCard({
+  items,
+  durationMs,
+  isLive,
+}: {
+  items: ThoughtItem[]
+  durationMs: number
+  isLive?: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
 
   const durationStr = durationMs > 0 ? formatWorkedLabel(durationMs, false).replace('Worked for ', '') : ''
-  const title = durationStr ? `Thought for ${durationStr}` : 'Thought process'
+  const title = durationStr ? `Thought for ${durationStr}` : 'Thought'
+  const hasText = items.some((th) => th.text.trim().length > 0)
 
   return (
     <div className="rounded border border-zinc-800/60 bg-zinc-900/40 overflow-hidden text-xs">
@@ -218,7 +229,7 @@ function ThoughtGroupCard({ items, durationMs }: { items: ThoughtItem[]; duratio
         className="flex items-center justify-between px-2.5 py-1.5 hover:bg-zinc-800/50 cursor-pointer select-none transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <Brain className={`w-3.5 h-3.5 ${isLive ? 'text-purple-400 animate-pulse' : 'text-purple-400/80'} shrink-0`} />
           <span className="font-medium text-purple-300 truncate">
             {title}
           </span>
@@ -231,19 +242,21 @@ function ThoughtGroupCard({ items, durationMs }: { items: ThoughtItem[]; duratio
 
       {expanded && (
         <div className="p-3 border-t border-zinc-800/50 bg-[#090b0d]/70 text-zinc-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto select-text cursor-text">
-          {items.map((th) => th.text).join('\n\n')}
+          {hasText
+            ? items.map((th) => th.text).filter(Boolean).join('\n\n')
+            : <span className="text-zinc-500 italic">(Thinking interrupted or empty)</span>}
         </div>
       )}
     </div>
   )
 }
 
-export function HierarchicalToolList({ groups, messageId }: HierarchicalToolListProps) {
+export function HierarchicalToolList({ groups, messageId, isLive }: HierarchicalToolListProps) {
   return (
     <div className="p-2 space-y-1.5 bg-[#0c0e11]/80">
       {groups.map((group, idx) => {
         if (group.kind === 'explore') {
-          return <ExploreGroupCard key={`explore_${idx}`} items={group.items} />
+          return <ExploreGroupCard key={`explore_${idx}`} items={group.items} isLive={isLive} />
         }
         if (group.kind === 'edit') {
           return <EditRow key={group.item.partId} item={group.item} messageId={messageId} />
@@ -257,6 +270,7 @@ export function HierarchicalToolList({ groups, messageId }: HierarchicalToolList
               key={`th_${idx}`}
               items={group.items}
               durationMs={group.durationMs}
+              isLive={isLive}
             />
           )
         }
@@ -264,7 +278,7 @@ export function HierarchicalToolList({ groups, messageId }: HierarchicalToolList
           return (
             <div key={`other_${idx}`} className="space-y-1">
               {group.items.map((ot) => (
-                <ToolCard key={ot.partId} part={ot.rawPart} />
+                <ToolCard key={ot.partId} part={ot.rawPart} isLive={isLive} />
               ))}
             </div>
           )

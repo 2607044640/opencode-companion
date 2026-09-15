@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react"
 import { MapCanvas, type MatchedSessionCard } from "./canvas/MapApp"
-import { Search, X, Maximize2, RefreshCw, FolderGit2, Wand2 } from "lucide-react"
+import { Search, X, Maximize2, RefreshCw, Wand2, Home, Network } from "lucide-react"
 import type { Project } from "../../types/opencode"
 import { isBlueprintReservedKey } from "./canvas/blueprint-hotkeys"
 
@@ -11,6 +11,7 @@ export interface FloatingMapModalProps {
   readonly onSelectSession: (sessionId: string) => void
   readonly projects?: Project[]
   readonly activeDirectory?: string
+  readonly targetSessionId?: string | null
 }
 
 export function FloatingMapModal(props: FloatingMapModalProps) {
@@ -51,6 +52,7 @@ export function FloatingMapModal(props: FloatingMapModalProps) {
             onSelectSession={props.onSelectSession}
             initialProjects={props.projects}
             activeDirectory={props.activeDirectory}
+            targetSessionId={props.targetSessionId}
           />
         </ReactFlowProvider>
       </div>
@@ -63,11 +65,13 @@ function FloatingMapContent({
   onSelectSession,
   initialProjects = [],
   activeDirectory,
+  targetSessionId,
 }: {
   readonly onClose: () => void
   readonly onSelectSession: (sessionId: string) => void
   readonly initialProjects?: Project[]
   readonly activeDirectory?: string
+  readonly targetSessionId?: string | null
 }) {
   const { fitView, setCenter } = useReactFlow()
   const [searchQuery, setSearchQuery] = useState("")
@@ -81,7 +85,8 @@ function FloatingMapContent({
     return source.filter((p) => p.worktree && p.worktree !== "/")
   }, [loadedProjects, initialProjects])
 
-  const selectedDirectory = selectedDirectoryOverride ?? activeDirectory ?? projects[0]?.worktree
+  void activeDirectory
+  const selectedDirectory = selectedDirectoryOverride ?? "all"
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true)
   const [layoutTrigger, setLayoutTrigger] = useState(0)
 
@@ -114,6 +119,19 @@ function FloatingMapContent({
     },
     [setCenter],
   )
+
+  // Auto-locate target session when specified
+  const targetLocatedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (targetSessionId && targetLocatedRef.current !== targetSessionId && matchedSessions.length > 0) {
+      const idx = matchedSessions.findIndex((s) => s.sessionId === targetSessionId)
+      if (idx >= 0) {
+        targetLocatedRef.current = targetSessionId
+        setActiveIndex(idx)
+        centerOnCard(matchedSessions[idx])
+      }
+    }
+  }, [targetSessionId, matchedSessions, centerOnCard])
 
   // Chinese IME Shield: composition listeners and state detection
   const handleCompositionStart = () => {
@@ -258,6 +276,19 @@ function FloatingMapContent({
         return
       }
 
+      // H or Home: Return view to conversation cards (Home view)
+      if (
+        !isSearchFocused &&
+        (e.key.toLowerCase() === "h" || e.key === "Home") &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        e.preventDefault()
+        fitView({ padding: 0.2, duration: 400 })
+        return
+      }
+
       // Lossless printable character redirection: typing anywhere on canvas focuses search input and inserts first character
       if (e.key.length === 1 && !isSearchFocused) {
         e.preventDefault()
@@ -278,7 +309,7 @@ function FloatingMapContent({
 
     window.addEventListener("keydown", handleGlobalKeyDown)
     return () => window.removeEventListener("keydown", handleGlobalKeyDown)
-  }, [centerOnCard, matchedSessions, onClose, onSelectSession, safeActiveIndex])
+  }, [centerOnCard, fitView, matchedSessions, onClose, onSelectSession, safeActiveIndex])
 
   const handleSelectSession = useCallback(
     (sessionId: string) => {
@@ -287,6 +318,10 @@ function FloatingMapContent({
     },
     [onSelectSession, onClose],
   )
+
+  const handleHome = useCallback(() => {
+    fitView({ padding: 0.2, duration: 400 })
+  }, [fitView])
 
   const handleFitView = useCallback(() => {
     fitView({ padding: 0.15, duration: 350 })
@@ -340,32 +375,44 @@ function FloatingMapContent({
           )}
         </div>
 
-        {/* Right: Project dropdown, Fit-View, Auto-Sync toggle, Close button */}
+        {/* Right: Blueprint Selector, Auto-Layout, Home, Fit-View, Auto-Sync toggle, Close button */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Project dropdown */}
-          {projects.length > 0 && (
-            <div className="flex items-center gap-1.5 bg-[#16181e] px-2 py-1 rounded-md border border-[#272a31]">
-              <FolderGit2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <select
-                value={selectedDirectory ?? ""}
-                onChange={(e) => {
-                  setSelectedDirectoryOverride(e.target.value)
-                  setActiveIndex(0)
-                }}
-                className="bg-transparent text-xs text-zinc-300 focus:outline-none cursor-pointer max-w-[160px] truncate"
-                title={selectedDirectory ?? "选择项目目录"}
-              >
-                {projects.map((p) => {
-                  const label = p.name || p.worktree.split("/").filter(Boolean).pop() || p.worktree
-                  return (
-                    <option key={p.id} value={p.worktree} className="bg-[#16181e] text-zinc-300">
-                      {label}
-                    </option>
-                  )
-                })}
-              </select>
-            </div>
-          )}
+          {/* Blueprint Selector (Unified / Custom Boards) */}
+          <div className="flex items-center gap-1.5 bg-[#16181e] px-2 py-1 rounded-md border border-[#272a31]">
+            <Network className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <select
+              value={selectedDirectory ?? "all"}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === "__create_new__") {
+                  const name = window.prompt("请输入新蓝图名称：", "")
+                  if (name && name.trim()) {
+                    setSelectedDirectoryOverride(name.trim())
+                  }
+                  return
+                }
+                setSelectedDirectoryOverride(val)
+                setActiveIndex(0)
+              }}
+              className="bg-transparent text-xs text-zinc-300 focus:outline-none cursor-pointer max-w-[160px] truncate"
+              title="切换蓝图"
+            >
+              <option value="all" className="bg-[#16181e] text-zinc-300">
+                主蓝图 (全部对话)
+              </option>
+              {projects.map((p) => {
+                const label = p.name || p.worktree.split("/").filter(Boolean).pop() || p.worktree
+                return (
+                  <option key={p.id} value={p.worktree} className="bg-[#16181e] text-zinc-300">
+                    项目: {label}
+                  </option>
+                )
+              })}
+              <option value="__create_new__" className="bg-[#16181e] text-sky-400 font-medium">
+                + 新建独立蓝图...
+              </option>
+            </select>
+          </div>
 
           {/* Auto-Layout button */}
           <button
@@ -375,6 +422,16 @@ function FloatingMapContent({
           >
             <Wand2 className="w-3.5 h-3.5 text-sky-400" />
             <span className="hidden sm:inline">整理蓝图</span>
+          </button>
+
+          {/* Home button (H key) */}
+          <button
+            onClick={handleHome}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[#272a31] bg-[#16181e] text-zinc-300 hover:text-zinc-100 hover:bg-[#1c1f26] transition-colors"
+            title="回到全部对话 (H)"
+          >
+            <Home className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">回到对话 (H)</span>
           </button>
 
           {/* Fit-View button */}

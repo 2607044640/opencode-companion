@@ -81,15 +81,14 @@ export async function addSessionToTalkMap(
   }
 
   const newCardId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-  const dirCards = Object.values(map.cards).filter(
-    (card) => card.directory === dir && !card.ghost,
-  )
-  const index = dirCards.length
+  const activeCards = Object.values(map.cards).filter((card) => !card.ghost)
+  const index = activeCards.length
   const position = {
     x: 60 + (index % 4) * 280,
     y: 60 + Math.floor(index / 4) * 160,
   }
 
+  const defaultBoard = map.boards.default || { cardIds: [], groupIds: [] }
   const next: TalkMap = {
     ...map,
     cards: {
@@ -105,10 +104,18 @@ export async function addSessionToTalkMap(
     },
     boards: {
       ...map.boards,
-      [dir]: {
-        cardIds: [...(map.boards[dir]?.cardIds || []), newCardId],
-        groupIds: map.boards[dir]?.groupIds || [],
+      default: {
+        ...defaultBoard,
+        cardIds: [...defaultBoard.cardIds, newCardId],
       },
+      ...(dir !== "default"
+        ? {
+            [dir]: {
+              cardIds: [...(map.boards[dir]?.cardIds || []), newCardId],
+              groupIds: map.boards[dir]?.groupIds || [],
+            },
+          }
+        : {}),
     },
   }
 

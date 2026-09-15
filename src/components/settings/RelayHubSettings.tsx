@@ -44,10 +44,10 @@ const PRESETS = [
     currency: 'USD' as const,
   },
   {
-    label: 'NovAI (Once) 站',
-    name: 'NovAI (Once)',
-    baseUrl: 'https://once-cf.novai.su',
-    redeemUrl: 'https://once-cf.novai.su',
+    label: '稳定中转 (Flash 3.7)',
+    name: '稳定中转 (Flash 3.7)',
+    baseUrl: 'https://xn--fiq104an1x80s.com',
+    redeemUrl: 'https://xn--fiq104an1x80s.com',
     currency: 'USD' as const,
   },
   {
@@ -546,7 +546,7 @@ export const RelayHubSettings: React.FC = () => {
                   <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end border-t md:border-t-0 pt-2 md:pt-0 border-[#1e222c]">
                     <div className="text-right">
                       <div className="text-sm font-mono font-bold text-emerald-400">
-                        {p.isUnmetered ? (p.note || '正常') : formatBalance(p.balance, p.currency)}
+                        {formatBalance(p.balance, p.currency)}
                       </div>
                       <div className="text-[10px] text-zinc-500">
                         {p.lastUpdated

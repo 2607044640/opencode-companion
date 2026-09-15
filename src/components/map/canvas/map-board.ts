@@ -69,12 +69,15 @@ export async function loadTalkBoard(input: {
     result.map,
     listed.map((session) => ({ sessionId: session.id, parentId: session.parentID })),
   )
-  const dirCards = Object.values(mapped.cards).filter((card) => card.directory === result.directory)
+  const dirCards =
+    result.directory === "all" || !result.directory
+      ? Object.values(mapped.cards)
+      : Object.values(mapped.cards).filter((card) => card.directory === result.directory)
   let finalMap = mapped
   if (shouldAutoLayoutCards(dirCards)) {
     const initialNodes = cardsToSessionNodes(
       mapped,
-      result.directory ?? "",
+      result.directory ?? "all",
       result.titles,
       result.running,
       result.updated,

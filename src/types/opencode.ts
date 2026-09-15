@@ -102,6 +102,19 @@ export interface MessageInfo {
     cwd?: string
     root?: string
   }
+  error?: {
+    name?: string
+    message?: string
+    statusCode?: number
+    data?: {
+      message?: string
+      statusCode?: number
+      responseBody?: string
+      isRetryable?: boolean
+      [key: string]: any
+    }
+    [key: string]: any
+  }
 }
 
 export interface BasePart {

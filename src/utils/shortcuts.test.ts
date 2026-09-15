@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_SHORTCUTS, matchesShortcut, getShortcuts, createDoubleTapTracker, isEditableTarget, hasActiveOverlay } from './shortcuts'
+import { DEFAULT_SHORTCUTS, matchesShortcut, isIMEActive, getShortcuts, createDoubleTapTracker, isEditableTarget, hasActiveOverlay } from './shortcuts'
 
 describe('shortcuts matching and registration', () => {
   it('DEFAULT_SHORTCUTS includes tab navigation and close tab shortcuts', () => {
@@ -219,5 +219,41 @@ describe('shortcuts matching and registration', () => {
       querySelector: (selector: string) => (selector.includes('[data-modal]') ? {} : null),
     } as unknown as Document
     assert.equal(hasActiveOverlay(dataModalDoc), true)
+  })
+
+  it('rejects Enter shortcut during IME composition (isComposing, keyCode 229, Process key)', () => {
+    const enterShortcut = { key: 'Enter', description: 'Send Message', label: 'Enter' }
+
+    // Standard Enter matches
+    const normalEnter = { key: 'Enter', code: 'Enter' } as KeyboardEvent
+    assert.equal(matchesShortcut(normalEnter, enterShortcut), true)
+
+    // IME composition state
+    const composingEnter = { key: 'Enter', code: 'Enter', isComposing: true } as unknown as KeyboardEvent
+    assert.equal(matchesShortcut(composingEnter, enterShortcut), false)
+
+    // Windows IME Process key
+    const processKeyEvent = { key: 'Process', code: 'Enter', keyCode: 229 } as unknown as KeyboardEvent
+    assert.equal(matchesShortcut(processKeyEvent, enterShortcut), false)
+
+    // nativeEvent isComposing
+    const nativeComposingEvent = { key: 'Enter', nativeEvent: { isComposing: true } } as unknown as KeyboardEvent
+    assert.equal(matchesShortcut(nativeComposingEvent, enterShortcut), false)
+  })
+
+  it('isIMEActive respects composition ref and post-composition cooldown', () => {
+    const normalEvent = { key: 'Enter', keyCode: 13 } as unknown as KeyboardEvent
+    assert.equal(isIMEActive(normalEvent, false, 0), false)
+
+    // Composing via ref
+    assert.equal(isIMEActive(normalEvent, true, 0), true)
+
+    // Within 60ms cooldown
+    const recentEndTime = Date.now() - 20
+    assert.equal(isIMEActive(normalEvent, false, recentEndTime, 60), true)
+
+    // Past 60ms cooldown
+    const oldEndTime = Date.now() - 100
+    assert.equal(isIMEActive(normalEvent, false, oldEndTime, 60), false)
   })
 })

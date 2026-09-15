@@ -4,6 +4,9 @@ import {
   calculatePopoverPosition,
   isValidTextSelection,
   isNodeInsideContainer,
+  shouldDismissOnEscape,
+  shouldDismissOnMouseDownOutside,
+  shouldDismissOnCollapsedSelection,
 } from './selection-copy'
 
 describe('selection-copy utility tests', () => {
@@ -126,4 +129,47 @@ describe('selection-copy utility tests', () => {
       assert.equal(isNodeInsideContainer({} as unknown as Node, container), false)
     })
   })
+
+  describe('shouldDismissOnEscape', () => {
+    it('returns true when key is Escape and popover is visible', () => {
+      assert.equal(shouldDismissOnEscape('Escape', true), true)
+    })
+
+    it('returns false when key is not Escape or popover is not visible', () => {
+      assert.equal(shouldDismissOnEscape('Enter', true), false)
+      assert.equal(shouldDismissOnEscape('Escape', false), false)
+      assert.equal(shouldDismissOnEscape('ArrowDown', false), false)
+    })
+  })
+
+  describe('shouldDismissOnMouseDownOutside', () => {
+    it('returns true when mousedown occurs outside popover and popover is visible', () => {
+      assert.equal(shouldDismissOnMouseDownOutside(false, true), true)
+    })
+
+    it('returns false when clicking inside popover', () => {
+      assert.equal(shouldDismissOnMouseDownOutside(true, true), false)
+      assert.equal(shouldDismissOnMouseDownOutside(true, false), false)
+    })
+
+    it('returns false when popover is not visible', () => {
+      assert.equal(shouldDismissOnMouseDownOutside(false, false), false)
+    })
+  })
+
+  describe('shouldDismissOnCollapsedSelection', () => {
+    it('returns true when selection is collapsed and not copied', () => {
+      assert.equal(shouldDismissOnCollapsedSelection(true, false), true)
+    })
+
+    it('returns false when selection is not collapsed', () => {
+      assert.equal(shouldDismissOnCollapsedSelection(false, false), false)
+      assert.equal(shouldDismissOnCollapsedSelection(false, true), false)
+    })
+
+    it('returns false when selection is collapsed but in copied state (preserving auto-dismiss)', () => {
+      assert.equal(shouldDismissOnCollapsedSelection(true, true), false)
+    })
+  })
 })
+

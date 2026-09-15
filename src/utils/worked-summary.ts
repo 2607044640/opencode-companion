@@ -106,6 +106,10 @@ export interface WorkedTurn {
   hasWork: boolean
   durationMs: number
   isLive: boolean
+  isAborted?: boolean
+  finish?: string
+  createdTime?: number
+  completedTime?: number
   answerParts: TextPart[]
   fileParts: FilePart[]
   groups: WorkGroup[]
@@ -115,9 +119,14 @@ export interface WorkedTurn {
 
 /**
  * Format duration label per Prometheus spec:
- * "Worked for 32s", "Worked for 4m", "Working for 12s"
+ * "Worked for 32s", "Worked for 4m", "Working for 12s", "Worked for 32s (Aborted)"
  */
-export function formatWorkedLabel(ms: number, isLive: boolean): string {
+export function formatWorkedLabel(
+  ms: number,
+  isLive: boolean,
+  finish?: string,
+  isAborted?: boolean
+): string {
   const sec = Math.max(0, Math.round(ms / 1000))
   let body = ''
   if (sec < 60) {
@@ -127,7 +136,13 @@ export function formatWorkedLabel(ms: number, isLive: boolean): string {
     const rem = sec % 60
     body = rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
   }
-  return isLive ? `Working for ${body}` : `Worked for ${body}`
+  if (isLive) {
+    return `Working for ${body}`
+  }
+  if (finish === 'abort' || isAborted) {
+    return `Worked for ${body} (Aborted)`
+  }
+  return `Worked for ${body}`
 }
 
 /**
@@ -291,61 +306,26 @@ function splitThinkTags(raw: string): { thoughts: string[]; cleanText: string } 
 export function partitionAssistantTurn(
   parts: MessagePart[],
   info?: MessageInfo,
-  now = Date.now()
+  now = Date.now(),
+  isSessionBusy?: boolean
 ): WorkedTurn {
   const answerParts: TextPart[] = []
   const fileParts: FilePart[] = []
-  const rawWorkParts: MessagePart[] = []
-  const extraThoughts: ThoughtItem[] = []
-
-  for (const part of parts) {
-    if (part.type === 'text') {
-      const text = (part as TextPart).text || ''
-      const { thoughts, cleanText } = splitThinkTags(text)
-      thoughts.forEach((th, idx) => {
-        extraThoughts.push({
-          partId: `${part.id}_think_${idx}`,
-          text: th,
-        })
-      })
-      if (cleanText.trim()) {
-        answerParts.push({
-          ...(part as TextPart),
-          text: cleanText,
-        })
-      }
-    } else if (part.type === 'file') {
-      fileParts.push(part as FilePart)
-    } else if (part.type === 'tool' || part.type === 'reasoning') {
-      rawWorkParts.push(part)
-    }
-  }
-
-  const hasWork = rawWorkParts.length > 0 || extraThoughts.length > 0
-
-  if (!hasWork) {
-    return {
-      hasWork: false,
-      durationMs: 0,
-      isLive: false,
-      answerParts,
-      fileParts,
-      groups: [],
-      totalWorkItems: 0,
-      hasError: false,
-    }
-  }
-
   const groups: WorkGroup[] = []
 
-  // Prepend any thoughts extracted from <think> tags
-  if (extraThoughts.length > 0) {
-    groups.push({
-      kind: 'thought',
-      items: extraThoughts,
-      durationMs: 0,
-      collapsedDefault: true,
-    })
+  // Find the index of the last tool part across all parts and detect any open tools
+  let lastToolIndex = -1
+  let hasOpenTools = false
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (parts[i].type === 'tool') {
+      if (lastToolIndex === -1) {
+        lastToolIndex = i
+      }
+      const tp = parts[i] as ToolPart
+      if (tp.state?.status === 'pending' || tp.state?.status === 'running') {
+        hasOpenTools = true
+      }
+    }
   }
 
   let currentExploreGroup: { kind: 'explore'; items: ExploreItem[]; collapsedDefault: true } | null = null
@@ -372,7 +352,14 @@ export function partitionAssistantTurn(
     }
   }
 
-  for (const part of rawWorkParts) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+
+    if (part.type === 'file') {
+      fileParts.push(part as FilePart)
+      continue
+    }
+
     if (part.type === 'reasoning') {
       const rp = part as ReasoningPart
       const durationMs =
@@ -393,6 +380,80 @@ export function partitionAssistantTurn(
           items: [thoughtItem],
           durationMs,
           collapsedDefault: true,
+        }
+      }
+      continue
+    }
+
+    if (part.type === 'text') {
+      const tp = part as TextPart
+      const rawText = tp.text || ''
+      if (!rawText.trim()) continue
+
+      // If this text occurred BEFORE or BETWEEN tool executions (i < lastToolIndex),
+      // OR if tools are still actively running/pending, it is intermediate reasoning/monologue.
+      const isIntermediateMonologue =
+        lastToolIndex !== -1 && (i < lastToolIndex || hasOpenTools)
+
+      if (isIntermediateMonologue) {
+        const { thoughts, cleanText } = splitThinkTags(rawText)
+        const monologueItems: string[] = [...thoughts]
+        if (cleanText.trim()) {
+          monologueItems.push(cleanText.trim())
+        }
+
+        for (let idx = 0; idx < monologueItems.length; idx++) {
+          const thText = monologueItems[idx]
+          const thoughtItem: ThoughtItem = {
+            partId: `${part.id}_thought_${idx}`,
+            text: thText,
+            durationMs: 0,
+          }
+
+          if (currentThoughtGroup) {
+            currentThoughtGroup.items.push(thoughtItem)
+          } else {
+            flushCurrent()
+            currentThoughtGroup = {
+              kind: 'thought',
+              items: [thoughtItem],
+              durationMs: 0,
+              collapsedDefault: true,
+            }
+          }
+        }
+      } else {
+        // Text occurring AFTER all tool executions (or turn with no tools).
+        // Extract any <think> tags to thought stream, and remaining text is the FINAL REPORT!
+        const { thoughts, cleanText } = splitThinkTags(rawText)
+        if (thoughts.length > 0) {
+          for (let idx = 0; idx < thoughts.length; idx++) {
+            const thText = thoughts[idx]
+            const thoughtItem: ThoughtItem = {
+              partId: `${part.id}_think_${idx}`,
+              text: thText,
+              durationMs: 0,
+            }
+
+            if (currentThoughtGroup) {
+              currentThoughtGroup.items.push(thoughtItem)
+            } else {
+              flushCurrent()
+              currentThoughtGroup = {
+                kind: 'thought',
+                items: [thoughtItem],
+                durationMs: 0,
+                collapsedDefault: true,
+              }
+            }
+          }
+        }
+
+        if (cleanText.trim()) {
+          answerParts.push({
+            ...tp,
+            text: cleanText,
+          })
         }
       }
       continue
@@ -502,39 +563,100 @@ export function partitionAssistantTurn(
 
   flushCurrent()
 
-  // Duration calculation
-  let durationMs = 0
+  // Check abort and completion signals
+  const isAborted =
+    info?.finish === 'abort' ||
+    info?.error?.name === 'MessageAbortedError' ||
+    info?.error?.data?.message === 'Aborted'
+
+  const hasFinishSignal = Boolean(info?.finish)
+  const hasErrorInfo = Boolean(info?.error)
+  const isExplicitlyDone = hasFinishSignal || hasErrorInfo || Boolean(info?.time?.completed)
+
+  const hasRunningTools = parts.some(
+    (p) =>
+      p.type === 'tool' &&
+      ((p as ToolPart).state?.status === 'running' || (p as ToolPart).state?.status === 'pending')
+  )
+
   const created = info?.time?.created
   const completed = info?.time?.completed
 
+  // A turn is live ONLY IF:
+  // 1. It is not explicitly done (not finished, aborted, or errored, and completed time not set)
+  // 2. The session is not explicitly idle (isSessionBusy is not false)
+  // 3. Either tools are currently running/pending, OR it was created without a completion time in a busy session
+  const isLive =
+    !isExplicitlyDone &&
+    isSessionBusy !== false &&
+    (hasRunningTools || (Boolean(created) && !completed))
+
+  // Duration calculation
+  let durationMs = 0
   if (created && completed) {
     durationMs = Math.max(0, completed - created)
-  } else if (created && !completed) {
+  } else if (isLive && created) {
     durationMs = Math.max(0, now - created)
   } else {
-    // Fallback sum of tool/thought times
-    let sumMs = 0
-    for (const g of groups) {
-      if (g.kind === 'thought') sumMs += g.durationMs
-      else if (g.kind === 'edit') {
-        const t = g.item.rawPart.state?.time
-        if (t?.start && t?.end) sumMs += Math.max(0, t.end - t.start)
+    // For finished/aborted/stalled turns without completed timestamp:
+    // Determine the latest timestamp recorded across all parts
+    let latestPartTime = created || 0
+    for (const p of parts) {
+      if (p.type === 'tool') {
+        const tp = p as ToolPart
+        const t = tp.state?.time
+        if (t?.end && t.end > latestPartTime) latestPartTime = t.end
+        else if (t?.start && t.start > latestPartTime) latestPartTime = t.start
+      } else if (p.type === 'reasoning') {
+        const rp = p as ReasoningPart
+        const t = rp.time
+        if (t?.end && t.end > latestPartTime) latestPartTime = t.end
+        else if (t?.start && t.start > latestPartTime) latestPartTime = t.start
+      } else if (p.type === 'text') {
+        const tp = p as any
+        const t = tp.time
+        if (t?.end && t.end > latestPartTime) latestPartTime = t.end
+        else if (t?.start && t.start > latestPartTime) latestPartTime = t.start
       }
     }
-    durationMs = sumMs
+
+    if (created && latestPartTime > created) {
+      durationMs = Math.max(0, latestPartTime - created)
+    } else {
+      // Fallback sum of tool/thought times
+      let sumMs = 0
+      for (const g of groups) {
+        if (g.kind === 'thought') sumMs += g.durationMs
+        else if (g.kind === 'edit') {
+          const t = g.item.rawPart.state?.time
+          if (t?.start && t?.end) sumMs += Math.max(0, t.end - t.start)
+        }
+      }
+      durationMs = sumMs
+    }
   }
 
-  const isLive =
-    rawWorkParts.some(
-      (p) =>
-        p.type === 'tool' &&
-        ((p as ToolPart).state?.status === 'running' || (p as ToolPart).state?.status === 'pending')
-    ) || (Boolean(created) && !completed)
+  const hasWork = groups.length > 0 || fileParts.length > 0
+
+  if (!hasWork) {
+    return {
+      hasWork: false,
+      durationMs: isLive ? durationMs : 0,
+      isLive,
+      answerParts,
+      fileParts,
+      groups: [],
+      totalWorkItems: 0,
+      hasError: false,
+    }
+  }
 
   const hasError =
-    rawWorkParts.some(
+    (Boolean(info?.error) && !isAborted) ||
+    parts.some(
       (p) => p.type === 'tool' && (p as ToolPart).state?.status === 'error'
-    ) || groups.some((g) => g.kind === 'edit' && g.item.toolStatus === 'error')
+    ) ||
+    groups.some((g) => g.kind === 'edit' && g.item.toolStatus === 'error')
 
   let totalWorkItems = 0
   for (const g of groups) {
@@ -546,6 +668,10 @@ export function partitionAssistantTurn(
     hasWork,
     durationMs,
     isLive,
+    isAborted,
+    finish: info?.finish,
+    createdTime: created,
+    completedTime: completed,
     answerParts,
     fileParts,
     groups,

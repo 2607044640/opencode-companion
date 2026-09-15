@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { CheckSquare, ChevronUp, ChevronDown, CheckCircle2, Circle } from 'lucide-react'
+import { CheckSquare, ChevronUp, ChevronDown, CheckCircle2, Circle, X } from 'lucide-react'
 import type { TodoItem } from '../../types/opencode'
+export { TodoButton } from './TodoButton'
 
 interface TodoBannerProps {
   todos: TodoItem[]
@@ -9,8 +10,9 @@ interface TodoBannerProps {
 
 export function TodoBanner({ todos, isZenMode }: TodoBannerProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [isDismissed, setIsDismissed] = useState(false)
 
-  if (!todos || todos.length === 0) return null
+  if (isDismissed || !todos || todos.length === 0) return null
 
   const total = todos.length
   const completedCount = todos.filter(
@@ -25,7 +27,7 @@ export function TodoBanner({ todos, isZenMode }: TodoBannerProps) {
       className={
         isZenMode
           ? 'w-full select-none opacity-60 hover:opacity-100 transition-all duration-300'
-          : 'max-w-4xl mx-auto w-full px-4 mb-2 select-none'
+          : 'mx-auto w-full px-4 sm:px-6 lg:px-8 mb-2 select-none max-w-4xl xl:max-w-5xl'
       }
     >
       <div
@@ -52,9 +54,30 @@ export function TodoBanner({ todos, isZenMode }: TodoBannerProps) {
             )}
           </div>
 
-          <button className="text-zinc-400 hover:text-zinc-200 shrink-0 ml-2">
-            {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-          </button>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsExpanded(!isExpanded)
+              }}
+              className="text-zinc-400 hover:text-zinc-200 p-0.5 rounded cursor-pointer"
+              title={isExpanded ? '收起' : '展开'}
+            >
+              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsDismissed(true)
+              }}
+              className="text-zinc-400 hover:text-zinc-200 p-0.5 rounded cursor-pointer"
+              title="隐藏"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Expanded Todo Items List */}

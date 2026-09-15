@@ -10,8 +10,12 @@ import type {
   TodoItem,
   Session,
 } from '../types/opencode'
-import { api, normalizeMessageInfo, normalizeMessagePart } from '../services/api'
+import { api, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage } from '../services/api'
 import { sseManager } from '../services/sse'
+import { classifyEmptyIdleFuse } from './empty-idle-fuse'
+import { maybeCommitGitCheckpoint } from '../utils/maybe-git-checkpoint'
+import { postExternalFileRollback } from '../services/host-api'
+import { executeRevertWithTimeout, withRevertTimeout, type RevertMode as EngineRevertMode } from '../utils/revert-engine'
 
 export interface PromptAttachment {
   id?: string
@@ -20,7 +24,7 @@ export interface PromptAttachment {
   url: string
 }
 
-export type RevertMode = 'both' | 'conversation_only' | 'code_only' | 'summarize'
+export type RevertMode = EngineRevertMode
 
 export function useChatStream(
   sessionId: string | null,
@@ -41,6 +45,7 @@ export function useChatStream(
   // Track the ID of the pending optimistic user message so we can swap it with the
   // real backend message when SSE fires — prevents the "sent twice" duplicate bug.
   const pendingOptimisticIdRef = useRef<string | null>(null)
+  const userAbortedRef = useRef(false)
 
   // Load initial messages and todos when sessionId changes
   const loadSessionData = useCallback(async (id: string) => {
@@ -64,6 +69,7 @@ export function useChatStream(
   useEffect(() => {
     setSessionStatus({ type: 'idle' })
     setError(null)
+    userAbortedRef.current = false
 
     if (!sessionId || sessionId === '__draft__') {
       setMessages([])
@@ -260,17 +266,81 @@ export function useChatStream(
     const unsubError = sseManager.onSessionError((data) => {
       if (data.sessionID !== sessionId) return
       setSessionStatus({ type: 'idle' })
-      const errorMsg =
-        data.error?.data?.message ||
-        data.error?.message ||
-        (typeof data.error === 'string' ? data.error : 'Session error occurred')
+      const errorMsg = extractRelayErrorMessage(data.error) || 'Session error occurred'
       setError(errorMsg)
+
+      // Attach error directly to the last assistant message so it renders inside the message bubble
+      setMessages((prev) => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        if (last.info.role === 'assistant' && !last.info.error) {
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              info: {
+                ...last.info,
+                error: {
+                  name: data.error?.name || 'SessionError',
+                  message: errorMsg,
+                  data: data.error?.data || {},
+                },
+              },
+            },
+          ]
+        }
+        return prev
+      })
     })
 
-    // Safely finalize to idle when backend signals session.idle
+    // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
     const unsubIdle = sseManager.onSessionIdle((data) => {
       if (data.sessionID !== sessionId) return
       setSessionStatus({ type: 'idle' })
+
+      const currentMsgs = messagesRef.current
+      const lastMsg = currentMsgs[currentMsgs.length - 1]
+      const fuse = classifyEmptyIdleFuse({
+        lastMessage: lastMsg,
+        userAborted: userAbortedRef.current,
+      })
+      userAbortedRef.current = false
+      if (fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
+        void maybeCommitGitCheckpoint(sessionId, currentMsgs)
+      }
+      if ((fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg) {
+        const errorMsg = lastMsg.info.error
+          ? extractRelayErrorMessage(lastMsg.info.error)
+          : fuse.message
+        setError(errorMsg)
+        setMessages((prev) => {
+          if (prev.length === 0) return prev
+          const last = prev[prev.length - 1]
+          if (last.info.id === lastMsg.info.id && !last.info.error) {
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...last,
+                info: {
+                  ...last.info,
+                  error: {
+                    name: fuse.errorName,
+                    message: errorMsg,
+                    data: { message: errorMsg, kind: fuse.kind },
+                  },
+                },
+              },
+            ]
+          }
+          return prev
+        })
+      }
+    })
+
+    // Subscribe to message.removed to synchronize deletions
+    const unsubRemoved = sseManager.onMessageRemoved((data) => {
+      if (data.sessionID !== sessionId) return
+      setMessages((prev) => prev.filter((m) => m.info.id !== data.messageID))
     })
 
     const unsubTodo = sseManager.on('todo.updated', (data: any) => {
@@ -287,6 +357,7 @@ export function useChatStream(
       unsubError()
       unsubIdle()
       unsubTodo()
+      unsubRemoved()
     }
   }, [sessionId, loadSessionData])
 
@@ -347,6 +418,7 @@ export function useChatStream(
 
       setMessages((prev) => [...prev, userMsg])
       pendingOptimisticIdRef.current = userMsgId
+      userAbortedRef.current = false
       setSessionStatus({ type: 'busy' })
       setError(null)
 
@@ -384,6 +456,7 @@ export function useChatStream(
 
   const abort = useCallback(async () => {
     if (!sessionId) return
+    userAbortedRef.current = true
     try {
       await api.abortSession(sessionId)
       setSessionStatus({ type: 'idle' })
@@ -394,29 +467,71 @@ export function useChatStream(
 
   const retry = useCallback(async () => {
     setError(null)
-    const userMsgs = messagesRef.current.filter((m) => m.info.role === 'user')
-    const lastUserMsg = userMsgs[userMsgs.length - 1]
-    if (lastUserMsg) {
-      const textParts = lastUserMsg.parts.filter((p) => p.type === 'text') as TextPart[]
-      const fileParts = lastUserMsg.parts.filter((p) => p.type === 'file') as FilePart[]
-      const text = textParts.map((p) => p.text).join('\n')
-      const attachments = fileParts.map((f) => ({
-        id: f.id,
-        name: f.filename,
-        mime: f.mime,
-        url: f.url,
-      }))
-      await sendPrompt(text, {
-        agent: lastUserMsg.info.agent,
-        model: lastUserMsg.info.model ? {
-          providerID: lastUserMsg.info.model.providerID,
-          modelID: lastUserMsg.info.model.modelID,
-        } : undefined,
-        attachments,
-      })
-    } else if (sessionId) {
-      await loadSessionData(sessionId)
+    if (!sessionId) return
+
+    const msgs = messagesRef.current
+    let lastUserIndex = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].info.role === 'user') {
+        lastUserIndex = i
+        break
+      }
     }
+
+    if (lastUserIndex === -1) {
+      await loadSessionData(sessionId)
+      return
+    }
+
+    const lastUserMsg = msgs[lastUserIndex]
+    const subsequentAssistantMsgs = msgs.slice(lastUserIndex + 1).filter((m) => m.info.role === 'assistant')
+
+    // 1. Physically delete failed/empty assistant messages from backend SQLite
+    for (const aMsg of subsequentAssistantMsgs) {
+      try {
+        await api.deleteMessage(sessionId, aMsg.info.id)
+      } catch (err) {
+        console.warn(`[Retry] Failed to delete assistant message ${aMsg.info.id}:`, err)
+      }
+    }
+
+    // 2. Also delete the old user message from backend SQLite to prevent duplicate user turns
+    try {
+      await api.deleteMessage(sessionId, lastUserMsg.info.id)
+    } catch (err) {
+      console.warn(`[Retry] Failed to delete user message ${lastUserMsg.info.id}:`, err)
+    }
+
+    // 3. Immediately strip the failed assistant messages and old user message locally
+    setMessages((prev) =>
+      prev.filter((m) => {
+        if (m.info.id === lastUserMsg.info.id) return false
+        if (subsequentAssistantMsgs.some((a) => a.info.id === m.info.id)) return false
+        return true
+      })
+    )
+
+    // 4. Re-dispatch the prompt cleanly without residue
+    const textParts = lastUserMsg.parts.filter((p) => p.type === 'text') as TextPart[]
+    const fileParts = lastUserMsg.parts.filter((p) => p.type === 'file') as FilePart[]
+    const text = textParts.map((p) => p.text).join('\n')
+    const attachments = fileParts.map((f) => ({
+      id: f.id,
+      name: f.filename,
+      mime: f.mime,
+      url: f.url,
+    }))
+
+    await sendPrompt(text, {
+      agent: lastUserMsg.info.agent,
+      model: lastUserMsg.info.model
+        ? {
+            providerID: lastUserMsg.info.model.providerID,
+            modelID: lastUserMsg.info.model.modelID,
+          }
+        : undefined,
+      attachments,
+    })
   }, [sessionId, sendPrompt, loadSessionData])
 
   const [reverting, setReverting] = useState<boolean>(false)
@@ -431,34 +546,24 @@ export function useChatStream(
     ) => {
       if (!sessionId) return { ok: false, error: 'No active session' }
       setReverting(true)
-      const mode = options?.mode || 'both'
       try {
-        if (mode === 'summarize') {
-          await api.summarizeSession(sessionId)
-          await loadSessionData(sessionId)
-          return { ok: true }
-        }
-
-        if (mode === 'code_only') {
-          // Revert disk snapshot, then clear conversation boundary so messages remain visible
-          await api.revertSession(sessionId, messageId, { files: true, partID: options?.partID })
-          const clearedSession = await api.unrevertSession(sessionId)
-          onSessionUpdate?.(sessionId, { revert: undefined })
-          await loadSessionData(sessionId)
-          return { ok: true, session: clearedSession }
-        }
-
-        const files = mode !== 'conversation_only'
-        const updatedSession = await api.revertSession(sessionId, messageId, {
-          files,
-          partID: options?.partID,
-        })
-        onSessionUpdate?.(sessionId, { revert: updatedSession.revert })
-        await loadSessionData(sessionId)
-        return { ok: true, session: updatedSession }
-      } catch (err) {
-        console.error('Failed to revert message:', err)
-        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+        return await executeRevertWithTimeout(
+          {
+            sessionId,
+            messageId,
+            mode: options?.mode || 'both',
+            partID: options?.partID,
+            messages: messagesRef.current,
+          },
+          {
+            revertSession: (id, msgId, opts) => api.revertSession(id, msgId, opts),
+            unrevertSession: (id) => api.unrevertSession(id),
+            summarizeSession: (id) => api.summarizeSession(id),
+            rollbackFiles: (actions) => postExternalFileRollback(actions),
+            reloadSession: (id) => loadSessionData(id),
+            onSessionUpdate,
+          }
+        )
       } finally {
         setReverting(false)
       }
@@ -473,7 +578,7 @@ export function useChatStream(
     if (!sessionId) return { ok: false, error: 'No active session' }
     setReverting(true)
     try {
-      const updatedSession = await api.unrevertSession(sessionId)
+      const updatedSession = await withRevertTimeout(api.unrevertSession(sessionId))
       onSessionUpdate?.(sessionId, { revert: undefined })
       await loadSessionData(sessionId)
       return { ok: true, session: updatedSession }

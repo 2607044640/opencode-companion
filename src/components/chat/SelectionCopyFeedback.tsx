@@ -4,6 +4,9 @@ import {
   calculatePopoverPosition,
   isValidTextSelection,
   isNodeInsideContainer,
+  shouldDismissOnEscape,
+  shouldDismissOnMouseDownOutside,
+  shouldDismissOnCollapsedSelection,
   type PopoverPosition,
 } from './selection-copy'
 
@@ -12,11 +15,14 @@ export interface SelectionCopyFeedbackProps {
   containerRef?: React.RefObject<HTMLElement | null>
   /** Auto-dismiss duration in milliseconds after copy (default: 1000ms / 1s) */
   durationMs?: number
+  /** Active session ID to auto-dismiss on session switch */
+  sessionId?: string
 }
 
 export function SelectionCopyFeedback({
   containerRef,
   durationMs = 1000,
+  sessionId,
 }: SelectionCopyFeedbackProps) {
   const [isVisible, setIsVisible] = useState(false)
   const [isCopied, setIsCopied] = useState(false)
@@ -24,10 +30,12 @@ export function SelectionCopyFeedback({
   const [position, setPosition] = useState<PopoverPosition | null>(null)
 
   const popoverRef = useRef<HTMLDivElement>(null)
+  const isVisibleRef = useRef(false)
   const isCopiedRef = useRef(false)
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentRangeRef = useRef<Range | null>(null)
 
+  isVisibleRef.current = isVisible
   isCopiedRef.current = isCopied
 
   const clearDismissTimer = useCallback(() => {
@@ -36,6 +44,14 @@ export function SelectionCopyFeedback({
       dismissTimerRef.current = null
     }
   }, [])
+
+  const dismiss = useCallback(() => {
+    clearDismissTimer()
+    setIsVisible(false)
+    setIsCopied(false)
+    currentRangeRef.current = null
+    setPosition(null)
+  }, [clearDismissTimer])
 
   // Recalculate position from current selection range
   const updatePositionFromRange = useCallback(
@@ -72,28 +88,38 @@ export function SelectionCopyFeedback({
     setIsVisible(true)
 
     dismissTimerRef.current = setTimeout(() => {
-      setIsVisible(false)
-      setIsCopied(false)
-      currentRangeRef.current = null
+      dismiss()
     }, durationMs)
-  }, [clearDismissTimer, durationMs])
+  }, [clearDismissTimer, dismiss, durationMs])
+
+  // Cleanup timer strictly on unmount
+  useEffect(() => {
+    return () => {
+      clearDismissTimer()
+    }
+  }, [clearDismissTimer])
+
+  // Dismiss immediately when active session switches
+  useEffect(() => {
+    if (sessionId) {
+      dismiss()
+    }
+  }, [sessionId, dismiss])
 
   // Check text selection in DOM
   const checkSelection = useCallback(() => {
     const selection = window.getSelection()
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-      if (!isCopiedRef.current) {
-        setIsVisible(false)
-        currentRangeRef.current = null
-      }
+    const isCollapsed = !selection || selection.isCollapsed || selection.rangeCount === 0
+    if (shouldDismissOnCollapsedSelection(isCollapsed, isCopiedRef.current)) {
+      dismiss()
       return
     }
+    if (isCollapsed) return
 
     const text = selection.toString()
     if (!isValidTextSelection(text, document.activeElement)) {
       if (!isCopiedRef.current) {
-        setIsVisible(false)
-        currentRangeRef.current = null
+        dismiss()
       }
       return
     }
@@ -105,8 +131,7 @@ export function SelectionCopyFeedback({
       const commonNode = range.commonAncestorContainer
       if (!isNodeInsideContainer(commonNode, containerRef.current)) {
         if (!isCopiedRef.current) {
-          setIsVisible(false)
-          currentRangeRef.current = null
+          dismiss()
         }
         return
       }
@@ -116,7 +141,7 @@ export function SelectionCopyFeedback({
     const valid = updatePositionFromRange(range)
     if (!valid) {
       if (!isCopiedRef.current) {
-        setIsVisible(false)
+        dismiss()
       }
       return
     }
@@ -126,7 +151,7 @@ export function SelectionCopyFeedback({
       setIsVisible(true)
       setIsCopied(false)
     }
-  }, [containerRef, updatePositionFromRange])
+  }, [containerRef, updatePositionFromRange, dismiss])
 
   // Handle user clicking the floating copy button
   const handleCopyClick = async (e: React.MouseEvent) => {
@@ -157,7 +182,10 @@ export function SelectionCopyFeedback({
   }
 
   useEffect(() => {
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      if (popoverRef.current && popoverRef.current.contains(e.target as Node)) {
+        return
+      }
       // Brief timeout to let the browser finalize selection range
       setTimeout(checkSelection, 20)
     }
@@ -168,14 +196,16 @@ export function SelectionCopyFeedback({
       }
     }
 
-    const handleMouseDown = (e: MouseEvent) => {
-      // If clicked inside the popover itself, do not hide
-      if (popoverRef.current && popoverRef.current.contains(e.target as Node)) {
-        return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (shouldDismissOnEscape(e.key, isVisibleRef.current)) {
+        dismiss()
       }
-      if (!isCopiedRef.current) {
-        setIsVisible(false)
-        currentRangeRef.current = null
+    }
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const isInside = Boolean(popoverRef.current && popoverRef.current.contains(e.target as Node))
+      if (shouldDismissOnMouseDownOutside(isInside, isVisibleRef.current)) {
+        dismiss()
       }
     }
 
@@ -206,29 +236,30 @@ export function SelectionCopyFeedback({
     }
 
     const handleScroll = () => {
-      if (currentRangeRef.current && isVisible) {
+      if (currentRangeRef.current && isVisibleRef.current) {
         const valid = updatePositionFromRange(currentRangeRef.current)
-        if (!valid && !isCopiedRef.current) {
-          setIsVisible(false)
+        if (!valid) {
+          dismiss()
         }
       }
     }
 
     document.addEventListener('mouseup', handleMouseUp)
     document.addEventListener('keyup', handleKeyUp)
+    document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('mousedown', handleMouseDown)
     document.addEventListener('copy', handleCopyEvent)
     window.addEventListener('scroll', handleScroll, true)
 
     return () => {
-      clearDismissTimer()
       document.removeEventListener('mouseup', handleMouseUp)
       document.removeEventListener('keyup', handleKeyUp)
+      document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('mousedown', handleMouseDown)
       document.removeEventListener('copy', handleCopyEvent)
       window.removeEventListener('scroll', handleScroll, true)
     }
-  }, [checkSelection, triggerCopiedFeedback, updatePositionFromRange, clearDismissTimer, isVisible, containerRef])
+  }, [checkSelection, triggerCopiedFeedback, updatePositionFromRange, dismiss, containerRef])
 
   if (!isVisible || !position) {
     return null
@@ -251,7 +282,11 @@ export function SelectionCopyFeedback({
       }`}
     >
       {isCopied ? (
-        <div className="flex items-center gap-1.5 font-medium text-[11px] text-emerald-300">
+        <div
+          onClick={dismiss}
+          className="flex items-center gap-1.5 font-medium text-[11px] text-emerald-300 cursor-pointer"
+          title="点击关闭"
+        >
           <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span>已复制</span>
         </div>

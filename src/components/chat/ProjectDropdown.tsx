@@ -12,6 +12,7 @@ import type { Project, Session } from '../../types/opencode'
 import { useI18n } from '../../utils/i18n'
 import { NewProjectModal } from './NewProjectModal'
 import { ProjectSettingsModal } from './ProjectSettingsModal'
+import { useAutoPosition } from '../../hooks/useAutoPosition'
 
 export interface ProjectDropdownProps {
   projects: Project[]
@@ -36,6 +37,20 @@ export const ProjectDropdown: React.FC<ProjectDropdownProps> = ({
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false)
   const [settingsProject, setSettingsProject] = useState<Project | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const {
+    triggerRef,
+    dropdownRef,
+    placementClasses,
+    alignClasses,
+    style: autoStyle,
+  } = useAutoPosition<HTMLButtonElement, HTMLDivElement>({
+    isOpen,
+    defaultPlacement: 'bottom',
+    defaultAlign: 'start',
+    margin: 6,
+    padding: 8,
+  })
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -118,6 +133,7 @@ export const ProjectDropdown: React.FC<ProjectDropdownProps> = ({
       <div ref={containerRef} className="relative inline-block select-none">
         {/* Trigger Button: 📁 <CurrentProject> ⌄ */}
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
           className="flex items-center gap-1.5 px-2 py-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/60 transition-colors text-xs font-medium cursor-pointer group"
@@ -132,10 +148,12 @@ export const ProjectDropdown: React.FC<ProjectDropdownProps> = ({
           />
         </button>
 
-        {/* Dropdown Menu matching Image 3 */}
+        {/* Dropdown Menu matching Image 3 (with screen boundary collision auto-flip) */}
         {isOpen && (
           <div
-            className="absolute left-0 top-full mt-1.5 w-60 rounded-xl bg-[#15171e]/98 backdrop-blur-md border border-[#272b36] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-150"
+            ref={dropdownRef}
+            style={autoStyle}
+            className={`absolute ${alignClasses} ${placementClasses} w-60 rounded-xl bg-[#15171e]/98 backdrop-blur-md border border-[#272b36] shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-150 flex flex-col`}
             role="menu"
           >
             {/* Project List */}

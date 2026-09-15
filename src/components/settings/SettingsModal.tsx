@@ -28,7 +28,7 @@ import {
   DEFAULT_THEME_COLORS,
   type ConversationWidth,
 } from '../../utils/preferences'
-import { useI18n, type SupportedLanguage } from '../../utils/i18n'
+import { useI18n, type LanguagePreference } from '../../utils/i18n'
 import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
 import type { ProviderInfo } from '../../types/opencode'
 import { ManageModelsContent } from '../models/ManageModelsModal'
@@ -53,7 +53,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab }) => {
   const { prefs, updatePreferences } = usePreferences()
-  const { lang, setLanguage, t } = useI18n()
+  const { lang, preferenceLang, setLanguage, t, tr } = useI18n()
   const isZh = lang === 'zh-CN'
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab || 'appearance')
@@ -593,12 +593,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   <label className="text-xs text-zinc-300 font-medium">{t.settings.languageLabel}</label>
                   <p className="text-[11px] text-zinc-500">{t.settings.languageDesc}</p>
                   <select
-                    value={lang}
-                    onChange={(e) => setLanguage(e.target.value as SupportedLanguage)}
+                    value={preferenceLang}
+                    onChange={(e) => setLanguage(e.target.value as LanguagePreference)}
                     className="w-full bg-[#16191f] border border-[#2c3038] text-xs text-zinc-200 rounded-md px-2.5 py-1.5 mt-1 focus:outline-none focus:border-zinc-500"
                   >
+                    <option value="system">{tr('跟随系统 (System Default)', 'System Default', 'Systemstandard (System Default)')}</option>
                     <option value="zh-CN">简体中文 (Simplified Chinese)</option>
                     <option value="en-US">English</option>
+                    <option value="de-DE">Deutsch (German)</option>
                   </select>
                 </div>
 
@@ -644,6 +646,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   />
                 </div>
 
+                {/* Collapse Left Sidebar on Startup */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{t.settings.collapseSidebarOnStartupLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.collapseSidebarOnStartupDesc}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.collapseSidebarOnStartup || false}
+                    onChange={(e) => updatePreferences({ collapseSidebarOnStartup: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
                 {/* Show Timeline Quick-Jump Buttons */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
@@ -668,6 +684,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     type="checkbox"
                     checked={prefs.collapseToolBatch}
                     onChange={(e) => updatePreferences({ collapseToolBatch: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{t.settings.autoGitCheckpointLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.autoGitCheckpointDesc}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.autoGitCheckpoint !== false}
+                    onChange={(e) => updatePreferences({ autoGitCheckpoint: e.target.checked })}
                     className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
                   />
                 </div>

@@ -28,6 +28,7 @@ export interface ShortcutsMap {
   sendMessage: ShortcutItem
   newLine: ShortcutItem
   toggleMap: ShortcutItem
+  addSessionToMap: ShortcutItem
   openSettings: ShortcutItem
   prevDialogue: ShortcutItem
   nextDialogue: ShortcutItem
@@ -40,6 +41,7 @@ export interface ShortcutsMap {
   mapSelectAll: ShortcutItem
   mapHome: ShortcutItem
   mapRearrange: ShortcutItem
+  findInPage: ShortcutItem
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsMap = {
@@ -130,6 +132,13 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     label: 'Ctrl + K',
     category: 'general',
   },
+  findInPage: {
+    key: 'f',
+    ctrlKey: true,
+    description: '在当前对话中查找 (Find in Page)',
+    label: 'Ctrl + F',
+    category: 'general',
+  },
   sendMessage: {
     key: 'Enter',
     description: '发送提示词 (Send Message)',
@@ -146,8 +155,15 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
   toggleMap: {
     key: 'm',
     ctrlKey: true,
-    description: '打开/关闭对话蓝图地图 (Toggle Map)',
+    description: '在蓝图地图中定位当前会话 (Open & Locate in Map)',
     label: 'Ctrl + M',
+    category: 'general',
+  },
+  addSessionToMap: {
+    key: 'm',
+    altKey: true,
+    description: '放入蓝图地图 (不打开地图) (Add to Map)',
+    label: 'Alt + M',
     category: 'general',
   },
   openSettings: {
@@ -256,11 +272,38 @@ export function resetShortcuts(): ShortcutsMap {
   return DEFAULT_SHORTCUTS
 }
 
+/**
+ * Detects whether an IME composition is active or within the post-composition confirmation cooldown.
+ * Shields against Windows Chromium/Electron emitting keydown(Enter) immediately after compositionend.
+ */
+export function isIMEActive(
+  e: KeyboardEvent | React.KeyboardEvent,
+  isComposingRef = false,
+  lastCompositionEndTime = 0,
+  cooldownMs = 60
+): boolean {
+  const isComp = 'nativeEvent' in e ? (e.nativeEvent as any).isComposing : (e as any).isComposing
+  return (
+    isComposingRef ||
+    Boolean(isComp) ||
+    e.keyCode === 229 ||
+    e.key === 'Process' ||
+    (lastCompositionEndTime > 0 && Date.now() - lastCompositionEndTime < cooldownMs)
+  )
+}
+
 export function matchesShortcut(
   e: KeyboardEvent | React.KeyboardEvent,
   shortcut?: ShortcutItem | null
 ): boolean {
   if (!shortcut || !shortcut.key) return false
+
+  // Reject shortcut match during IME composition (Windows/macOS IME Process key / composition state)
+  const isComp = 'nativeEvent' in e ? (e.nativeEvent as any).isComposing : (e as any).isComposing
+  if (Boolean(isComp) || e.keyCode === 229 || e.key === 'Process') {
+    return false
+  }
+
   const matchCtrl = shortcut.ctrlKey ? (e.ctrlKey || e.metaKey) : (!e.ctrlKey && !e.metaKey)
   const matchShift = shortcut.shiftKey ? e.shiftKey : !e.shiftKey
   const matchAlt = shortcut.altKey ? e.altKey : !e.altKey

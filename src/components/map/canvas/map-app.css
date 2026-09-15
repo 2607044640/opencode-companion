@@ -544,3 +544,15 @@ path.react-flow__edge-path.talk-map-edge--animated,
   border-color: rgba(56, 189, 248, 0.4) !important;
 }
 
+/* Alt Scissor Mode (Hover to Cut) */
+.talk-map--scissor-mode,
+.talk-map--scissor-mode .react-flow__pane,
+.talk-map--scissor-mode .react-flow__edge,
+.talk-map--scissor-mode .react-flow__edge-path,
+.talk-map--scissor-mode .react-flow__edge-interaction,
+.talk-map--scissor-mode .talk-map-edge-label,
+.talk-map--scissor-mode .session-card,
+.talk-map--scissor-mode .talk-map__comment-group {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='6' cy='6' r='3' fill='rgba(239,68,68,0.2)'/%3E%3Cpath d='M8.12 8.12 12 12'/%3E%3Cpath d='M20 4 8.12 15.88'/%3E%3Ccircle cx='6' cy='18' r='3' fill='rgba(239,68,68,0.2)'/%3E%3Cpath d='M14.8 14.8 20 20'/%3E%3C/svg%3E") 12 12, crosshair !important;
+}
+

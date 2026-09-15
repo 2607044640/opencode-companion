@@ -32,6 +32,7 @@ export interface FloatingSearchModalProps {
   readonly sessions: readonly Session[]
   readonly projects: readonly Project[]
   readonly initialSelectedProjectId?: string | null
+  readonly unreadSessionIds?: readonly string[]
 }
 
 const PROJECT_COLOR_MAP: Record<string, string> = {
@@ -236,7 +237,8 @@ function FloatingSearchContent({
   onSelectSession,
   sessions,
   projects,
-  initialSelectedProjectId,
+  initialSelectedProjectId: _initialSelectedProjectId,
+  unreadSessionIds,
 }: FloatingSearchModalProps) {
   const { t, lang } = useI18n()
   const isZh = lang === 'zh-CN'
@@ -266,17 +268,7 @@ function FloatingSearchContent({
 
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [selectedProjectIdFilter, setSelectedProjectIdFilter] = useState<string>(() => {
-    if (initialSelectedProjectId && initialSelectedProjectId !== 'global') {
-      const match = projects.find(
-        (p) =>
-          p.id === initialSelectedProjectId ||
-          Boolean(p.associatedIds && p.associatedIds.includes(initialSelectedProjectId))
-      )
-      if (match) return match.id
-    }
-    return 'ALL'
-  })
+  const [selectedProjectIdFilter, setSelectedProjectIdFilter] = useState<string>('ALL')
 
   const [messageHits, setMessageHits] = useState<MessageSearchHit[]>([])
   const [isSearchingMessages, setIsSearchingMessages] = useState(false)
@@ -996,6 +988,16 @@ function FloatingSearchContent({
                       >
                         <Archive className="w-2.5 h-2.5" />
                         <span>{isZh ? '已归档' : 'Archived'}</span>
+                      </span>
+                    )}
+
+                    {Boolean(unreadSessionIds?.includes(session.id)) && (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-950/70 text-blue-300 border border-blue-600/50 shrink-0 flex items-center gap-1"
+                        title={isZh ? '新消息未读' : 'Unread'}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                        <span>{isZh ? '未读' : 'Unread'}</span>
                       </span>
                     )}
 

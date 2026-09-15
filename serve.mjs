@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
+import { handleHostApi } from './host-api.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST_DIR = path.join(__dirname, 'dist')
@@ -23,6 +24,11 @@ const MIME_TYPES = {
 
 const server = http.createServer((req, res) => {
   let reqPath = req.url.split('?')[0]
+
+  if (reqPath === '/api/git-checkpoint' || reqPath === '/api/external-file-rollback') {
+    void handleHostApi(req, res)
+    return
+  }
 
   // Persistent dialogue map storage endpoint
   // Session export endpoint — writes JSON to the Windows Desktop
@@ -207,19 +213,34 @@ const server = http.createServer((req, res) => {
             cnyRate: 7.2,
           })
         }
-        // 2. NovAI / Once (Channel 10 / once-cf.novai.su)
-        const novai = channels.find(c => c.base_url && c.base_url.includes('once-cf.novai.su'))
-        if (novai) {
+        // 2. 稳定中转 (Channel 15 / xn--fiq104an1x80s.com - Flash 3.7)
+        const wending = channels.find(c => c.base_url && (c.base_url.includes('xn--fiq104an1x80s.com') || c.base_url.includes('ai6666.shop') || (c.name && c.name.includes('稳定中转'))))
+        if (wending) {
           presets.push({
-            id: 'relay_novai',
-            name: 'NovAI (Once)',
-            baseUrl: novai.base_url,
-            apiKey: novai.key,
-            redeemUrl: 'https://once-cf.novai.su',
+            id: 'relay_wending',
+            name: '稳定中转 (Flash 3.7)',
+            baseUrl: wending.base_url,
+            apiKey: wending.key,
+            redeemUrl: 'https://xn--fiq104an1x80s.com',
             currency: 'USD',
             quotaRate: 500000,
             cnyRate: 7.2,
           })
+        } else {
+          // Fallback to GGUU if present
+          const gguu = channels.find(c => c.base_url && (c.base_url.includes('gguuai.com') || (c.name && c.name.toLowerCase().includes('gguu'))))
+          if (gguu) {
+            presets.push({
+              id: 'relay_gguu',
+              name: 'GGUU (Flash 3.8)',
+              baseUrl: gguu.base_url,
+              apiKey: gguu.key,
+              redeemUrl: 'https://gguuai.com/redeem',
+              currency: 'USD',
+              quotaRate: 500000,
+              cnyRate: 7.2,
+            })
+          }
         }
         // 3. Moniker fallback
         const moniker = channels.find(c => c.base_url && c.base_url.includes('aimoniker.top'))

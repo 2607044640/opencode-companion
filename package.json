@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test \"src/**/*.test.ts\" host-api.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

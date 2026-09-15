@@ -10,6 +10,8 @@ import {
   Sparkles,
   ShieldCheck,
   Folder,
+  BookmarkPlus,
+  Network,
 } from 'lucide-react'
 import type { Session, SessionStatusPayload } from '../../types/opencode'
 import { CopyExportButton } from '../chat/CopyExportButton'
@@ -25,6 +27,7 @@ interface HeaderProps {
   activeSessionId: string | null
   activeSession: Session | null
   sessionStatus: SessionStatusPayload
+  unreadSessionIds?: string[]
   onSelectTab: (sessionId: string) => void
   onCloseTab: (sessionId: string) => void
   onCloseOtherTabs?: (sessionId: string) => void
@@ -35,6 +38,8 @@ interface HeaderProps {
   isSidebarOpen: boolean
   onToggleSidebar: () => void
   onToggleMap?: () => void
+  onOpenMapAndLocate?: (sessionId?: string) => void
+  onAddSessionToMap?: (sessionId: string) => void
   onOpenSearch?: () => void
   onToggleZenMode?: () => void
   zenShortcutLabel?: string
@@ -60,6 +65,7 @@ export function Header({
   activeSessionId,
   activeSession,
   sessionStatus,
+  unreadSessionIds,
   onSelectTab,
   onCloseTab,
   onCloseOtherTabs,
@@ -70,6 +76,8 @@ export function Header({
   isSidebarOpen,
   onToggleSidebar,
   onToggleMap,
+  onOpenMapAndLocate,
+  onAddSessionToMap,
   onGetSessionJson,
   onUpdateSessionTitle,
   onShowInMap,
@@ -130,7 +138,10 @@ export function Header({
             const isDraft = tabId === '__draft__'
             const session = isDraft ? null : sessions.find((s) => s.id === tabId)
             const isActive = activeSessionId === tabId
-            const title = isDraft ? (isZh ? '新会话' : 'New session') : (session?.title || 'New session')
+            const rawTitle = isDraft ? null : (session?.title && session.title.trim())
+            const title = isDraft
+              ? (isZh ? '新会话' : 'New session')
+              : (rawTitle || (isZh ? '未命名会话' : 'Untitled session'))
             const agentInitial = isDraft ? '+' : ((session?.agent || 'A').charAt(0) || 'A').toUpperCase()
             const isEditing = !isDraft && editingTabId === tabId
 
@@ -179,13 +190,21 @@ export function Header({
                 className={`group flex items-center gap-2 px-3 py-1.5 text-xs rounded-t-md cursor-pointer border-t-2 transition-all max-w-[200px] shrink-0 ${
                   isActive
                     ? 'bg-[#16181d] text-[#e6edf3] border-t-orange-500 font-medium border-x border-[#272a30]'
-                    : 'bg-[#0f1115] text-[#8b949e] border-t-transparent hover:bg-[#14161a] hover:text-[#c9d1d9]'
+                    : 'bg-[#121418]/80 text-[#8b949e] border-t-transparent hover:bg-[#181b20] hover:text-[#c9d1d9] border-x border-[#1a1d24]'
                 }`}
               >
                 {/* Agent Icon badge */}
                 <span className="w-3.5 h-3.5 shrink-0 rounded text-[9px] font-bold flex items-center justify-center bg-amber-950/80 text-amber-400 border border-amber-800/40">
                   {agentInitial}
                 </span>
+
+                {/* Unread marker (blue dot) */}
+                {!isDraft && Boolean(unreadSessionIds?.includes(tabId)) && (
+                  <span
+                    className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] ring-1 ring-blue-400/50 shrink-0 animate-pulse"
+                    title={isZh ? '新消息未读' : 'Unread response'}
+                  />
+                )}
 
                 {isEditing ? (
                   <input
@@ -323,6 +342,30 @@ export function Header({
               )}
             </div>
           </div>
+        )}
+
+        {/* Silent Add to Map Button (Alt+M) */}
+        {activeSessionId && onAddSessionToMap && (
+          <button
+            onClick={() => onAddSessionToMap(activeSessionId)}
+            className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-[#1a1d22] rounded transition-colors shrink-0"
+            title="放入蓝图地图 (Alt+M)"
+            aria-label="放入蓝图地图 (Alt+M)"
+          >
+            <BookmarkPlus className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Open Map & Locate Active Session Button (Ctrl+M) */}
+        {onOpenMapAndLocate && (
+          <button
+            onClick={() => onOpenMapAndLocate(activeSessionId || undefined)}
+            className="p-1.5 text-zinc-400 hover:text-sky-400 hover:bg-[#1a1d22] rounded transition-colors shrink-0"
+            title="在蓝图地图中定位当前会话 (Ctrl+M)"
+            aria-label="在蓝图地图中定位当前会话 (Ctrl+M)"
+          >
+            <Network className="w-4 h-4" />
+          </button>
         )}
 
         {/* Compact Session Copy / Export Button */}

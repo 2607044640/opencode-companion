@@ -104,7 +104,7 @@ export function cardsToSessionNodes(
 ): SessionFlowNode[] {
   const nodes: SessionFlowNode[] = []
   for (const card of Object.values(map.cards)) {
-    if (card.directory !== directory) {
+    if (directory && directory !== "all" && card.directory !== directory) {
       continue
     }
     const sessionId = card.sessionId
@@ -182,7 +182,7 @@ export function groupsToNodes(
 ): GroupFlowNode[] {
   const nodes: GroupFlowNode[] = []
   for (const group of Object.values(map.groups)) {
-    if (group.directory !== directory) {
+    if (directory && directory !== "all" && group.directory !== directory) {
       continue
     }
     nodes.push({

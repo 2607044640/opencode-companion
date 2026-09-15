@@ -214,6 +214,11 @@ export function deduplicateAndFilterProjects(rawProjects: Project[]): Project[] 
   return canonicalList
 }
 
+export function sanitizeSessionTitle(rawTitle: unknown, defaultFallback = 'Untitled Session'): string {
+  const coerced = String(rawTitle ?? '').trim()
+  return coerced || defaultFallback
+}
+
 export function normalizeSession(raw: any): Session {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -241,7 +246,7 @@ export function normalizeSession(raw: any): Session {
       (typeof raw.subpath === 'string' ? '/' + raw.subpath.replace(/^\/+/, '') : '') ||
       ''
     ),
-    title: String(raw.title || 'Untitled Session'),
+    title: sanitizeSessionTitle(raw.title, 'Untitled Session'),
     agent: raw.agent === 'Atlas'
       ? 'Atlas - Plan Executor'
       : (raw.agent && raw.agent !== 'Default Agent' ? String(raw.agent) : ''),
@@ -325,7 +330,72 @@ export function normalizeMessageInfo(raw: any): MessageInfo {
       : undefined,
     cost: raw.cost !== undefined ? Number(raw.cost) : undefined,
     finish: raw.finish ? String(raw.finish) : undefined,
+    error: raw.error && typeof raw.error === 'object'
+      ? {
+          name: String(raw.error.name || 'Error'),
+          message: raw.error.message ? String(raw.error.message) : undefined,
+          statusCode: raw.error.statusCode !== undefined ? Number(raw.error.statusCode) : undefined,
+          data: raw.error.data && typeof raw.error.data === 'object' ? raw.error.data : {},
+        }
+      : undefined,
   }
+}
+
+/**
+ * Robustly extract human-readable error details from LLM relay / upstream gateways
+ */
+export function extractRelayErrorMessage(err: any): string {
+  if (!err) return ''
+  if (typeof err === 'string') return err
+
+  const data = err.data || err
+  let relayMsg = ''
+
+  if (data.responseBody) {
+    if (typeof data.responseBody === 'string') {
+      try {
+        const parsed = JSON.parse(data.responseBody)
+        if (parsed.error?.message) {
+          relayMsg = parsed.error.message
+        } else if (parsed.message) {
+          relayMsg = parsed.message
+        } else if (typeof parsed.error === 'string') {
+          relayMsg = parsed.error
+        } else {
+          relayMsg = data.responseBody
+        }
+      } catch {
+        relayMsg = data.responseBody
+      }
+    } else if (typeof data.responseBody === 'object') {
+      relayMsg =
+        data.responseBody.error?.message ||
+        data.responseBody.message ||
+        (typeof data.responseBody.error === 'string' ? data.responseBody.error : '') ||
+        JSON.stringify(data.responseBody)
+    }
+  }
+
+  if (!relayMsg && data.message) {
+    relayMsg = String(data.message)
+  }
+
+  if (!relayMsg && err.message) {
+    relayMsg = String(err.message)
+  }
+
+  const statusCode = data.statusCode || err.statusCode
+  if (statusCode && relayMsg) {
+    return `[HTTP ${statusCode}] ${relayMsg}`
+  } else if (statusCode) {
+    return `[HTTP ${statusCode}] ${err.name || 'API Error'}`
+  }
+
+  if (relayMsg) {
+    return relayMsg
+  }
+
+  return err.name || '中转服务响应异常 (Relay response error)'
 }
 
 export function normalizeMessagePart(raw: any): MessagePart {

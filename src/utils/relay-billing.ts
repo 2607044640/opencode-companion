@@ -155,9 +155,19 @@ export function parseQuotaResponse(
       }
     }
 
-    // 2. NewAPI /api/user/self or custom endpoint returning { quota } or { data: { quota } }
+    // 2. Direct balance field: { balance: 12.34 } or { data: { balance: 12.34 } }
+    // TokenShop & GGUU /v1/usage return: { "balance": 11.098, "daily_usage": [...] }
     const nestedData = (typeof record.data === 'object' && record.data !== null ? record.data : record) as Record<string, unknown>
 
+    if (typeof nestedData.balance === 'number' || typeof nestedData.balance === 'string') {
+      const bal = Number(nestedData.balance)
+      return {
+        balance: Number(bal.toFixed(2)),
+        isUnmetered: false,
+      }
+    }
+
+    // 3. NewAPI /api/user/self or custom endpoint returning { quota } or { data: { quota } }
     if (typeof nestedData.quota === 'number' || typeof nestedData.quota === 'string') {
       const rawQuota = Number(nestedData.quota)
       const usd = rawQuota / quotaRate
@@ -165,14 +175,7 @@ export function parseQuotaResponse(
       return {
         balance: Math.max(0, Number(balance.toFixed(2))),
         totalQuota: rawQuota,
-      }
-    }
-
-    // 3. Direct balance field: { balance: 12.34 } or { data: { balance: 12.34 } }
-    if (typeof nestedData.balance === 'number' || typeof nestedData.balance === 'string') {
-      const bal = Number(nestedData.balance)
-      return {
-        balance: Math.max(0, Number(bal.toFixed(2))),
+        isUnmetered: false,
       }
     }
 
@@ -181,6 +184,7 @@ export function parseQuotaResponse(
       const bal = Number(nestedData.total_available)
       return {
         balance: Math.max(0, Number(bal.toFixed(2))),
+        isUnmetered: false,
       }
     }
 
@@ -188,8 +192,8 @@ export function parseQuotaResponse(
     if (record.object === 'list' && Array.isArray(record.data)) {
       return {
         balance: 0,
-        isUnmetered: true,
-        note: '可用 (点卡直连)',
+        isUnmetered: false,
+        note: '已连接 ($0.00)',
       }
     }
   }
@@ -216,9 +220,17 @@ export async function fetchRelayQuota(
 
   // Determine potential probe URLs
   const urls: string[] = []
-  if (base.includes('/billing') || base.includes('/subscription') || base.includes('/user/self') || base.includes('/models')) {
+  if (
+    base.includes('/billing') ||
+    base.includes('/subscription') ||
+    base.includes('/user/self') ||
+    base.includes('/models') ||
+    base.includes('/usage')
+  ) {
     urls.push(base)
   } else {
+    // Modern relays (TokenShop, GGUU, NewAPI v3) return exact { balance: number } on /v1/usage
+    urls.push(`${base}/v1/usage`)
     urls.push(`${base}/v1/dashboard/billing/subscription`)
     urls.push(`${base}/dashboard/billing/subscription`)
     urls.push(`${base}/api/user/self`)
@@ -302,9 +314,19 @@ export async function syncRelayPresets(
       return getRelayProviders(storage)
     }
 
-    const current = getRelayProviders(storage)
+    let current = getRelayProviders(storage)
     let modified = false
 
+    // 1. Purge outdated or invalid presets (e.g. NovAI, dead GGUU)
+    const cleaned = current.filter(
+      (p) => !p.baseUrl.includes('once-cf.novai.su') && !p.baseUrl.includes('gguuai.com') && p.id !== 'relay_novai' && p.id !== 'relay_gguu'
+    )
+    if (cleaned.length !== current.length) {
+      current = cleaned
+      modified = true
+    }
+
+    // 2. Merge latest presets from server
     for (const preset of json.presets) {
       const pBase = (preset.baseUrl || '').trim().replace(/\/+$/, '')
       const existingIndex = current.findIndex(
@@ -319,11 +341,15 @@ export async function syncRelayPresets(
         })
         modified = true
       } else {
-        if (preset.apiKey && !current[existingIndex].apiKey) {
+        if (preset.name && current[existingIndex].name !== preset.name) {
+          current[existingIndex].name = preset.name
+          modified = true
+        }
+        if (preset.apiKey && current[existingIndex].apiKey !== preset.apiKey) {
           current[existingIndex].apiKey = preset.apiKey
           modified = true
         }
-        if (preset.redeemUrl && !current[existingIndex].redeemUrl) {
+        if (preset.redeemUrl && current[existingIndex].redeemUrl !== preset.redeemUrl) {
           current[existingIndex].redeemUrl = preset.redeemUrl
           modified = true
         }
@@ -342,9 +368,12 @@ export async function syncRelayPresets(
 /**
  * Formats a currency balance nicely with currency symbol.
  */
-export function formatBalance(amount?: number, currency: 'USD' | 'CNY' = 'CNY'): string {
+export function formatBalance(amount?: number, currency: 'USD' | 'CNY' = 'USD'): string {
   if (amount === undefined || isNaN(amount)) return '--'
   const symbol = currency === 'CNY' ? '¥' : '$'
+  if (amount < 0) {
+    return `-${symbol}${Math.abs(amount).toFixed(2)}`
+  }
   return `${symbol}${amount.toFixed(2)}`
 }
 
@@ -386,23 +415,27 @@ export function aggregateBalances(providers: RelayProvider[]): BalanceSummary {
     const val = typeof p.balance === 'number' && !isNaN(p.balance) ? p.balance : 0
     if (p.currency === 'USD') {
       totalUsd += val
-      if (val > 0) hasUsd = true
+      hasUsd = true
     } else {
       totalCny += val
-      if (val > 0) hasCny = true
+      hasCny = true
     }
+  }
+
+  const formatAmount = (val: number, symbol: string) => {
+    if (val < 0) return `-${symbol}${Math.abs(val).toFixed(2)}`
+    return `${symbol}${val.toFixed(2)}`
   }
 
   let totalFormatted = ''
   if (hasCny && hasUsd) {
     totalFormatted = `¥${totalCny.toFixed(1)} + $${totalUsd.toFixed(1)}`
   } else if (hasUsd) {
-    totalFormatted = `$${totalUsd.toFixed(2)}`
+    totalFormatted = formatAmount(totalUsd, '$')
   } else if (hasCny) {
-    totalFormatted = `¥${totalCny.toFixed(2)}`
+    totalFormatted = formatAmount(totalCny, '¥')
   } else {
-    const hasActive = providers.some((p) => p.status === 'ok')
-    totalFormatted = hasActive ? '服务正常' : '¥0.00'
+    totalFormatted = '$0.00'
   }
 
   return {

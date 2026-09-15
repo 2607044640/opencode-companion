@@ -32,12 +32,13 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
     setProviders(getRelayProviders())
   }, [])
 
-  // Auto-sync presets on mount if no providers are present
+  // Auto-sync presets on mount if no providers are present or if outdated providers exist
   useEffect(() => {
     let mounted = true
     const initPresets = async () => {
       const initial = getRelayProviders()
-      if (initial.length === 0) {
+      const hasOutdated = initial.some((p) => p.baseUrl.includes('once-cf.novai.su') || p.id === 'relay_novai')
+      if (initial.length === 0 || hasOutdated) {
         const synced = await syncRelayPresets()
         if (mounted && synced.length > 0) {
           setProviders(synced)
@@ -312,7 +313,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
                       </div>
 
                       <div className="text-xs font-mono font-semibold text-emerald-400 shrink-0">
-                        {p.isUnmetered ? (p.note || '正常') : formatBalance(p.balance, p.currency)}
+                        {formatBalance(p.balance, p.currency)}
                       </div>
                     </div>
 

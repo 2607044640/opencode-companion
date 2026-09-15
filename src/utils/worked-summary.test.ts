@@ -232,4 +232,269 @@ describe('WorkedSummary Unit Tests (Prometheus T0 Specification)', () => {
     assert.equal(turn.answerParts.length, 1)
     assert.equal(turn.answerParts[0].text, 'Here is the real answer.')
   })
+
+  test('(e) intermediate text before/between tools becomes thought, only post-tool text is answer', () => {
+    const parts: MessagePart[] = [
+      {
+        id: 't_read',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'read',
+        state: { status: 'completed', input: { path: 'src/config.ts' } },
+      },
+      {
+        id: 'txt_mid',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'text',
+        text: 'Docs must match live APIs, not the old README. Reading the six module surfaces next.',
+      },
+      {
+        id: 't_bash',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'completed', input: { command: 'npm test' } },
+      },
+      {
+        id: 'txt_final',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'text',
+        text: 'Final executive report: All 282 tests passed.',
+      },
+    ]
+
+    const turn = partitionAssistantTurn(parts)
+    assert.equal(turn.hasWork, true)
+    // Groups: [explore, thought, command]
+    assert.equal(turn.groups.length, 3)
+    assert.equal(turn.groups[0].kind, 'explore')
+    assert.equal(turn.groups[1].kind, 'thought')
+    if (turn.groups[1].kind === 'thought') {
+      assert.equal(
+        turn.groups[1].items[0].text,
+        'Docs must match live APIs, not the old README. Reading the six module surfaces next.'
+      )
+    }
+    assert.equal(turn.groups[2].kind, 'command')
+
+    // Only txt_final is in answerParts! txt_mid was properly placed in thought!
+    assert.equal(turn.answerParts.length, 1)
+    assert.equal(turn.answerParts[0].text, 'Final executive report: All 282 tests passed.')
+  })
+
+  test('(f) thoughts are chronologically interleaved between commands and tools', () => {
+    const parts: MessagePart[] = [
+      {
+        id: 'c1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'completed', input: { command: 'git status' } },
+      },
+      {
+        id: 'r1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'reasoning',
+        text: 'Analyzing git status output...',
+        time: { start: 1000, end: 3000 },
+      },
+      {
+        id: 'c2',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'completed', input: { command: 'npm run build' } },
+      },
+    ]
+
+    const turn = partitionAssistantTurn(parts)
+    assert.equal(turn.groups.length, 3)
+    assert.equal(turn.groups[0].kind, 'command')
+    assert.equal(turn.groups[1].kind, 'thought')
+    assert.equal(turn.groups[2].kind, 'command')
+  })
+
+  test('(g) trailing text is kept in thought stream when any tool is running or pending', () => {
+    const parts: MessagePart[] = [
+      {
+        id: 't1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'running', input: { command: 'cargo build' } },
+      },
+      {
+        id: 'txt1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'text',
+        text: 'Waiting for build to complete before testing...',
+      },
+    ]
+
+    const turn = partitionAssistantTurn(parts)
+    // Even though txt1 is after t1, t1 is 'running', so txt1 is classified as thought, NOT final answer!
+    assert.equal(turn.hasWork, true)
+    assert.equal(turn.answerParts.length, 0)
+    assert.equal(turn.groups.length, 2)
+    assert.equal(turn.groups[0].kind, 'command')
+    assert.equal(turn.groups[1].kind, 'thought')
+    if (turn.groups[1].kind === 'thought') {
+      assert.equal(turn.groups[1].items[0].text, 'Waiting for build to complete before testing...')
+    }
+  })
+
+  test('(h) aborted turns with finish=abort are NOT marked isLive and duration uses part timestamps', () => {
+    const created = 1000000
+    const parts: MessagePart[] = [
+      {
+        id: 't1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: {
+          status: 'error',
+          input: { command: 'npm test' },
+          error: 'Tool execution aborted',
+          time: { start: 1000500, end: 1007000 }, // 7s after created
+        },
+      },
+    ]
+
+    const info: MessageInfo = {
+      id: 'msg_1',
+      sessionID: 'ses_1',
+      role: 'assistant',
+      time: { created }, // completed is missing!
+      finish: 'abort',
+      error: { name: 'MessageAbortedError', message: 'Aborted' },
+    }
+
+    const now = created + 1000 * 60 * 97 // 97 minutes later!
+    const turn = partitionAssistantTurn(parts, info, now)
+
+    assert.equal(turn.isLive, false) // MUST NOT be live!
+    assert.equal(turn.isAborted, true)
+    // Duration must be 7s (from part timestamps), NOT 97 minutes!
+    assert.equal(turn.durationMs, 7000)
+    assert.equal(formatWorkedLabel(turn.durationMs, turn.isLive, turn.finish, turn.isAborted), 'Worked for 7s (Aborted)')
+  })
+
+  test('(i) orphaned turn in idle session is NOT marked isLive even if completed is missing', () => {
+    const created = 1000000
+    const parts: MessagePart[] = [
+      {
+        id: 'r1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'reasoning',
+        text: 'Thinking...',
+        time: { start: 1000000, end: 1005000 },
+      },
+    ]
+
+    const info: MessageInfo = {
+      id: 'msg_1',
+      sessionID: 'ses_1',
+      role: 'assistant',
+      time: { created }, // completed is missing, no finish
+    }
+
+    const now = created + 1000 * 60 * 60 // 1 hour later
+    // isSessionBusy = false (session is idle)
+    const turn = partitionAssistantTurn(parts, info, now, false)
+
+    assert.equal(turn.isLive, false) // MUST NOT be live in an idle session!
+    assert.equal(turn.durationMs, 5000) // 5s from reasoning part
+  })
+
+  test('(j) actively generating turn with isSessionBusy=true IS marked isLive', () => {
+    const created = 1000000
+    const parts: MessagePart[] = [
+      {
+        id: 't1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'running', input: { command: 'cargo test' } },
+      },
+    ]
+
+    const info: MessageInfo = {
+      id: 'msg_1',
+      sessionID: 'ses_1',
+      role: 'assistant',
+      time: { created },
+    }
+
+    const now = created + 12000
+    const turn = partitionAssistantTurn(parts, info, now, true)
+
+    assert.equal(turn.isLive, true)
+    assert.equal(turn.durationMs, 12000)
+    assert.equal(formatWorkedLabel(turn.durationMs, turn.isLive), 'Working for 12s')
+  })
+
+  test('(k) brand-new turn with empty parts in a busy session is marked isLive (Fixes Figure 2 bug)', () => {
+    const created = 2000000
+    const parts: MessagePart[] = []
+    const info: MessageInfo = {
+      id: 'msg_new',
+      sessionID: 'ses_1',
+      role: 'assistant',
+      time: { created },
+    }
+    const now = created + 1500
+    const turn = partitionAssistantTurn(parts, info, now, true)
+
+    assert.equal(turn.isLive, true)
+    assert.equal(turn.hasWork, false)
+    assert.equal(turn.durationMs, 1500)
+  })
+
+  test('(l) turn with empty parts in an idle session with completion timestamp is NOT live', () => {
+    const created = 2000000
+    const completed = 2005000
+    const parts: MessagePart[] = []
+    const info: MessageInfo = {
+      id: 'msg_aborted',
+      sessionID: 'ses_1',
+      role: 'assistant',
+      time: { created, completed },
+      finish: 'abort',
+    }
+    const now = completed + 1000
+    const turn = partitionAssistantTurn(parts, info, now, false)
+
+    assert.equal(turn.isLive, false)
+    assert.equal(turn.hasWork, false)
+    assert.equal(turn.durationMs, 0)
+  })
+
+  test('(m) turn with empty parts in an idle session without completion timestamp is NOT live', () => {
+    const created = 2000000
+    const parts: MessagePart[] = []
+    const info: MessageInfo = {
+      id: 'msg_crashed_before_token',
+      sessionID: 'ses_crashed',
+      role: 'assistant',
+      time: { created },
+    }
+    const now = created + 5000
+    const turn = partitionAssistantTurn(parts, info, now, false)
+
+    assert.equal(turn.isLive, false)
+    assert.equal(turn.hasWork, false)
+    assert.equal(turn.durationMs, 0)
+  })
 })

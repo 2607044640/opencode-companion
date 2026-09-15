@@ -81,3 +81,31 @@ export function isNodeInsideContainer(node: Node | null, container: HTMLElement 
   if (!node) return false
   return container.contains(node)
 }
+
+/**
+ * Determines whether an escape key press should trigger immediate popover dismissal.
+ */
+export function shouldDismissOnEscape(key: string, isVisible: boolean): boolean {
+  return key === 'Escape' && isVisible
+}
+
+/**
+ * Determines whether a mousedown event outside the popover element should dismiss it.
+ */
+export function shouldDismissOnMouseDownOutside(
+  isInsidePopover: boolean,
+  isVisible: boolean
+): boolean {
+  return !isInsidePopover && isVisible
+}
+
+/**
+ * Determines whether the popover should dismiss when selection is collapsed or empty.
+ */
+export function shouldDismissOnCollapsedSelection(
+  isCollapsed: boolean,
+  isCopied: boolean
+): boolean {
+  return isCollapsed && !isCopied
+}
+

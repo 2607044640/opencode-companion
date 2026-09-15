@@ -5,14 +5,22 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
-  ViewportPortal,
   type Connection,
   type Edge,
   type FinalConnectionState,
   type NodeChange,
 } from "@xyflow/react"
 import { Wand2 } from "lucide-react"
-import { useRef, useState, type Dispatch, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
+} from "react"
 import { TalkMapEdge } from "../edges/EdgeComment"
 import { CommentGroup } from "../groups/CommentGroup"
 import type { TalkMap } from "../schema/talk-map"
@@ -88,130 +96,106 @@ export function MapFlow(props: {
   }
 }) {
   const { handlers, chrome } = props
-  const [laser, setLaser] = useState<{ readonly start: Point; readonly current: Point } | undefined>(undefined)
-  const cutEdgesRef = useRef<Set<string>>(new Set())
-  const cutCountRef = useRef(0)
+  const [isAltPressed, setIsAltPressed] = useState(false)
+  const isAltPressedRef = useRef(false)
+  isAltPressedRef.current = isAltPressed
+  const lastFlowPosRef = useRef<Point | null>(null)
 
-  const handlePointerDownCapture = (event: ReactPointerEvent) => {
-    const target = event.target as HTMLElement | null
-    const onNode = Boolean(target?.closest(".react-flow__node"))
-    const onEdge = Boolean(target?.closest(".react-flow__edge"))
-    const onControl = Boolean(
-      target?.closest(".react-flow__controls") || target?.closest(".react-flow__minimap"),
-    )
-
-    const isMiddleLaser = event.altKey && event.button === 1
-    const isLeftLaser = event.altKey && event.button === 0 && !onNode && !onEdge && !onControl
-
-    if (isMiddleLaser || isLeftLaser) {
-      event.preventDefault()
-      event.stopPropagation()
-      if (
-        event.currentTarget instanceof HTMLElement &&
-        typeof event.currentTarget.setPointerCapture === "function"
-      ) {
-        try {
-          event.currentTarget.setPointerCapture(event.pointerId)
-        } catch {
-          // ignore
-        }
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Alt") {
+        setIsAltPressed(true)
       }
-      const origin = props.screenToFlowPosition({ x: event.clientX, y: event.clientY })
-      cutEdgesRef.current.clear()
-      cutCountRef.current = 0
-      setLaser({ start: origin, current: origin })
     }
-  }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Alt") {
+        setIsAltPressed(false)
+        lastFlowPosRef.current = null
+      }
+    }
+    const handleBlur = () => {
+      setIsAltPressed(false)
+      lastFlowPosRef.current = null
+    }
+
+    window.addEventListener("keydown", handleKeyDown, { capture: true })
+    window.addEventListener("keyup", handleKeyUp, { capture: true })
+    window.addEventListener("blur", handleBlur)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true })
+      window.removeEventListener("keyup", handleKeyUp, { capture: true })
+      window.removeEventListener("blur", handleBlur)
+    }
+  }, [])
+
+  const cutEdge = useCallback(
+    (edge: Edge) => {
+      if (edge.data?.kind === "native") {
+        chrome.setToast?.("原生会话连线由后端维护，无法单独切断")
+        return
+      }
+      handlers.onEdgesDelete([edge])
+      chrome.setToast?.("已切断连线")
+    },
+    [chrome, handlers],
+  )
+
+  const handleEdgeHoverCut = useCallback(
+    (event: ReactMouseEvent, edge: Edge) => {
+      if (isAltPressedRef.current || event.altKey) {
+        cutEdge(edge)
+      }
+    },
+    [cutEdge],
+  )
 
   const handlePointerMove = (event: ReactPointerEvent) => {
-    if (laser !== undefined) {
-      event.preventDefault()
-      event.stopPropagation()
-      const current = props.screenToFlowPosition({ x: event.clientX, y: event.clientY })
-      setLaser({ start: laser.start, current })
+    const currentFlowPos = props.screenToFlowPosition({ x: event.clientX, y: event.clientY })
 
-      const cutter = { start: laser.start, end: current }
-      const resolveHandlePoint = createNodeHandleResolver(props.nodes)
-      const cutEdgeIds = findIntersectedEdges({
-        cutter,
-        edges: props.edges,
-        resolveHandlePoint,
-        skipNative: true,
-      })
-
-      const newlyCut = cutEdgeIds.filter((id) => !cutEdgesRef.current.has(id))
-      if (newlyCut.length > 0) {
-        const isFirstInStroke = cutCountRef.current === 0
-        cutCountRef.current += newlyCut.length
-        for (const id of newlyCut) {
-          cutEdgesRef.current.add(id)
-        }
-        if (handlers.onLaserCutEdges) {
-          handlers.onLaserCutEdges(newlyCut, isFirstInStroke)
-        } else {
-          const edgesToDelete = props.edges.filter((e) => newlyCut.includes(e.id))
-          handlers.onEdgesDelete(edgesToDelete)
+    if (isAltPressedRef.current || event.altKey) {
+      if (!isAltPressed) {
+        setIsAltPressed(true)
+      }
+      if (lastFlowPosRef.current !== null) {
+        const cutter = { start: lastFlowPosRef.current, end: currentFlowPos }
+        const resolveHandlePoint = createNodeHandleResolver(props.nodes)
+        const cutEdgeIds = findIntersectedEdges({
+          cutter,
+          edges: props.edges,
+          resolveHandlePoint,
+          skipNative: true,
+        })
+        if (cutEdgeIds.length > 0) {
+          const edgesToDelete = props.edges.filter((e) => cutEdgeIds.includes(e.id))
+          if (edgesToDelete.length > 0) {
+            handlers.onEdgesDelete(edgesToDelete)
+            chrome.setToast?.(`已切断 ${edgesToDelete.length} 条连线`)
+          }
         }
       }
-      return
     }
+    lastFlowPosRef.current = currentFlowPos
     handlers.onPointerMove(event)
   }
 
-  const handlePointerUp = (event: ReactPointerEvent) => {
-    if (laser !== undefined) {
-      event.preventDefault()
-      event.stopPropagation()
-      if (
-        event.currentTarget instanceof HTMLElement &&
-        typeof event.currentTarget.releasePointerCapture === "function"
-      ) {
-        try {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId)
-          }
-        } catch {
-          // ignore
-        }
-      }
-      const total = cutCountRef.current
-      setLaser(undefined)
-      cutEdgesRef.current.clear()
-      cutCountRef.current = 0
-      if (total > 0) {
-        chrome.setToast?.(`已切断 ${total} 条连线`)
-      }
-      return
-    }
+  const handlePointerUp = () => {
     handlers.onPointerUp()
   }
 
-  const handlePointerCancel = (event: ReactPointerEvent) => {
-    if (laser !== undefined) {
-      if (
-        event.currentTarget instanceof HTMLElement &&
-        typeof event.currentTarget.releasePointerCapture === "function"
-      ) {
-        try {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId)
-          }
-        } catch {
-          // ignore
-        }
-      }
-      setLaser(undefined)
-      cutEdgesRef.current.clear()
-      cutCountRef.current = 0
-    }
+  const handlePointerLeave = () => {
+    lastFlowPosRef.current = null
   }
 
   return (
-    <div className={`talk-map ${props.isLayoutAnimating ? "talk-map--animating" : ""}`}>
+    <div
+      className={`talk-map ${props.isLayoutAnimating ? "talk-map--animating" : ""} ${
+        isAltPressed ? "talk-map--scissor-mode" : ""
+      }`}
+    >
       <div
         className="talk-map__canvas"
-        onPointerDownCapture={handlePointerDownCapture}
-        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerLeave}
         onMouseDownCapture={(e) => {
           if (e.button === 1 && e.altKey) {
             e.preventDefault()
@@ -241,6 +225,8 @@ export function MapFlow(props: {
           onNodesDelete={handlers.onNodesDelete}
           onEdgesDelete={handlers.onEdgesDelete}
           onEdgeClick={handlers.onEdgeClick}
+          onEdgeMouseEnter={handleEdgeHoverCut}
+          onEdgeMouseMove={handleEdgeHoverCut}
           onConnect={handlers.onConnect}
           onConnectEnd={handlers.onConnectEnd}
           onNodesChange={handlers.onNodesChange}
@@ -284,44 +270,6 @@ export function MapFlow(props: {
               borderRadius: "8px",
             }}
           />
-          {laser !== undefined && (
-            <ViewportPortal>
-              <svg
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  overflow: "visible",
-                  pointerEvents: "none",
-                  zIndex: 1000,
-                }}
-              >
-                <line
-                  x1={laser.start.x}
-                  y1={laser.start.y}
-                  x2={laser.current.x}
-                  y2={laser.current.y}
-                  stroke="#ef4444"
-                  strokeWidth={3}
-                  strokeLinecap="round"
-                  style={{
-                    filter: "drop-shadow(0 0 6px #ef4444) drop-shadow(0 0 2px #f87171)",
-                  }}
-                />
-                <line
-                  x1={laser.start.x}
-                  y1={laser.start.y}
-                  x2={laser.current.x}
-                  y2={laser.current.y}
-                  stroke="#ffffff"
-                  strokeWidth={1}
-                  strokeLinecap="round"
-                />
-              </svg>
-            </ViewportPortal>
-          )}
         </ReactFlow>
         <MapOverlays
           hideChrome={chrome.hideChrome}

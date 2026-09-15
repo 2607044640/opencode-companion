@@ -68,12 +68,12 @@ export type SessionNodeHandlers = {
 }
 
 export function rawSessionNodesFromView(view: ViewState): SessionFlowNode[] {
-  if (view.kind !== "ready" || view.directory === undefined) {
+  if (view.kind !== "ready") {
     return []
   }
   return cardsToSessionNodes(
     view.map,
-    view.directory,
+    view.directory ?? "all",
     view.titles,
     view.running,
     view.updated,
@@ -103,12 +103,12 @@ export function buildTalkMapNodes(input: {
   if (view.kind === "loading") {
     return [...skeletonNodes()]
   }
-  if (view.kind !== "ready" || view.directory === undefined) {
+  if (view.kind !== "ready") {
     return []
   }
-  const directory = view.directory
+  const directory = view.directory ?? "all"
   const groupList = Object.values(view.map.groups)
-    .filter((group) => group.directory === directory)
+    .filter((group) => directory === "all" || group.directory === directory)
     .map((group) => ({ groupId: group.groupId, title: group.title }))
   const active = input.activeIndex !== undefined ? input.matchedCards[input.activeIndex] : undefined
   const highlighted = withSearchHighlight(

@@ -146,6 +146,10 @@ class GlobalEventStreamManager {
   public onSessionIdle(cb: (data: SSEEventSessionIdle) => void) {
     return this.on<SSEEventSessionIdle>('session.idle', cb)
   }
+
+  public onMessageRemoved(cb: (data: { sessionID: string; messageID: string }) => void) {
+    return this.on<{ sessionID: string; messageID: string }>('message.removed', cb)
+  }
 }
 
 export const sseManager = new GlobalEventStreamManager()

@@ -104,3 +104,31 @@ export function partitionPinnedSessions<T extends { id: string }>(
     unpinnedSessions: unpinned,
   }
 }
+
+/**
+ * Reorders pinned session IDs by moving fromId to toId's position in full storage array.
+ * Move-to-index semantics: fromId is inserted at toId's position; others shift.
+ * Preserves hidden archived IDs in full storage array.
+ * No-op if fromId === toId or either ID is unknown.
+ */
+export function reorderPinnedSessionIds(
+  fromId: string,
+  toId: string,
+  storage?: Storage
+): string[] {
+  if (!fromId || !toId || fromId === toId) {
+    return getPinnedSessionIds(storage)
+  }
+  const current = getPinnedSessionIds(storage)
+  const fromIndex = current.indexOf(fromId)
+  const toIndex = current.indexOf(toId)
+  if (fromIndex === -1 || toIndex === -1) {
+    return current
+  }
+  const next = [...current]
+  const [moved] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, moved)
+  savePinnedSessionIds(next, storage)
+  return next
+}
+

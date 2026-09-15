@@ -33,8 +33,8 @@ export function isBlueprintReservedKey(event: KeyboardEvent, isSearchFocused: bo
     return true
   }
 
-  // Home: Reset view to overview
-  if (key === "home") {
+  // H or Home: Reset view to overview / fit all conversation cards
+  if ((key === "h" || key === "home") && !event.ctrlKey && !event.metaKey && !event.altKey) {
     return true
   }
 

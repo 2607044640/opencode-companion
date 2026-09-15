@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Message } from '../../types/opencode'
+import { computeClientSideDiffs } from '../../utils/client-side-diffs'
 
 describe('Confirm Undo Diff Logic & Badge Formatting', () => {
   test('formats added files as Delete status', () => {
@@ -69,43 +70,22 @@ describe('Confirm Undo Diff Logic & Badge Formatting', () => {
             tool: 'edit',
             state: {
               status: 'completed',
-              input: { path: 'src/App.tsx', additions: 12, deletions: 4 },
+              input: {
+                path: 'src/App.tsx',
+                oldString: 'a\nb\nc\nd',
+                newString: 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl',
+              },
             },
           },
         ],
       },
     ]
 
-    const targetMsgId = 'msg_1'
-    const targetIndex = messages.findIndex((m) => m.info.id === targetMsgId)
-    assert.equal(targetIndex, 0)
-
-    const filesMap = new Map<string, { status?: string; additions: number; deletions: number }>()
-    for (let i = targetIndex; i < messages.length; i++) {
-      for (const part of messages[i].parts) {
-        if (part.type === 'tool') {
-          const tp = part as any
-          const name = String(tp.tool || '').toLowerCase()
-          const p = tp.state?.input?.path || ''
-          const norm = p.split('/').pop() || p
-          if (!filesMap.has(norm)) filesMap.set(norm, { additions: 0, deletions: 0 })
-          const entry = filesMap.get(norm)!
-          if (name === 'write') {
-            entry.status = 'added'
-          } else if (name === 'edit') {
-            entry.status = 'modified'
-            entry.additions += tp.state?.input?.additions || 0
-            entry.deletions += tp.state?.input?.deletions || 0
-          }
-        }
-      }
-    }
-
-    assert.equal(filesMap.has('NewModal.tsx'), true)
-    assert.equal(filesMap.get('NewModal.tsx')?.status, 'added')
-    assert.equal(filesMap.has('App.tsx'), true)
-    assert.equal(filesMap.get('App.tsx')?.status, 'modified')
-    assert.equal(filesMap.get('App.tsx')?.additions, 12)
-    assert.equal(filesMap.get('App.tsx')?.deletions, 4)
+    const diffs = computeClientSideDiffs(messages, 'msg_1')
+    const byFile = new Map(diffs.map((d) => [d.file, d]))
+    assert.equal(byFile.get('NewModal.tsx')?.status, 'added')
+    assert.equal(byFile.get('App.tsx')?.status, 'modified')
+    assert.equal((byFile.get('App.tsx')?.additions ?? 0) > 0, true)
+    assert.equal((byFile.get('App.tsx')?.deletions ?? 0) > 0, true)
   })
 })

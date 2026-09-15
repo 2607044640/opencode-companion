@@ -3,6 +3,25 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import fs from 'node:fs'
 import path from 'node:path'
+import { handleHostApi } from './host-api.mjs'
+
+function hostWorkspaceApi(): Plugin {
+  return {
+    name: 'host-workspace-api',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0]
+        if (url !== '/api/git-checkpoint' && url !== '/api/external-file-rollback') {
+          next()
+          return
+        }
+        void handleHostApi(req, res).then((handled) => {
+          if (!handled) next()
+        })
+      })
+    },
+  }
+}
 
 function talkMapDevPersist(): Plugin {
   return {
@@ -64,7 +83,8 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    talkMapDevPersist()
+    talkMapDevPersist(),
+    hostWorkspaceApi(),
   ],
   server: {
     port: 5173,

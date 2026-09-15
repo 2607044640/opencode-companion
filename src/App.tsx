@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { Header } from './components/layout/Header'
 import { ChatTimeline } from './components/chat/ChatTimeline'
-import { TodoBanner } from './components/chat/TodoBanner'
 import { PromptInput, type DraftInjection } from './components/chat/PromptInput'
 import { SessionRevertDock } from './components/chat/SessionRevertDock'
 import { extractDraftFromMessage } from './utils/draft'
@@ -20,8 +19,17 @@ import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore } from 'lucide-reac
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
 import type { Message } from './types/opencode'
+import { sseManager } from './services/sse'
+import {
+  getUnreadSessionIds,
+  markHumanInitiated,
+  markSessionRead,
+  handleSessionCompletion,
+  UNREAD_UPDATE_EVENT,
+} from './utils/session-unread'
 import { ScheduledTasksModal } from './components/tasks/ScheduledTasksModal'
 import { SessionHistoryStack } from './utils/session-history'
+import { getPreferences } from './utils/preferences'
 import {
   getScheduledTasks,
   shouldRunTask,
@@ -33,6 +41,10 @@ import {
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     try {
+      const prefs = getPreferences()
+      if (prefs.collapseSidebarOnStartup) {
+        return false
+      }
       const saved = localStorage.getItem('opencode_sidebar_open')
       if (saved !== null) return saved === 'true'
     } catch {}
@@ -47,11 +59,52 @@ export default function App() {
   }, [])
   const [isMapOpen, setIsMapOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isFindOpen, setIsFindOpen] = useState(false)
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
   const [isZenMode, setIsZenMode] = useState(false)
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
   const { t, lang } = useI18n()
   const isZh = lang === 'zh-CN'
+
+  // Unread sessions state (blue indicator for human-initiated prompts upon AI completion)
+  const [unreadSessionIds, setUnreadSessionIds] = useState<string[]>(() => getUnreadSessionIds())
+
+  useEffect(() => {
+    const handleUnreadUpdate = () => {
+      setUnreadSessionIds(getUnreadSessionIds())
+    }
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'opencode_unread_sessions') {
+        setUnreadSessionIds(getUnreadSessionIds())
+      }
+    }
+    window.addEventListener(UNREAD_UPDATE_EVENT, handleUnreadUpdate)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener(UNREAD_UPDATE_EVENT, handleUnreadUpdate)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
+
+  // Listen for AI completion on any session via SSE (only marks unread if initiated by human)
+  useEffect(() => {
+    const onIdle = (data: { sessionID?: string }) => {
+      if (data?.sessionID) {
+        handleSessionCompletion(data.sessionID)
+      }
+    }
+    const onStatus = (data: { sessionID?: string; status?: { type?: string } }) => {
+      if (data?.sessionID && data?.status?.type === 'idle') {
+        handleSessionCompletion(data.sessionID)
+      }
+    }
+    const unsubIdle = sseManager.onSessionIdle(onIdle)
+    const unsubStatus = sseManager.onSessionStatus(onStatus)
+    return () => {
+      unsubIdle()
+      unsubStatus()
+    }
+  }, [])
 
   const toggleSidebar = useCallback((force?: boolean) => {
     setIsSidebarOpen((prev) => {
@@ -118,13 +171,14 @@ export default function App() {
         text: draft.text,
         attachments: draft.attachments,
         timestamp: Date.now(),
+        focus: true,
       })
 
       // 2. Check if restoring the latest rolled-back message
       const revertIndex = messages.findIndex((m) => m.info.id === activeSession?.revert?.messageID)
       const rolledBackUserMessages =
         revertIndex !== -1
-          ? messages.slice(revertIndex + 1).filter((m) => m.info.role === 'user')
+          ? messages.slice(revertIndex).filter((m) => m.info.role === 'user')
           : []
       const isLatest =
         rolledBackUserMessages.length <= 1 ||
@@ -133,11 +187,41 @@ export default function App() {
       if (isLatest) {
         await unrevert()
       } else {
-        await revertToMessage(msg.info.id)
+        const msgIndex = messages.findIndex((m) => m.info.id === msg.info.id)
+        const nextMsg = msgIndex !== -1 && msgIndex + 1 < messages.length ? messages[msgIndex + 1] : null
+        const targetBoundaryId =
+          nextMsg && nextMsg.info.role === 'assistant' ? nextMsg.info.id : msg.info.id
+        await revertToMessage(targetBoundaryId)
       }
     },
     [activeSessionId, activeSession?.revert?.messageID, messages, unrevert, revertToMessage]
   )
+
+  // Auto-fill prompt input with the latest rolled back user message if session is in reverted state
+  const lastAutoInjectedSessionRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeSessionId || !activeSession?.revert?.messageID) return
+    const key = `${activeSessionId}:${activeSession.revert.messageID}`
+    if (lastAutoInjectedSessionRef.current === key) return
+
+    const revertIndex = messages.findIndex((m) => m.info.id === activeSession.revert?.messageID)
+    if (revertIndex !== -1) {
+      const rolledBackUserMessages = messages
+        .slice(revertIndex)
+        .filter((m) => m.info.role === 'user')
+      if (rolledBackUserMessages.length > 0) {
+        lastAutoInjectedSessionRef.current = key
+        const latestMsg = rolledBackUserMessages[rolledBackUserMessages.length - 1]
+        const draft = extractDraftFromMessage(latestMsg)
+        setDraftInjection({
+          text: draft.text,
+          attachments: draft.attachments,
+          timestamp: Date.now(),
+          focus: false,
+        })
+      }
+    }
+  }, [activeSessionId, activeSession?.revert?.messageID, messages])
 
   // Listen for shortcuts config updates from SettingsModal
   useEffect(() => {
@@ -205,6 +289,32 @@ export default function App() {
       }
     },
     [sessions]
+  )
+
+  const [mapTargetSessionId, setMapTargetSessionId] = useState<string | null>(null)
+
+  const handleOpenMapAndLocate = useCallback(
+    async (sessionId?: string | null) => {
+      const sid = sessionId || activeSessionId
+      if (sid) {
+        const target = sessions.find((s) => s.id === sid)
+        try {
+          await addSessionToTalkMap(sid, target?.directory, target?.title)
+          window.dispatchEvent(
+            new CustomEvent('opencode:map-card-added', {
+              detail: { sessionId: sid },
+            })
+          )
+        } catch (err) {
+          console.error('Failed to ensure session in map:', err)
+        }
+        setMapTargetSessionId(sid)
+      } else {
+        setMapTargetSessionId(null)
+      }
+      setIsMapOpen(true)
+    },
+    [activeSessionId, sessions]
   )
 
   const openTabIdsRef = useRef(openTabIds)
@@ -309,6 +419,23 @@ export default function App() {
       }
     }
   }, [activeSessionId, updateHistoryState])
+
+  // Clear unread indicator when selecting / viewing the active session
+  useEffect(() => {
+    if (activeSessionId) {
+      markSessionRead(activeSessionId)
+    }
+  }, [activeSessionId])
+
+  // Sync window title with unread indicator
+  useEffect(() => {
+    const baseTitle = activeSession?.title || 'OpenCode Companion'
+    if (unreadSessionIds.length > 0) {
+      document.title = `(● ${unreadSessionIds.length}) ${baseTitle}`
+    } else {
+      document.title = baseTitle
+    }
+  }, [unreadSessionIds.length, activeSession?.title])
 
   const handleNewSession = useCallback(
     (directory?: string) => {
@@ -420,6 +547,9 @@ export default function App() {
               : undefined,
           })
 
+          // Mark human-initiated so completion triggers unread indicator
+          markHumanInitiated(newSession.id)
+
           // Dispatch prompt into the newly created session
           await api.sendPrompt(newSession.id, text, options)
         } catch (err) {
@@ -432,6 +562,9 @@ export default function App() {
       if (activeSessionId && isArchived(activeSessionId)) {
         unarchiveSession(activeSessionId)
       }
+
+      // Mark human-initiated so completion triggers unread indicator
+      markHumanInitiated(activeSessionId)
 
       // Existing real session: send directly via useChatStream
       await sendPrompt(text, options)
@@ -609,9 +742,37 @@ export default function App() {
         return
       }
 
-      if (matchesShortcut(e, shortcuts.toggleMap)) {
+      if ((shortcuts.findInPage && matchesShortcut(e, shortcuts.findInPage)) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f')) {
         e.preventDefault()
-        setIsMapOpen((prev) => !prev)
+        e.stopPropagation()
+        setIsFindOpen(true)
+        return
+      }
+
+      if (
+        matchesShortcut(e, shortcuts.addSessionToMap) ||
+        (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key.toLowerCase() === 'm' || e.code === 'KeyM'))
+      ) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (activeSessionId) {
+          handleAddSessionToMap(activeSessionId)
+        }
+        return
+      }
+
+      if (
+        matchesShortcut(e, shortcuts.toggleMap) ||
+        ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'm')
+      ) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!isMapOpen) {
+          handleOpenMapAndLocate(activeSessionId)
+        } else {
+          setIsMapOpen(false)
+          setMapTargetSessionId(null)
+        }
         return
       }
 
@@ -631,6 +792,7 @@ export default function App() {
     isSettingsOpen,
     isMapOpen,
     isSearchOpen,
+    isFindOpen,
     handleNewSession,
     toggleZenMode,
     toggleSidebar,
@@ -639,9 +801,20 @@ export default function App() {
     selectSession,
   ])
 
+  // Guarantee outer window never scrolls or shifts layout vertically
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0)
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
   return (
     <DiffDrawerProvider activeSessionId={activeSessionId}>
-      <div className="flex h-screen w-screen bg-[#0c0d0e] text-[#e6edf3] font-sans antialiased overflow-hidden">
+      <div className="flex h-full w-full bg-[#0c0d0e] text-[#e6edf3] font-sans antialiased overflow-hidden">
         {/* 0. Top-Right Subtle Hover-Revealed Zen Mode Exit Capsule */}
       {isZenMode && (
         <div className="fixed top-3.5 right-5 z-50 group pointer-events-auto">
@@ -660,14 +833,16 @@ export default function App() {
       )}
 
       {/* 1. Left Project & Session Drawer (Collapsible) */}
-      {!isZenMode && isSidebarOpen && (
+      {!isZenMode && (
         <Sidebar
+          isOpen={isSidebarOpen}
           projects={projects}
           selectedProjectId={selectedProjectId}
           onSelectProject={setSelectedProjectId}
           groupedSessions={groupedSessions}
           sessions={sessions}
           activeSessionId={activeSessionId}
+          unreadSessionIds={unreadSessionIds}
           onSelectSession={handleSelectSessionWithHistory}
           onNewSession={handleNewSession}
           onDeleteSession={(id) => {
@@ -695,6 +870,11 @@ export default function App() {
         className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden transition-colors duration-300 ${
           isZenMode ? 'bg-[#090a0c]' : 'bg-[#0c0d0e]'
         }`}
+        onClick={() => {
+          if (activeSessionId) {
+            markSessionRead(activeSessionId)
+          }
+        }}
       >
         {/* Top Header Bar */}
         {!isZenMode && (
@@ -704,7 +884,11 @@ export default function App() {
             activeSessionId={activeSessionId}
             activeSession={activeSession}
             sessionStatus={sessionStatus}
-            onSelectTab={selectSession}
+            unreadSessionIds={unreadSessionIds}
+            onSelectTab={(sessionId) => {
+              markSessionRead(sessionId)
+              selectSession(sessionId)
+            }}
             onCloseTab={closeTab}
             onCloseOtherTabs={closeOtherTabs}
             onCloseTabsToRight={closeTabsToRight}
@@ -714,6 +898,8 @@ export default function App() {
             isSidebarOpen={isSidebarOpen}
             onToggleSidebar={() => toggleSidebar()}
             onToggleMap={() => setIsMapOpen((prev) => !prev)}
+            onOpenMapAndLocate={handleOpenMapAndLocate}
+            onAddSessionToMap={handleAddSessionToMap}
             onOpenSearch={() => setIsSearchOpen(true)}
             onToggleZenMode={() => toggleZenMode(true)}
             zenShortcutLabel={shortcuts.zenMode?.label || 'F11'}
@@ -737,7 +923,7 @@ export default function App() {
             <span className="text-xs">Connecting to OpenCode backend...</span>
           </div>
         ) : (
-          <main className="flex-1 flex flex-col min-h-0 relative">
+          <main className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
             {/* Archived Session Notice Banner */}
             {activeSessionId && isArchived(activeSessionId) && (
               <div className="bg-[#1c1a14] border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200/90 shrink-0 z-20 backdrop-blur-sm">
@@ -775,9 +961,11 @@ export default function App() {
               isReverting={reverting}
               targetMessageId={targetMessageId}
               onTargetMessageScrolled={() => setTargetMessageId(null)}
+              isFindOpen={isFindOpen}
+              onCloseFind={() => setIsFindOpen(false)}
             />
 
-            {/* In Zen mode, stack SessionRevertDock, TodoBanner and PromptInput in a floating dock to prevent collision */}
+            {/* In Zen mode, stack SessionRevertDock and PromptInput in a floating dock to prevent collision */}
             {isZenMode ? (
               <div className="fixed bottom-4 left-1/2 -translate-x-1/2 max-w-3xl w-[calc(100%-2rem)] z-40 flex flex-col gap-2 pointer-events-none">
                 <div className="pointer-events-auto">
@@ -787,9 +975,6 @@ export default function App() {
                     onRestoreMessage={handleRestoreMessage}
                     isRestoring={reverting}
                   />
-                </div>
-                <div className="pointer-events-auto">
-                  <TodoBanner todos={todos} isZenMode={isZenMode} />
                 </div>
                 <div className="pointer-events-auto">
                   <PromptInput
@@ -804,6 +989,7 @@ export default function App() {
                     onSelectProject={setSelectedProjectId}
                     onNewProject={async () => { await refresh() }}
                     sessions={sessions}
+                    todos={todos}
                   />
                 </div>
               </div>
@@ -816,9 +1002,6 @@ export default function App() {
                   onRestoreMessage={handleRestoreMessage}
                   isRestoring={reverting}
                 />
-
-                {/* Floating Todo Banner (Image 1) */}
-                <TodoBanner todos={todos} isZenMode={isZenMode} />
 
                 {/* Bottom Prompt Controls (Image 1 & Image 2) */}
                 <PromptInput
@@ -833,6 +1016,7 @@ export default function App() {
                   onSelectProject={setSelectedProjectId}
                   onNewProject={async () => { await refresh() }}
                   sessions={sessions}
+                  todos={todos}
                 />
               </>
             )}
@@ -853,7 +1037,11 @@ export default function App() {
       {/* 4. A1 Floating Dialogue Map Modal */}
       <FloatingMapModal
         isOpen={isMapOpen}
-        onClose={() => setIsMapOpen(false)}
+        onClose={() => {
+          setIsMapOpen(false)
+          setMapTargetSessionId(null)
+        }}
+        targetSessionId={mapTargetSessionId}
         onSelectSession={(sessionId) => {
           selectSession(sessionId)
           const target = sessions.find((s) => s.id === sessionId)
@@ -883,6 +1071,7 @@ export default function App() {
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelectSession={(sessionId, messageId) => {
+          markSessionRead(sessionId)
           if (messageId) {
             setTargetMessageId(messageId)
           }
@@ -905,6 +1094,7 @@ export default function App() {
         sessions={sessions}
         projects={projects}
         initialSelectedProjectId={selectedProjectId}
+        unreadSessionIds={unreadSessionIds}
       />
 
       {/* 5.5 Scheduled Tasks Modal */}

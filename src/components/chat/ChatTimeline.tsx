@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { AlertTriangle, Play, Sparkles, MessageSquare } from 'lucide-react'
 import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
 import { MessageBubble } from './MessageBubble'
-import { RevertBanner } from './RevertBanner'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
 import { extractDraftFromMessage } from '../../utils/draft'
 import { TimelineQuickJump } from './TimelineQuickJump'
 import { SelectionCopyFeedback } from './SelectionCopyFeedback'
+import { FindInPageBar } from './FindInPageBar'
 import { api } from '../../services/api'
 import { findJumpTargetIndex, findNextJumpTargetIndex } from './quick-jump'
 import { usePreferences } from '../../utils/preferences'
 import { getShortcuts, createDoubleTapTracker, isEditableTarget, matchesShortcut, hasActiveOverlay } from '../../utils/shortcuts'
+import { groupTimelineMessages } from '../../utils/timeline-grouping'
+import { computeClientSideDiffs, mergeRevertDiffs } from '../../utils/client-side-diffs'
 import type { RevertMode, PromptAttachment } from '../../hooks/useChatStream'
 
 interface ChatTimelineProps {
@@ -27,50 +29,8 @@ interface ChatTimelineProps {
   isReverting?: boolean
   targetMessageId?: string | null
   onTargetMessageScrolled?: () => void
-}
-
-function computeClientSideDiffs(messages: Message[], targetMsgId: string): ConfirmUndoFileDiff[] {
-  const targetIndex = messages.findIndex((m) => m.info.id === targetMsgId)
-  if (targetIndex === -1) return []
-
-  const filesMap = new Map<string, { status?: 'added' | 'deleted' | 'modified'; additions: number; deletions: number }>()
-
-  for (let i = targetIndex; i < messages.length; i++) {
-    const msg = messages[i]
-    for (const part of msg.parts) {
-      if (part.type === 'tool') {
-        const toolPart = part as any
-        const toolName = String(toolPart.tool || '').toLowerCase()
-        const input = toolPart.state?.input || {}
-        const filePath = input.path || input.filePath || input.file || toolPart.state?.title
-        if (!filePath || typeof filePath !== 'string') continue
-
-        const normPath = filePath.replace(/\\/g, '/').split('/').pop() || filePath
-
-        if (!filesMap.has(normPath)) {
-          filesMap.set(normPath, { additions: 0, deletions: 0 })
-        }
-        const entry = filesMap.get(normPath)!
-
-        if (toolName === 'write' || toolName === 'write_to_file' || toolName === 'create') {
-          entry.status = 'added'
-        } else if (toolName === 'edit' || toolName === 'replace_file_content' || toolName === 'patch') {
-          entry.status = 'modified'
-          const adds = Number(input.additions || toolPart.state?.metadata?.additions || 0)
-          const dels = Number(input.deletions || toolPart.state?.metadata?.deletions || 0)
-          entry.additions += adds
-          entry.deletions += dels
-        }
-      }
-    }
-  }
-
-  return Array.from(filesMap.entries()).map(([file, data]) => ({
-    file,
-    status: data.status,
-    additions: data.additions,
-    deletions: data.deletions,
-  }))
+  isFindOpen?: boolean
+  onCloseFind?: () => void
 }
 
 export function ChatTimeline({
@@ -82,11 +42,13 @@ export function ChatTimeline({
   isZenMode,
   activeSession,
   onRevertToMessage,
-  onUnrevert,
+  onUnrevert: _onUnrevert,
   onDraftInject,
   isReverting,
   targetMessageId,
   onTargetMessageScrolled,
+  isFindOpen,
+  onCloseFind,
 }: ChatTimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -97,6 +59,7 @@ export function ChatTimeline({
   const [confirmTargetMessageId, setConfirmTargetMessageId] = useState<string | null>(null)
   const [confirmDiffFiles, setConfirmDiffFiles] = useState<ConfirmUndoFileDiff[]>([])
   const [loadingDiff, setLoadingDiff] = useState(false)
+  const [revertError, setRevertError] = useState<string | null>(null)
 
   const handleInitiateRevert = useCallback(
     async (messageId: string) => {
@@ -104,27 +67,23 @@ export function ChatTimeline({
       setIsConfirmUndoOpen(true)
       setLoadingDiff(true)
       setConfirmDiffFiles([])
+      setRevertError(null)
 
       try {
-        // 1. Try fetching official daemon diff
+        const clientDiffs = computeClientSideDiffs(messages, messageId)
+        let daemonDiffs: ConfirmUndoFileDiff[] = []
         if (activeSession?.id) {
           const diffs = await api.getSessionDiff(activeSession.id, messageId).catch(() => [])
           if (Array.isArray(diffs) && diffs.length > 0) {
-            const formatted: ConfirmUndoFileDiff[] = diffs.map((d) => ({
+            daemonDiffs = diffs.map((d) => ({
               file: d.file.replace(/\\/g, '/').split('/').pop() || d.file,
               status: d.status,
               additions: d.additions || 0,
               deletions: d.deletions || 0,
             }))
-            setConfirmDiffFiles(formatted)
-            setLoadingDiff(false)
-            return
           }
         }
-
-        // 2. Fallback: inspect tool parts in timeline messages
-        const clientDiffs = computeClientSideDiffs(messages, messageId)
-        setConfirmDiffFiles(clientDiffs)
+        setConfirmDiffFiles(mergeRevertDiffs(daemonDiffs, clientDiffs))
       } catch (err) {
         console.error('Failed to get diff for revert:', err)
         setConfirmDiffFiles(computeClientSideDiffs(messages, messageId))
@@ -154,6 +113,9 @@ export function ChatTimeline({
       if (res?.ok !== false) {
         setIsConfirmUndoOpen(false)
         setConfirmTargetMessageId(null)
+        setRevertError(null)
+      } else {
+        setRevertError(res?.error || 'Revert failed')
       }
     },
     [confirmTargetMessageId, onRevertToMessage, messages, onDraftInject]
@@ -163,16 +125,27 @@ export function ChatTimeline({
   const revertState = activeSession?.revert
   const revertMessageId = revertState?.messageID
 
+  const groupedItems = useMemo(
+    () => groupTimelineMessages(messages, revertMessageId),
+    [messages, revertMessageId]
+  )
+
   // Find index of the revert boundary message
   const revertIndex = revertMessageId
     ? messages.findIndex((m) => m.info.id === revertMessageId)
     : -1
 
-  // Format revert time if available
-  const revertTargetMessage = revertIndex !== -1 ? messages[revertIndex] : null
-  const revertTime = revertTargetMessage?.info.time?.created
-    ? new Date(revertTargetMessage.info.time.created).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : undefined
+  // Filter out any turns from the revert boundary onwards
+  const visibleItems = useMemo(() => {
+    if (revertIndex === -1) return groupedItems
+    return groupedItems.filter((item) => {
+      if (item.type === 'user' || item.type === 'system') {
+        return item.index < revertIndex
+      }
+      return item.messages.every((m) => messages.indexOf(m) < revertIndex)
+    })
+  }, [groupedItems, revertIndex, messages])
+
 
   // Track if user scrolled up manually
   const handleScroll = () => {
@@ -181,6 +154,41 @@ export function ChatTimeline({
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 80
     isAutoScrollEnabled.current = isAtBottom
   }
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    if (!containerRef.current) return
+    const container = containerRef.current
+    if (behavior === 'smooth') {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      })
+    } else {
+      container.scrollTop = container.scrollHeight
+    }
+  }, [])
+
+  const scrollElementIntoContainer = useCallback(
+    (el: HTMLElement, block: 'start' | 'center' = 'start', behavior: ScrollBehavior = 'smooth') => {
+      if (!containerRef.current || !el) return
+      const container = containerRef.current
+      const containerRect = container.getBoundingClientRect()
+      const elRect = el.getBoundingClientRect()
+
+      let targetTop = elRect.top - containerRect.top + container.scrollTop
+      if (block === 'center') {
+        targetTop -= container.clientHeight / 2 - elRect.height / 2
+      } else {
+        targetTop -= 16
+      }
+
+      container.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior,
+      })
+    },
+    []
+  )
 
   const handleScrollToRecentUserMessage = useCallback(() => {
     if (!containerRef.current) return
@@ -210,7 +218,7 @@ export function ChatTimeline({
     const targetEl = userEls[targetIdx]
     if (targetEl) {
       isAutoScrollEnabled.current = false
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      scrollElementIntoContainer(targetEl, 'start', 'smooth')
 
       // Visual pulse indicator
       targetEl.classList.remove('highlight-pulse')
@@ -220,7 +228,7 @@ export function ChatTimeline({
         targetEl?.classList.remove('highlight-pulse')
       }, 1600)
     }
-  }, [])
+  }, [scrollElementIntoContainer])
 
   const handleScrollToNextUserMessage = useCallback(() => {
     if (!containerRef.current) return
@@ -230,7 +238,7 @@ export function ChatTimeline({
     )
 
     if (userEls.length === 0) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      scrollToBottom('smooth')
       return
     }
 
@@ -244,14 +252,14 @@ export function ChatTimeline({
     if (targetIdx === null) {
       // Reached past the last user message, scroll to bottom of chat
       isAutoScrollEnabled.current = true
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      scrollToBottom('smooth')
       return
     }
 
     const targetEl = userEls[targetIdx]
     if (targetEl) {
       isAutoScrollEnabled.current = false
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      scrollElementIntoContainer(targetEl, 'start', 'smooth')
 
       // Visual pulse indicator
       targetEl.classList.remove('highlight-pulse')
@@ -261,7 +269,7 @@ export function ChatTimeline({
         targetEl?.classList.remove('highlight-pulse')
       }, 1600)
     }
-  }, [])
+  }, [scrollElementIntoContainer, scrollToBottom])
 
   const handleScrollToTop = useCallback(() => {
     isAutoScrollEnabled.current = false
@@ -270,14 +278,8 @@ export function ChatTimeline({
 
   const handleScrollToAbsoluteBottom = useCallback(() => {
     isAutoScrollEnabled.current = true
-    if (containerRef.current) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: 'auto',
-      })
-    }
-    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [])
+    scrollToBottom('smooth')
+  }, [scrollToBottom])
 
   const handleJumpToUserIndex = useCallback((userIndex: number) => {
     if (!containerRef.current) return
@@ -288,7 +290,7 @@ export function ChatTimeline({
     const targetEl = userEls[userIndex]
     if (targetEl) {
       isAutoScrollEnabled.current = false
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      scrollElementIntoContainer(targetEl, 'start', 'smooth')
 
       // Visual pulse indicator
       targetEl.classList.remove('highlight-pulse')
@@ -298,7 +300,7 @@ export function ChatTimeline({
         targetEl?.classList.remove('highlight-pulse')
       }, 1600)
     }
-  }, [])
+  }, [scrollElementIntoContainer])
 
   // Up/Down keyboard shortcuts listener with double-tap support and Edge Caret Browsing defense
   useEffect(() => {
@@ -370,11 +372,31 @@ export function ChatTimeline({
     handleScrollToAbsoluteBottom,
   ])
 
+  const currentSessionId = activeSession?.id || null
+  const prevSessionIdRef = useRef<string | null>(null)
+  const isInitialSessionLoadRef = useRef<boolean>(true)
+
   useEffect(() => {
-    if (isAutoScrollEnabled.current && !targetMessageId) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // If switching to a different session
+    if (currentSessionId !== prevSessionIdRef.current) {
+      prevSessionIdRef.current = currentSessionId
+      isInitialSessionLoadRef.current = true
+      isAutoScrollEnabled.current = true
     }
-  }, [messages, sessionStatus, targetMessageId])
+
+    if (!targetMessageId && containerRef.current) {
+      if (isInitialSessionLoadRef.current) {
+        // Immediate snap to bottom on initial session open — NO disorienting scroll animation!
+        if (messages.length > 0) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight
+          isInitialSessionLoadRef.current = false
+        }
+      } else if (isAutoScrollEnabled.current) {
+        // Active streaming / ongoing message additions: smooth scroll container
+        scrollToBottom('smooth')
+      }
+    }
+  }, [messages, sessionStatus, targetMessageId, currentSessionId, scrollToBottom])
 
   // Jump to specific message target (e.g. from Cross-Message Full-Text Search hit)
   useEffect(() => {
@@ -388,7 +410,7 @@ export function ChatTimeline({
 
       if (targetEl) {
         isAutoScrollEnabled.current = false
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        scrollElementIntoContainer(targetEl, 'center', 'smooth')
         targetEl.classList.remove('highlight-pulse')
         void targetEl.offsetWidth
         targetEl.classList.add('highlight-pulse')
@@ -400,7 +422,7 @@ export function ChatTimeline({
     }, 150)
 
     return () => clearTimeout(timer)
-  }, [targetMessageId, messages, onTargetMessageScrolled])
+  }, [targetMessageId, messages, onTargetMessageScrolled, scrollElementIntoContainer])
 
   const suggestions = [
     '列出当前工作区的所有文件结构',
@@ -409,7 +431,15 @@ export function ChatTimeline({
   ]
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col">
+    <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+      {/* In-Page Find Bar (Ctrl+F) */}
+      <FindInPageBar
+        isOpen={Boolean(isFindOpen)}
+        onClose={onCloseFind || (() => {})}
+        messages={messages}
+        containerRef={containerRef}
+      />
+
       {/* Floating Right Dialogue Track Navigator Rail (Only icon buttons, long-press enabled, toggleable in settings) */}
       {messages.length > 0 && (prefs.showTimelineQuickJump ?? true) && !isConfirmUndoOpen && (
         <TimelineQuickJump
@@ -427,11 +457,11 @@ export function ChatTimeline({
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className={`flex-1 overflow-y-auto no-scrollbar transition-colors duration-300 ${
-          isZenMode ? 'px-4 sm:px-8 py-8 bg-[#090a0c]' : 'px-2 py-4'
+        className={`flex-1 overflow-y-auto no-scrollbar transition-colors duration-300 px-4 sm:px-6 lg:px-8 py-4 ${
+          isZenMode ? 'bg-[#090a0c] sm:py-8' : ''
         }`}
       >
-      {messages.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-600/20 to-purple-600/20 border border-zinc-800 flex items-center justify-center mb-4 text-orange-400 shadow-inner">
             <MessageSquare className="w-6 h-6" />
@@ -463,33 +493,39 @@ export function ChatTimeline({
               ? 'max-w-2xl'
               : prefs.conversationWidth === 'wide'
               ? 'max-w-6xl'
-              : 'max-w-4xl'
+              : 'max-w-4xl xl:max-w-5xl'
           } ${isZenMode ? 'space-y-6 pb-36' : 'space-y-4'}`}
         >
-          {/* Revert Banner if session is currently reverted */}
-          {revertState && onUnrevert && (
-            <RevertBanner
-              revert={revertState}
-              revertTime={revertTime}
-              isReverting={isReverting}
-              onUnrevert={onUnrevert}
-            />
-          )}
+          {visibleItems.map((item) => {
+            if (item.type === 'user' || item.type === 'system') {
+              return (
+                <MessageBubble
+                  key={item.message.info.id}
+                  message={item.message}
+                  isZenMode={isZenMode}
+                  onRevertToMessage={handleInitiateRevert}
+                  isBusy={sessionStatus.type === 'busy'}
+                  isReverting={isReverting}
+                />
+              )
+            }
 
-          {messages.map((msg, idx) => {
-            const isRevertPoint = revertIndex !== -1 && idx === revertIndex
-            const isReverted = revertIndex !== -1 && idx > revertIndex
+            // Assistant Turn (consolidated single bubble and single Worked for card!)
+            const bubbleKey =
+              item.allMessageIds && item.allMessageIds.length > 0
+                ? item.allMessageIds[0]
+                : item.primaryMessage.info.id
 
             return (
               <MessageBubble
-                key={msg.info.id}
-                message={msg}
+                key={bubbleKey}
+                message={item.compositeMessage}
+                allMessageIds={item.allMessageIds}
                 isZenMode={isZenMode}
                 onRevertToMessage={handleInitiateRevert}
-                isRevertPoint={isRevertPoint}
-                isReverted={isReverted}
                 isBusy={sessionStatus.type === 'busy'}
                 isReverting={isReverting}
+                onRetry={onRetry}
               />
             )
           })}
@@ -538,6 +574,7 @@ export function ChatTimeline({
           if (!isReverting) {
             setIsConfirmUndoOpen(false)
             setConfirmTargetMessageId(null)
+            setRevertError(null)
           }
         }}
         onConfirm={handleExecuteRevert}
@@ -554,10 +591,15 @@ export function ChatTimeline({
         files={confirmDiffFiles}
         loading={loadingDiff}
         isReverting={isReverting}
+        error={revertError}
       />
 
       {/* Text Selection Floating Copy & 1s Feedback Popover */}
-      <SelectionCopyFeedback containerRef={containerRef} durationMs={1000} />
+      <SelectionCopyFeedback
+        containerRef={containerRef}
+        durationMs={1000}
+        sessionId={activeSession?.id}
+      />
     </div>
   )
 }

@@ -1,100 +1,57 @@
-# OpenCode Web Companion Architecture & Internal Design
+# OpenCode Web Companion — Architecture
 
-## 1. System Topology & Data Flow
+Windows-host dashboard for the OpenCode daemon at `http://127.0.0.1:5001`. Presentation only (REST + SSE). Execution stays in WSL2 `opencode-jail`. Load exactly one module; do not concatenate this tree into one prompt.
 
-```text
-[ Windows Host: Chrome / Edge (localhost:5173) ]
-      |
-      |-- 1. HTTP REST (GET/POST/DELETE) --> [ WSL2 Port 5001: OpenCode Daemon ]
-      |                                              |
-      |-- 2. SSE Stream (GET /global/event) <-------+ (message.part.delta, session.status)
-      |
-      +-- 3. TUI Session Switch (POST /tui/select-session) --> [ OpenCode Desktop App ]
-```
+Public usage + run commands: `README.md`. This file is the lean architecture router (plugin-doc Modular Router). Hierarchy is **one level**: this file → `docs/modules/<subsystem>.md`. Nested routers are forbidden.
 
-### Data Movement Sequence
-1. **Intake**: On mount, `useSessions` queries `GET /project` and `GET /session` from `http://127.0.0.1:5001`.
-2. **Stream Subscription**: `sseManager` establishes persistent EventSource connection to `GET /global/event`.
-3. **Prompt Dispatch**: When user sends a message, `useChatStream` optimistically appends the user bubble, sets status to `busy`, and calls `POST /session/{sessionID}/prompt_async` (204 No Content).
-4. **Streaming Concatenation**: Backend streams `message.part.delta` events. `useChatStream` locates the target message and part by ID, appending delta chunks without reloading the entire timeline.
-5. **Tool Finalization**: `message.part.updated` arrives with complete tool inputs/outputs, updating the `ToolCard` state to `completed` or `error`.
+## Global Invariants
 
----
-
-## 2. Dialogue Map Architecture (`src/components/map/`)
-
-```text
-[ MapCanvas ]
-      |
-      +-- [ MapFlow (@xyflow/react) ]
-      |         |-- ViewportPortal: CuttingWireOverlay (Laser beam)
-      |         |-- Background (Dots) + Controls + MiniMap
-      |         +-- Custom Nodes: SessionCard, CommentGroup
-      |
-      +-- [ Pure Geometry Engines ]
-      |         |-- cutting-wire.ts (Cubic Bézier discretization, AABB, 2D CCW straddle)
-      |         |-- lazy-connect.ts (DOM + geometric hit-testing, polarity resolution)
-      |         +-- layout-dagre.ts (Hierarchical LR tree layout)
-      |
-      +-- [ Interaction & Safety Controllers ]
-                |-- map-history.ts (50-step undo/redo, isolated from SSE sync)
-                +-- BlueprintActionMenu.tsx (Empty-space in-place search menu)
-```
-
-### Key Architectural Invariants
-1. **Event Phase Decoupling**:
-   - React Flow natively listens to pointer and mouse events in the bubble phase.
-   - Laser cutting (`Alt + Middle Mouse`) and pin breaking (`Alt + Left Click`) attach listeners in the **Capture Phase** (`onPointerDownCapture`, `onMouseDownCapture`).
-   - Calling `stopPropagation()` and `preventDefault()` in capture phase physically prevents React Flow from initiating unwanted canvas panning or wire creation.
-2. **Pure Geometry Wire Cutting Engine**:
-   - Replicates `@xyflow/system`'s exact cubic Bézier formula including backward-looping negative span offset (`curvature * 25 * Math.sqrt(-distance)`).
-   - Uses Level 1 AABB bounding box fast rejection, followed by Level 2 2D CCW line segment cross-product straddle testing.
-   - Slices intersecting non-native wires in real-time during mouse movement, consolidating a continuous stroke into a single transactional Undo step.
-3. **Dual Coordinate Space Isolation**:
-   - `screenPos` (`clientX`, `clientY`) governs CSS fixed/absolute positioning of floating menus (`BlueprintActionMenu`, `FloatingMapModal`, `FloatingSearchModal`).
-   - `flowPos` (projected via `flow.screenToFlowPosition`) governs node and edge positions in the infinite canvas coordinate space.
-   - Never conflate screen coordinates with canvas world coordinates.
-4. **Undo Stack & SSE Stream Separation**:
-   - User actions (drag, resize, wire cut, auto-layout) pass through `recordUserMutation`, pushing snapshots to `historyRef`.
-   - Background daemon updates (SSE title updates, running statuses, digest updates) pass through `persistDirectMap` without polluting the user undo history.
-
----
-
-## 3. Component Boundaries & Responsibilities
-
-| Component / Subsystem | Responsible For | MUST NOT Contain |
-| :--- | :--- | :--- |
-| `Sidebar.tsx` | Project filtering, session search, time grouping (`Today`/`Yesterday`/`Older`) | Message payload handling, SSE subscriptions |
-| `Header.tsx` | Tab management, token analytics counter, desktop deep-link, Map trigger | Direct session creation network calls |
-| `ChatTimeline.tsx` | Scroll preservation, message bubbles layout, 502 error banner | Input form validation, prompt submission |
-| `PromptInput.tsx` | Dynamic agent/model dropdowns, textarea auto-resize, image paste | Chat message history manipulation |
-| `MapCanvas.tsx` | Map lifecycle, undo/redo dispatch, project board subscriptions | Low-level SVG canvas rendering |
-| `MapFlow.tsx` | ReactFlow wrapper, pointer capture, laser cutting state | Server REST API calls |
-| `BlueprintActionMenu.tsx` | Contextual action search popover, fuzzy session filter | Canvas node layout algorithms |
-| `CountdownConfirmDialog.tsx` | Enforced 2s countdown safety lock on dangerous/reset actions | Application business logic |
-
----
-
-## 4. Key Invariants & Contracts
+At most three. System-wide. Modules reference these; they do not restate them.
 
 <!-- BEGIN USER-SPECIFIED -->
-1. **Host Sandbox Isolation**:
-   - The companion app lives strictly on the host filesystem (`opencode-companion/`).
-   - NEVER place the frontend inside the WSL2 `opencode-jail` sandbox, preventing sandbox firewall whitelist blocks or filesystem permission clashes.
-2. **Dual-Mode Desktop Navigation**:
-   - Switching focus to OpenCode Desktop MUST attempt `POST /tui/select-session` first. This performs a silent in-place tab switch in the running desktop app without triggering browser security prompts.
-   - Fallback to `opencode://session?id=<id>` is only used when the TUI API is unresponsive.
-3. **Zero Credential Exposure**:
-   - The frontend communicates only with the unauthenticated local daemon on `127.0.0.1:5001`.
-   - Never store or log raw API tokens in frontend storage.
+- **Host Sandbox Isolation**: Companion lives on the host (`opencode-companion/`). NEVER place the frontend inside WSL2 `opencode-jail`.
+- **Dual-Mode Desktop Navigation**: `POST /tui/select-session` first; `opencode://session?id=` only when TUI is unresponsive.
+- **Zero Credential Exposure**: Talk only to the unauthenticated loopback daemon on `127.0.0.1:5001`. Never store or log raw API tokens in frontend source.
 <!-- END USER-SPECIFIED -->
 
----
+## Progressive Router
 
-## 5. Troubleshooting & Diagnostics
+| Subsystem | Doc | Owns | Do not put here |
+| :--- | :--- | :--- | :--- |
+| SessionManagement | `docs/modules/session-management.md` | List/tabs, `__draft__`, pin DnD, unread, archive, revert dock, JSON export, `normalizeSession` | SSE deltas, prompt composer, map geometry |
+| DialogueBlueprint | `docs/modules/dialogue-blueprint.md` | React Flow canvas, Dagre LR, laser, lazy connect, pin-break, undo vs SSE | Daemon `/session` writes, prompt send |
+| StreamingChat | `docs/modules/streaming-chat.md` | `/global/event`, optimistic swap, `<think>`, worked summary, unified diffs | Textarea, map persist |
+| PromptController | `docs/modules/prompt-controller.md` | Autogrow composer, `/` `@`, paste, next-send agent/model | Timeline merge, historical badges |
+| LayoutModes | `docs/modules/layout-modes.md` | Sidebar/tabs, Ctrl+K / Ctrl+F, F11 zen, shortcuts, 2s countdown | REST normalize, Bézier math |
+| RelayGateway | `docs/modules/relay-gateway.md` | Model picker, relay hub, `:3000` billing view, loopback bind | New API channel provisioning |
+| FeatureFlags | `docs/modules/plugin-system.md` | `UserPreferences` visibility toggles. **No** `src/plugins/` tree in this repo | Invented plugin registry APIs |
 
-- **Vite Dev Server**: `pnpm dev --host 127.0.0.1 --port 5173`
-- **Production Preview**: `pnpm preview` or `node serve.mjs`
-- **Unit Test Suite**: `npx tsx --test "src/**/*.test.ts"` (92 automated tests)
-- **TypeScript Typecheck & Build**: `pnpm run build` (`tsc -b && vite build`)
-- **Healthcheck Probe**: `curl http://127.0.0.1:5001/global/health`
+## When to load
+
+| Trigger | Module |
+| :--- | :--- |
+| Draft, pin DnD, unread ring, revert dock, export, canonical workspaces | SessionManagement |
+| Laser, lazy connect, pin-break, Dagre `Alt+R`, undo vs SSE | DialogueBlueprint |
+| SSE fuse, optimistic `usr_` swap, `<think>`, diffs | StreamingChat |
+| Enter send, `/` `@`, image paste, next-send agent | PromptController |
+| Sidebar, Ctrl+K vs Ctrl+F, F11 zen, 2s countdown | LayoutModes |
+| Relay keys, `:3000` quota, loopback bind | RelayGateway |
+| Preference toggles / “add a plugin” | FeatureFlags (honest: no registry) |
+
+## Bind & Source Map
+
+```text
+[Edge 127.0.0.1:5173] --REST/SSE--> [daemon 127.0.0.1:5001]
+                 \--POST /tui/select-session--> [OpenCode Desktop]
+                 \--quota view--> [New API 127.0.0.1:3000]   (RelayGateway only)
+```
+
+- `src/services/api.ts` — REST + defensive normalize (`extra="allow"`). Every daemon payload crosses here before React state.
+- `src/services/sse.ts` — single `EventSource` to `/global/event`.
+- `src/hooks/useSessions.ts` / `useChatStream.ts` — session list vs transcript.
+- `src/components/{chat,layout,map,search,settings,diff}/` — UI stores named in the table above.
+- `serve.mjs` — host static + `/api/map`, `/api/export-session`, `/api/git-revert`, `/api/proxy/relay-quota`. Bind `127.0.0.1`.
+
+Skill (JIT, not this tree): `OpenCodeCompanionDev`. Daemon/jail: `OpenCodeBackendOps`. Channel provision on `:3000`: `GatewayAPIManager`.
+
+Do not inline module recipes, API tables, or 3-layer XML here. Recurring agent failures → patch the owning module, not this file.
