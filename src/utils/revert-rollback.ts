@@ -2,8 +2,7 @@ import type { Message } from '../types/opencode'
 import {
   accumulateRange,
   displayName,
-  fileExistedBeforeCheckpoint,
-  isExternalToolPath,
+  fileExistedAtCheckpoint,
   lastContentBeforeCheckpoint,
   toRollbackPath,
   type RevertFileDiff,
@@ -68,26 +67,55 @@ export function mergeRevertDiffs(
 
 export function collectRollbackActions(
   messages: readonly Message[],
-  targetMsgId: string
+  targetMsgId: string,
+  sessionDir?: string
 ): RollbackAction[] {
   const targetIndex = messages.findIndex((m) => m.info.id === targetMsgId)
   if (targetIndex === -1) return []
   const files = accumulateRange(messages, targetIndex)
   const actions: RollbackAction[] = []
+  console.log(`[Revert:Rollback] Scanning ${files.size} modified files for targetMsgId: ${targetMsgId} (index: ${targetIndex})`)
 
   for (const acc of files.values()) {
-    const path = toRollbackPath(acc.path)
-    const existedBefore = fileExistedBeforeCheckpoint(messages, targetMsgId, path)
-    if (acc.createdInRange && !existedBefore) {
-      actions.push({ kind: 'delete', path })
+    let rawPath = acc.path
+    if (!rawPath.startsWith('/') && !/^[a-zA-Z]:[\\/]/.test(rawPath) && sessionDir) {
+      rawPath = `${sessionDir.replace(/\\/g, '/').replace(/\/+$/, '')}/${rawPath}`
+    }
+    const path = toRollbackPath(rawPath)
+    const existedBefore = fileExistedAtCheckpoint(messages, targetMsgId, acc.path, acc)
+
+    const isProject = path.startsWith('/workspace/projects/') || path.startsWith('/projects/') || /^[a-zA-Z]:[\\/]/.test(path)
+    if (!isProject) {
+      console.warn(`[Revert:Rollback] Skipping non-project path: ${path} (raw: ${rawPath})`)
       continue
     }
-    if (!isExternalToolPath(path) && !isExternalToolPath(acc.path)) continue
-    const restoreContent =
-      lastContentBeforeCheckpoint(messages, targetIndex, path) ?? acc.earliestOld
-    if (restoreContent !== undefined) {
-      actions.push({ kind: 'restore', path, content: restoreContent })
+
+    if (acc.createdInRange && !existedBefore) {
+      const action: RollbackAction = { kind: 'delete', path }
+      console.log(`[Revert:Rollback] Action generated (delete newly created file):`, action)
+      actions.push(action)
+      continue
+    }
+
+    if (existedBefore || acc.editedInRange || acc.mutatedInRange) {
+      const restoreContent =
+        acc.earliestOld ??
+        acc.earliestReadOutput ??
+        lastContentBeforeCheckpoint(messages, targetIndex, acc.path)
+
+      const action: RollbackAction = {
+        kind: 'restore',
+        path,
+        content: restoreContent,
+      }
+      console.log(
+        `[Revert:Rollback] Action generated (restore file):`,
+        action.path,
+        restoreContent !== undefined ? `(content length: ${restoreContent.length})` : '(will use git fallback)'
+      )
+      actions.push(action)
     }
   }
+  console.log(`[Revert:Rollback] Total rollback actions: ${actions.length}`)
   return actions
 }

@@ -34,35 +34,27 @@ describe('host-api git path filter', () => {
 })
 
 describe('host-api directory and desktop allowlist', () => {
-  test('maps jail worktree into /home/developer/projects', () => {
+  test('maps jail worktree into projects root', () => {
     assert.equal(
       resolveHostDirectory('/workspace/projects/APISpace/opencode-companion'),
-      '/home/developer/projects/APISpace/opencode-companion'
+      '/workspace/projects/APISpace/opencode-companion'
     )
     assert.equal(resolveHostDirectory('/tmp/evil'), null)
   })
 
-  test('allows /mnt/desktop files only', () => {
-    assert.equal(isAllowedExternalPath('/mnt/desktop/atlas-test.txt'), true)
-    assert.equal(isAllowedExternalPath('/home/developer/projects/APISpace/secret.txt'), false)
-    assert.equal(isAllowedExternalPath('/mnt/desktop/../projects/APISpace/secret.txt'), false)
+  test('strictly disallows external/desktop files', () => {
+    assert.equal(isAllowedExternalPath('/mnt/desktop/atlas-test.txt'), false)
+    assert.equal(isAllowedExternalPath('C:/test/atlas-test.txt'), false)
+    assert.equal(isAllowedRollbackPath('/mnt/desktop/atlas-test.txt'), false)
+    assert.equal(isAllowedRollbackPath('C:/test/atlas-test.txt'), false)
   })
 
-  test('maps Windows Desktop paths onto /mnt/desktop', () => {
+  test('allows non-sensitive in-tree created-file unlinks only', () => {
     assert.equal(
-      normalizeRollbackPath('C:/Users/jeff/Desktop/atlas-test.txt'),
-      '/mnt/desktop/atlas-test.txt'
-    )
-    assert.equal(isAllowedExternalPath('C:/Users/jeff/Desktop/atlas-test.txt'), true)
-    assert.equal(isAllowedRollbackPath('/mnt/desktop/atlas-test.txt'), true)
-  })
-
-  test('allows non-sensitive in-tree created-file unlinks', () => {
-    assert.equal(
-      isAllowedRollbackPath('/home/developer/projects/APISpace/opencode-companion/src/brand-new.ts'),
+      isAllowedRollbackPath('/workspace/projects/APISpace/opencode-companion/src/brand-new.ts'),
       true
     )
-    assert.equal(isAllowedRollbackPath('/home/developer/projects/APISpace/.env'), false)
+    assert.equal(isAllowedRollbackPath('/workspace/projects/APISpace/.env'), false)
     assert.equal(isAllowedRollbackPath('/tmp/evil.txt'), false)
   })
 })

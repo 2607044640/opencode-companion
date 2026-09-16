@@ -26,7 +26,16 @@ const server = http.createServer((req, res) => {
   let reqPath = req.url.split('?')[0]
 
   if (reqPath === '/api/git-checkpoint' || reqPath === '/api/external-file-rollback') {
-    void handleHostApi(req, res)
+    void handleHostApi(req, res).then((handled) => {
+      if (handled) return
+      if (!res.headersSent) {
+        res.writeHead(404, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(JSON.stringify({ ok: false, error: `unknown api route: ${reqPath}` }))
+      }
+    })
     return
   }
 
@@ -221,7 +230,7 @@ const server = http.createServer((req, res) => {
             name: '稳定中转 (Flash 3.7)',
             baseUrl: wending.base_url,
             apiKey: wending.key,
-            redeemUrl: 'https://xn--fiq104an1x80s.com',
+            redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
             currency: 'USD',
             quotaRate: 500000,
             cnyRate: 7.2,
@@ -330,6 +339,15 @@ const server = http.createServer((req, res) => {
       res.end()
       return
     }
+  }
+
+  if (reqPath === '/api' || reqPath.startsWith('/api/')) {
+    res.writeHead(404, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+    })
+    res.end(JSON.stringify({ ok: false, error: `unknown api route: ${reqPath}` }))
+    return
   }
 
   if (reqPath === '/') reqPath = '/index.html'

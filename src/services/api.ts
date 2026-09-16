@@ -869,6 +869,13 @@ export const api = {
       await this.switchSessionAgent(sessionID, resolvedAgent).catch(() => {})
     }
 
+    console.log('[API] 🚀 Dispatching prompt_async ->', {
+      sessionID,
+      agent: resolvedAgent,
+      model: options?.model,
+      partsCount: parts.length,
+    })
+
     await request<void>(`/session/${sessionID}/prompt_async`, {
       method: 'POST',
       body: JSON.stringify({

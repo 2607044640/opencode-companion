@@ -2,8 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-const PROJECTS_ROOT = '/home/developer/projects/'
-const DESKTOP_JAIL = '/mnt/desktop/'
+const PROJECTS_ROOT = process.env.PROJECTS_ROOT || '/workspace/projects/'
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rs|go|md|css|html|vue|svelte|json)$/i
 const SENSITIVE_BASENAME = /(?:^|\/)(?:\.env(?:\..*)?|one-api\.db|api_secrets\.json)$/i
 const SENSITIVE_EXT = /\.(?:key|pem|p12|pfx|crt|cer)$/i
@@ -25,49 +24,80 @@ export function isSensitiveGitPath(filePath) {
 }
 
 function isInsideRoot(resolved, rootDir) {
-  const root = path.resolve(rootDir)
-  return resolved === root || resolved.startsWith(root + path.sep)
+  const root = path.posix.resolve(rootDir)
+  return resolved === root || resolved.startsWith(root + '/')
 }
 
 export function resolveHostDirectory(rawDir) {
   if (!rawDir || typeof rawDir !== 'string') return null
-  let normalized = rawDir.replace(/\\/g, '/').replace(/\/+$/, '')
-  if (normalized.startsWith('/workspace/projects/')) {
-    normalized = `/home/developer/projects/${normalized.slice('/workspace/projects/'.length)}`
-  }
-  const resolved = path.resolve(normalized)
+  const normalized = rawDir.replace(/\\/g, '/').replace(/\/+$/, '')
+  const resolved = path.posix.resolve(normalized)
   if (!isInsideRoot(resolved, PROJECTS_ROOT)) return null
   return resolved
 }
 
 export function normalizeRollbackPath(filePath) {
   if (!filePath || typeof filePath !== 'string') return ''
-  const posix = filePath.replace(/\\/g, '/').replace(/\/+$/, '').trim()
-  const winDesk = posix.match(/^[a-zA-Z]:\/Users\/[^/]+\/(?:OneDrive\/)?Desktop\/(.*)$/i)
-  if (winDesk?.[1] !== undefined) return `/mnt/desktop/${winDesk[1]}`
-  const wslDesk = posix.match(/^\/mnt\/[a-zA-Z]\/Users\/[^/]+\/(?:OneDrive\/)?Desktop\/(.*)$/i)
-  if (wslDesk?.[1] !== undefined) return `/mnt/desktop/${wslDesk[1]}`
-  if (posix.startsWith('/workspace/projects/')) {
-    return `/home/developer/projects/${posix.slice('/workspace/projects/'.length)}`
-  }
-  return posix
+  return filePath.replace(/\\/g, '/').replace(/\/+$/, '').trim()
 }
 
-export function isAllowedExternalPath(filePath) {
-  const posix = normalizeRollbackPath(filePath)
-  if (!posix || posix.includes('..')) return false
-  const resolved = path.resolve(posix).replace(/\\/g, '/')
-  if (resolved === '/mnt/desktop' || resolved.startsWith(DESKTOP_JAIL)) return true
-  if (posix === '/mnt/desktop' || posix.startsWith(DESKTOP_JAIL)) return true
+function parseWorkspaceRoots() {
+  if (process.env.WORKSPACE_ROOTS) {
+    try {
+      return JSON.parse(process.env.WORKSPACE_ROOTS)
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+export const WORKSPACE_ROOTS = parseWorkspaceRoots()
+
+export function isAllowedExternalPath(_filePath) {
   return false
 }
 
+export function resolveRollbackDiskPath(rawPath) {
+  if (!rawPath || typeof rawPath !== 'string') return null
+  const posix = normalizeRollbackPath(rawPath)
+  if (!posix || posix.includes('..') || isSensitiveGitPath(posix)) return null
+
+  // 1. Check if it matches a mapped jail path
+  for (const { jail, win } of WORKSPACE_ROOTS) {
+    if (posix === jail || posix.startsWith(jail + '/')) {
+      const rel = posix.slice(jail.length).replace(/^\/+/, '')
+      const hostPath = rel ? path.posix.join(win, rel) : win
+      const resolved = path.resolve(hostPath)
+      const winRoot = path.resolve(win)
+      if (resolved === winRoot || resolved.startsWith(winRoot + path.sep)) {
+        return resolved
+      }
+    }
+  }
+
+  // 2. Check if it is already a Windows path under one of the allowed roots
+  for (const { win } of WORKSPACE_ROOTS) {
+    const normWin = win.toLowerCase()
+    if (posix.toLowerCase() === normWin || posix.toLowerCase().startsWith(normWin + '/')) {
+      const resolved = path.resolve(posix)
+      const winRoot = path.resolve(win)
+      if (resolved === winRoot || resolved.startsWith(winRoot + path.sep)) {
+        return resolved
+      }
+    }
+  }
+
+  // 3. Fallback for pure POSIX jail path (e.g. pure test environment)
+  if (isInsideRoot(path.posix.resolve(posix), PROJECTS_ROOT)) {
+    return path.resolve(posix)
+  }
+
+  return null
+}
+
 export function isAllowedRollbackPath(filePath) {
-  const posix = normalizeRollbackPath(filePath)
-  if (!posix || posix.includes('..') || isSensitiveGitPath(posix)) return false
-  if (isAllowedExternalPath(posix)) return true
-  const resolved = path.resolve(posix)
-  return isInsideRoot(resolved, PROJECTS_ROOT)
+  return resolveRollbackDiskPath(filePath) !== null
 }
 
 function unquoteGitPath(raw) {
@@ -143,10 +173,12 @@ function gitErrorMessage(err) {
 }
 
 function runGitCheckpoint(directory, title, summary) {
-  const cwd = resolveHostDirectory(directory)
-  if (!cwd) {
+  const jailDir = resolveHostDirectory(directory)
+  if (!jailDir) {
     return { ok: false, error: 'directory is not an allowed project path' }
   }
+  const diskPath = resolveRollbackDiskPath(jailDir)
+  const cwd = diskPath || jailDir
   if (!fs.existsSync(cwd)) {
     return { ok: false, error: 'directory does not exist' }
   }
@@ -211,31 +243,82 @@ function runGitCheckpoint(directory, title, summary) {
   return { ok: true, committed: true, files: paths, message }
 }
 
+function findGitRepoRoot(targetPath) {
+  try {
+    let dir = fs.statSync(targetPath, { throwIfNoEntry: false })?.isDirectory()
+      ? targetPath
+      : path.dirname(targetPath)
+    while (dir) {
+      if (fs.existsSync(path.join(dir, '.git'))) {
+        return dir
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  } catch {}
+  return null
+}
+
 function runExternalRollback(actions) {
   if (!Array.isArray(actions)) {
+    console.error('[Revert:HostApi] runExternalRollback error: actions is not an array')
     return { ok: false, error: 'actions must be an array' }
   }
+  console.log(`[Revert:HostApi] Processing ${actions.length} external rollback action(s)`)
   const applied = []
   for (const action of actions) {
     if (!action || typeof action !== 'object') continue
-    const filePath = typeof action.path === 'string' ? normalizeRollbackPath(action.path) : ''
-    if (!isAllowedRollbackPath(filePath)) {
+    const resolved = resolveRollbackDiskPath(action.path)
+    if (!resolved) {
+      console.warn(`[Revert:HostApi] Rejected unresolvable/unallowed path: "${action.path}"`)
       continue
     }
-    const resolved = path.resolve(filePath)
+    console.log(`[Revert:HostApi] Action: kind=${action.kind}, path=${action.path} -> resolved=${resolved}`)
     if (action.kind === 'delete') {
       if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
-        fs.unlinkSync(resolved)
+        try {
+          execFileSync('python', ['C:\\scripts\\safe_delete_agent.py', resolved], {
+            timeout: 5000,
+            stdio: ['ignore', 'ignore', 'ignore'],
+          })
+          console.log(`[Revert:HostApi] Safe-deleted file via agent: ${resolved}`)
+        } catch {
+          fs.unlinkSync(resolved)
+          console.log(`[Revert:HostApi] Unlinked file via fs: ${resolved}`)
+        }
+      } else {
+        console.log(`[Revert:HostApi] File does not exist for deletion (already gone): ${resolved}`)
       }
       applied.push({ kind: 'delete', path: resolved })
       continue
     }
-    if (action.kind === 'restore' && typeof action.content === 'string') {
-      fs.mkdirSync(path.dirname(resolved), { recursive: true })
-      fs.writeFileSync(resolved, action.content, 'utf8')
-      applied.push({ kind: 'restore', path: resolved })
+    if (action.kind === 'restore') {
+      if (typeof action.content === 'string' && action.content.length > 0) {
+        fs.mkdirSync(path.dirname(resolved), { recursive: true })
+        fs.writeFileSync(resolved, action.content, 'utf8')
+        console.log(`[Revert:HostApi] Restored file content directly (${action.content.length} chars): ${resolved}`)
+        applied.push({ kind: 'restore', path: resolved, method: 'content' })
+        continue
+      }
+      // Git restore fallback if content is not available or empty
+      const repoDir = findGitRepoRoot(resolved)
+      if (repoDir) {
+        try {
+          const rel = path.relative(repoDir, resolved)
+          git(repoDir, ['checkout', '--', rel])
+          console.log(`[Revert:HostApi] Restored file via git checkout in ${repoDir}: ${rel}`)
+          applied.push({ kind: 'restore', path: resolved, method: 'git' })
+          continue
+        } catch (gitErr) {
+          console.warn(`[Revert:HostApi] Git restore failed for ${resolved}:`, gitErrorMessage(gitErr))
+        }
+      } else {
+        console.warn(`[Revert:HostApi] No git repository found to restore file: ${resolved}`)
+      }
     }
   }
+  console.log(`[Revert:HostApi] Successfully applied ${applied.length} / ${actions.length} action(s)`)
   return { ok: true, applied }
 }
 
@@ -261,9 +344,13 @@ export async function handleHostApi(req, res) {
       sendJson(res, 200, runGitCheckpoint(body.directory, body.title, body.summary))
       return true
     }
-    sendJson(res, 200, runExternalRollback(body.actions))
+    console.log(`[Revert:HostApi] Received POST /api/external-file-rollback: ${body.actions?.length || 0} action(s)`)
+    const result = runExternalRollback(body.actions)
+    console.log(`[Revert:HostApi] Returning result:`, JSON.stringify(result))
+    sendJson(res, 200, result)
     return true
   } catch (err) {
+    console.error(`[Revert:HostApi] Request handling error:`, err)
     sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
     return true
   }

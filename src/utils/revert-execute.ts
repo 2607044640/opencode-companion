@@ -16,6 +16,7 @@ export type RevertPipelineInput = {
   readonly mode: RevertMode
   readonly partID?: string
   readonly messages: readonly Message[]
+  readonly sessionDir?: string
 }
 
 export type RevertDaemonPort = {
@@ -59,21 +60,36 @@ async function runRevertPipeline(
   input: RevertPipelineInput,
   port: RevertDaemonPort
 ): Promise<RevertExecuteResult> {
-  const { sessionId, messageId, mode, partID, messages } = input
+  const { sessionId, messageId, mode, partID, messages, sessionDir } = input
+  console.log(`[Revert:Engine] runRevertPipeline starting:`, {
+    sessionId,
+    messageId,
+    mode,
+    sessionDir,
+    messagesCount: messages.length,
+  })
+
   if (mode === 'summarize') {
+    console.log(`[Revert:Engine] Mode is summarize. Calling summarizeSession...`)
     await port.summarizeSession(sessionId)
     await port.reloadSession(sessionId)
     return { ok: true }
   }
 
   const files = mode !== 'conversation_only'
-  const actions = files ? collectRollbackActions(messages, messageId) : []
+  const actions = files ? collectRollbackActions(messages, messageId, sessionDir) : []
+  console.log(`[Revert:Engine] Files rollback enabled: ${files}. Collected ${actions.length} action(s).`)
 
   if (mode === 'code_only') {
+    console.log(`[Revert:Engine] Mode is code_only. Calling revertSession and rollbackFiles...`)
     await port.revertSession(sessionId, messageId, { files: true, partID })
     if (actions.length > 0) {
       const rolled = await port.rollbackFiles(actions)
-      if (!rolled.ok) return { ok: false, error: rolled.error || 'file rollback failed' }
+      if (!rolled.ok) {
+        const errMsg = `[Revert:Engine] rollbackFiles failed: ${rolled.error || 'unknown host error'}`
+        console.error(errMsg)
+        return { ok: false, error: errMsg }
+      }
     }
     const cleared = await port.unrevertSession(sessionId)
     port.onSessionUpdate?.(sessionId, { revert: undefined })
@@ -81,13 +97,29 @@ async function runRevertPipeline(
     return { ok: true, session: cleared }
   }
 
+  console.log(`[Revert:Engine] Calling daemon revertSession(sessionId=${sessionId}, messageId=${messageId})...`)
   const updated = await port.revertSession(sessionId, messageId, { files, partID })
+  console.log(`[Revert:Engine] daemon revertSession succeeded. Result:`, updated)
+
   if (actions.length > 0) {
+    console.log(`[Revert:Engine] Calling port.rollbackFiles for ${actions.length} action(s)...`)
     const rolled = await port.rollbackFiles(actions)
-    if (!rolled.ok) return { ok: false, error: rolled.error || 'file rollback failed' }
+    console.log(`[Revert:Engine] rollbackFiles result:`, rolled)
+    if (!rolled.ok) {
+      const errMsg = `[Revert:Engine] rollbackFiles failed: ${rolled.error || 'unknown host error'}`
+      console.error(errMsg)
+      return { ok: false, error: errMsg }
+    }
   }
-  port.onSessionUpdate?.(sessionId, { revert: updated.revert })
+
+  const revertPatch = updated?.revert || { messageID: messageId }
+  console.log(`[Revert:Engine] Applying onSessionUpdate patch:`, revertPatch)
+  port.onSessionUpdate?.(sessionId, { revert: revertPatch })
+
+  console.log(`[Revert:Engine] Reloading session data for ${sessionId}...`)
   await port.reloadSession(sessionId)
+
+  console.log(`[Revert:Engine] Revert pipeline successfully finished!`)
   return { ok: true, session: updated }
 }
 
@@ -99,6 +131,7 @@ export async function executeRevertWithTimeout(
   try {
     return await withRevertTimeout(runRevertPipeline(input, port), timeoutMs)
   } catch (err) {
+    console.error(`[Revert:Engine] executeRevertWithTimeout caught error:`, err)
     if (err instanceof RevertTimeoutError) {
       return { ok: false, error: err.message, timedOut: true }
     }

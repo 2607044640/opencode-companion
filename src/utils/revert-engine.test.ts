@@ -6,6 +6,7 @@ import {
   collectRollbackActions,
   computeRevertDiffs,
   executeRevertWithTimeout,
+  extractContentFromReadOutput,
   fileExistedBeforeCheckpoint,
   mergeRevertDiffs,
   withRevertTimeout,
@@ -119,10 +120,112 @@ describe('computeRevertDiffs', () => {
     assert.equal(diffs[0]?.status, 'added')
     assert.equal(classifyRevertBadge(diffs[0]!), 'delete')
   })
+
+  test('turn 0 edit with oldString is modified, not added/Delete', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      toolMsg('msg_asst', 'edit', {
+        path: 'src/hooks/useChatStream.ts',
+        oldString: 'const a = 1',
+        newString: 'const a = 2',
+      }),
+    ]
+    const diffs = computeRevertDiffs(messages, 'msg_user')
+    assert.equal(diffs[0]?.status, 'modified')
+    assert.equal(classifyRevertBadge(diffs[0]!), 'modify')
+    assert.notEqual(classifyRevertBadge(diffs[0]!), 'delete')
+  })
+
+  test('turn 0 write after a same-turn read is modified, not Delete', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      {
+        info: { id: 'msg_asst', sessionID: 'ses_1', role: 'assistant', time: { created: 2 } },
+        parts: [
+          {
+            id: 'p_read',
+            sessionID: 'ses_1',
+            messageID: 'msg_asst',
+            type: 'tool',
+            tool: 'read',
+            state: {
+              status: 'completed',
+              input: { path: '/mnt/desktop/atlas-test.txt' },
+              output: '111',
+            },
+          },
+          {
+            id: 'p_write',
+            sessionID: 'ses_1',
+            messageID: 'msg_asst',
+            type: 'tool',
+            tool: 'write',
+            state: {
+              status: 'completed',
+              input: { path: '/mnt/desktop/atlas-test.txt', contents: '222' },
+            },
+          },
+        ],
+      },
+    ]
+    const diffs = computeRevertDiffs(messages, 'msg_user')
+    assert.equal(diffs[0]?.status, 'modified')
+    assert.equal(classifyRevertBadge(diffs[0]!), 'modify')
+  })
+
+  test('turn 0 write with no prior read and no oldString stays added / Delete', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      toolMsg('msg_asst', 'write', {
+        path: '/mnt/desktop/brand-new.txt',
+        contents: 'hello',
+      }),
+    ]
+    const diffs = computeRevertDiffs(messages, 'msg_user')
+    assert.equal(diffs[0]?.status, 'added')
+    assert.equal(classifyRevertBadge(diffs[0]!), 'delete')
+  })
+
+  test('create then read in the same range stays added / Delete (read-after-create is not existence)', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      {
+        info: { id: 'msg_asst', sessionID: 'ses_1', role: 'assistant', time: { created: 2 } },
+        parts: [
+          {
+            id: 'p_write',
+            sessionID: 'ses_1',
+            messageID: 'msg_asst',
+            type: 'tool',
+            tool: 'write',
+            state: {
+              status: 'completed',
+              input: { path: 'src/brand-new.ts', contents: 'export const n = 1' },
+            },
+          },
+          {
+            id: 'p_read',
+            sessionID: 'ses_1',
+            messageID: 'msg_asst',
+            type: 'tool',
+            tool: 'read',
+            state: {
+              status: 'completed',
+              input: { path: 'src/brand-new.ts' },
+              output: 'export const n = 1',
+            },
+          },
+        ],
+      },
+    ]
+    const diffs = computeRevertDiffs(messages, 'msg_user')
+    assert.equal(diffs[0]?.status, 'added')
+    assert.equal(classifyRevertBadge(diffs[0]!), 'delete')
+  })
 })
 
 describe('collectRollbackActions', () => {
-  test('unlinks a desktop file created in the revert range', () => {
+  test('never touches desktop files in rollback actions (preserves host isolation)', () => {
     const messages: Message[] = [
       userMsg('msg_user', 'write desktop'),
       toolMsg('msg_asst', 'write', {
@@ -130,28 +233,26 @@ describe('collectRollbackActions', () => {
         contents: '111',
       }),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [
-      { kind: 'delete', path: '/mnt/desktop/atlas-test.txt' },
-    ])
+    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
   })
 
   test('unlinks a newly created in-tree file so git-less creates still revert', () => {
     const messages: Message[] = [
       userMsg('msg_user'),
       toolMsg('msg_asst', 'write', {
-        path: '/home/developer/projects/APISpace/opencode-companion/src/brand-new.ts',
+        path: '/workspace/projects/APISpace/opencode-companion/src/brand-new.ts',
         contents: 'export const n = 1',
       }),
     ]
     assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [
       {
         kind: 'delete',
-        path: '/home/developer/projects/APISpace/opencode-companion/src/brand-new.ts',
+        path: '/workspace/projects/APISpace/opencode-companion/src/brand-new.ts',
       },
     ])
   })
 
-  test('restores earliest pre-checkpoint content for an edited desktop file', () => {
+  test('does not delete or touch external desktop files even if edited', () => {
     const messages: Message[] = [
       userMsg('msg_prior'),
       toolMsg('msg_prior_asst', 'write', {
@@ -170,9 +271,7 @@ describe('collectRollbackActions', () => {
         4
       ),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [
-      { kind: 'restore', path: '/mnt/desktop/atlas-test.txt', content: 'before' },
-    ])
+    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
   })
 
   test('does not delete a workspace file that already existed before the checkpoint', () => {
@@ -190,6 +289,80 @@ describe('collectRollbackActions', () => {
       }),
     ]
     assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
+  })
+
+  test('does not delete or touch turn-0 desktop file', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      {
+        info: { id: 'msg_asst', sessionID: 'ses_1', role: 'assistant', time: { created: 2 } },
+        parts: [
+          {
+            id: 'p_read',
+            sessionID: 'ses_1',
+            messageID: 'msg_asst',
+            type: 'tool',
+            tool: 'read',
+            state: {
+              status: 'completed',
+              input: { path: '/mnt/desktop/atlas-test.txt' },
+              output: '111',
+            },
+          },
+          {
+            id: 'p_write',
+            sessionID: 'ses_1',
+            messageID: 'msg_asst',
+            type: 'tool',
+            tool: 'write',
+            state: {
+              status: 'completed',
+              input: { path: '/mnt/desktop/atlas-test.txt', contents: '222' },
+            },
+          },
+        ],
+      },
+    ]
+    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
+  })
+
+  test('restores an edited in-tree file using earliestOld', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      toolMsg('msg_asst', 'edit', {
+        path: '/workspace/projects/APISpace/test.txt',
+        oldString: 'original text',
+        newString: '1234',
+      }),
+    ]
+    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [
+      {
+        kind: 'restore',
+        path: '/workspace/projects/APISpace/test.txt',
+        content: 'original text',
+      },
+    ])
+  })
+
+  test('resolves relative path against sessionDir and generates restore action', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      toolMsg('msg_asst', 'edit', {
+        path: 'src/main.ts',
+        oldString: 'console.log("hello")',
+        newString: 'console.log("world")',
+      }),
+    ]
+    assert.deepEqual(
+      collectRollbackActions(messages, 'msg_user', '/workspace/projects/APISpace'),
+      [
+        {
+          kind: 'restore',
+          path: '/workspace/projects/APISpace/src/main.ts',
+          content: 'console.log("hello")',
+        },
+      ]
+    )
   })
 })
 
@@ -298,7 +471,7 @@ describe('executeRevertWithTimeout', () => {
         messages: [
           userMsg('msg_user'),
           toolMsg('msg_asst', 'write', {
-            path: '/mnt/desktop/atlas-test.txt',
+            path: '/workspace/projects/APISpace/opencode-companion/src/new-in-tree.ts',
             contents: '111',
           }),
         ],
@@ -307,6 +480,94 @@ describe('executeRevertWithTimeout', () => {
       200
     )
     assert.equal(result.ok, true)
-    assert.equal(rolled.path, '/mnt/desktop/atlas-test.txt')
+    assert.equal(
+      rolled.path,
+      '/workspace/projects/APISpace/opencode-companion/src/new-in-tree.ts'
+    )
   })
 })
+
+describe('extractContentFromReadOutput', () => {
+  test('extracts clean content from grok read output with line numbers and system reminders', () => {
+    const raw = `GROK_TOOL_RESULT status=OK tool=read call_id=call-123
+No disk change.
+NOTE: Native xAI tokens are void.
+<path>/workspace/projects/AISpace/temp/atlas-scratch.txt</path>
+<type>file</type>
+<content>
+1: 237289
+
+(End of file - total 1 lines)
+</content>
+
+<system-reminder>
+Instructions from AGENTS.md
+</system-reminder>`
+    const clean = extractContentFromReadOutput(raw)
+    assert.equal(clean.trim(), '237289')
+  })
+
+  test('extracts multi-line code removing line number prefixes', () => {
+    const raw = `<content>
+1: import React from 'react'
+2: export function App() {
+3:   return <div>Hello</div>
+4: }
+
+(End of file - total 4 lines)
+</content>`
+    const clean = extractContentFromReadOutput(raw)
+    assert.equal(
+      clean,
+      "import React from 'react'\nexport function App() {\n  return <div>Hello</div>\n}\n"
+    )
+  })
+
+  test('restores clean content when file is read then written', () => {
+    const messages: Message[] = [
+      userMsg('msg_user', 'change file to 90999'),
+      {
+        info: { id: 'msg_read', sessionID: 'ses_1', role: 'assistant', time: { created: 2 } },
+        parts: [
+          {
+            id: 'p_read',
+            sessionID: 'ses_1',
+            messageID: 'msg_read',
+            type: 'tool',
+            tool: 'read',
+            state: {
+              status: 'completed',
+              input: { filePath: '/workspace/projects/AISpace/temp/atlas-scratch.txt' },
+              output: `<content>\n1: 237289\n\n(End of file - total 1 lines)\n</content>`,
+            },
+          },
+        ],
+      },
+      {
+        info: { id: 'msg_write', sessionID: 'ses_1', role: 'assistant', time: { created: 3 } },
+        parts: [
+          {
+            id: 'p_write',
+            sessionID: 'ses_1',
+            messageID: 'msg_write',
+            type: 'tool',
+            tool: 'write',
+            state: {
+              status: 'completed',
+              input: { filePath: '/workspace/projects/AISpace/temp/atlas-scratch.txt', content: '90999\n' },
+            },
+          },
+        ],
+      },
+    ]
+
+    const actions = collectRollbackActions(messages, 'msg_user', '/workspace/projects/AISpace')
+    assert.equal(actions.length, 1)
+    assert.equal(actions[0].kind, 'restore')
+    assert.equal(actions[0].path, '/workspace/projects/AISpace/temp/atlas-scratch.txt')
+    if (actions[0].kind === 'restore') {
+      assert.equal(actions[0].content?.trim(), '237289')
+    }
+  })
+})
+

@@ -16,13 +16,13 @@ describe('Sidebar Helpers (sidebar-helpers.ts)', () => {
     assert.equal(isSameOrSubdirectory('C:/APISpace', 'C:/APISpace'), true)
     assert.equal(isSameOrSubdirectory('C:/APISpace', 'C:/APISpace/sub/dir'), true)
     assert.equal(isSameOrSubdirectory('C:/APISpace', 'C:/ObsidianDev'), false)
-    assert.equal(isSameOrSubdirectory('/home/developer/projects/APISpace', 'C:/APISpace'), true)
+    assert.equal(isSameOrSubdirectory('/workspace/projects/APISpace', 'C:/APISpace'), true)
   })
 
   it('matches session to project by worktree and projectID', () => {
     const project: Project = {
       id: 'proj_api',
-      worktree: '/home/developer/projects/APISpace',
+      worktree: '/workspace/projects/APISpace',
       name: 'APISpace',
       associatedIds: ['proj_api_alias'],
     }
@@ -36,7 +36,7 @@ describe('Sidebar Helpers (sidebar-helpers.ts)', () => {
 
     const matchingSession2: Session = {
       id: 'ses_2',
-      directory: '/home/developer/projects/APISpace/backend',
+      directory: '/workspace/projects/APISpace/backend',
       title: 'Session 2',
     }
     assert.equal(doesSessionBelongToProject(matchingSession2, project), true)
@@ -44,7 +44,7 @@ describe('Sidebar Helpers (sidebar-helpers.ts)', () => {
     const unmatchedSession: Session = {
       id: 'ses_3',
       projectID: 'other_proj',
-      directory: '/home/developer/projects/AISpace',
+      directory: '/workspace/projects/AISpace',
       title: 'Session 3',
     }
     assert.equal(doesSessionBelongToProject(unmatchedSession, project), false)

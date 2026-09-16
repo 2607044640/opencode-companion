@@ -16,6 +16,8 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+.omo
+.omo/*
 .agent-work
 .DS_Store
 *.suo

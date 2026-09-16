@@ -91,9 +91,5 @@ export function extractTurnSummary(messages: readonly Message[]): string {
 
 export function resolveCheckpointDirectory(rawDir: string | undefined): string | undefined {
   if (!rawDir) return undefined
-  const normalized = rawDir.replace(/\\/g, '/').replace(/\/+$/, '')
-  if (normalized.startsWith('/workspace/projects/')) {
-    return `/home/developer/projects/${normalized.slice('/workspace/projects/'.length)}`
-  }
-  return normalized
+  return rawDir.replace(/\\/g, '/').replace(/\/+$/, '')
 }

@@ -335,10 +335,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-zinc-200 truncate">
-                  {prefs.userProfile?.name || 'skin Jeff'}
+                  {prefs.userProfile?.name || 'Developer'}
                 </div>
                 <div className="text-[10px] text-zinc-500 truncate">
-                  {prefs.userProfile?.email || 'jeffskin15@gmail.com'}
+                  {prefs.userProfile?.email || 'developer@example.com'}
                 </div>
               </div>
             </div>

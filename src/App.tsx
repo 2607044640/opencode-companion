@@ -154,7 +154,7 @@ export default function App() {
     revertToMessage,
     unrevert,
     reverting,
-  } = useChatStream(activeSessionId, updateSession)
+  } = useChatStream(activeSessionId, updateSession, activeSession?.directory)
 
   // Programmatic draft injection into PromptInput on message revert / restore
   const [draftInjection, setDraftInjection] = useState<DraftInjection | null>(null)

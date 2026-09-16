@@ -1,10 +1,12 @@
 export {
   classifyRevertBadge,
   computeRevertDiffs,
+  fileExistedAtCheckpoint,
   fileExistedBeforeCheckpoint,
   isExternalToolPath,
   sameRevertFile,
   toRollbackPath,
+  extractContentFromReadOutput,
   type RevertBadge,
   type RevertFileDiff,
   type RevertFileStatus,

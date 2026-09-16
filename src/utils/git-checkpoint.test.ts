@@ -96,10 +96,10 @@ describe('lastCompletedTurnMutatedFiles', () => {
 })
 
 describe('resolveCheckpointDirectory', () => {
-  test('maps jail worktree to host project path', () => {
+  test('normalizes worktree directory path', () => {
     assert.equal(
       resolveCheckpointDirectory('/workspace/projects/APISpace/opencode-companion'),
-      '/home/developer/projects/APISpace/opencode-companion'
+      '/workspace/projects/APISpace/opencode-companion'
     )
   })
 })

@@ -106,8 +106,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   darkThemePreset: 'default-dark',
   themeColors: DEFAULT_THEME_COLORS,
   userProfile: {
-    name: 'skin Jeff',
-    email: 'jeffskin15@gmail.com',
+    name: 'Developer',
+    email: 'developer@example.com',
   },
 }
 

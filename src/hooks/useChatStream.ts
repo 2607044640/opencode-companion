@@ -28,7 +28,8 @@ export type RevertMode = EngineRevertMode
 
 export function useChatStream(
   sessionId: string | null,
-  onSessionUpdate?: (sessionId: string, patch: Partial<Session>) => void
+  onSessionUpdate?: (sessionId: string, patch: Partial<Session>) => void,
+  sessionDir?: string
 ) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState<boolean>(false)
@@ -544,16 +545,28 @@ export function useChatStream(
       messageId: string,
       options?: { mode?: RevertMode; partID?: string }
     ) => {
-      if (!sessionId) return { ok: false, error: 'No active session' }
+      if (!sessionId) {
+        console.warn('[Revert:Hook] Cannot revert: No active session')
+        return { ok: false, error: 'No active session' }
+      }
       setReverting(true)
+      const effectiveDir = sessionDir || messagesRef.current[0]?.info.path?.cwd
+      console.log('[Revert:Hook] revertToMessage called:', {
+        sessionId,
+        messageId,
+        options,
+        effectiveDir,
+        messagesCount: messagesRef.current.length,
+      })
       try {
-        return await executeRevertWithTimeout(
+        const result = await executeRevertWithTimeout(
           {
             sessionId,
             messageId,
             mode: options?.mode || 'both',
             partID: options?.partID,
             messages: messagesRef.current,
+            sessionDir: effectiveDir,
           },
           {
             revertSession: (id, msgId, opts) => api.revertSession(id, msgId, opts),
@@ -564,11 +577,16 @@ export function useChatStream(
             onSessionUpdate,
           }
         )
+        console.log('[Revert:Hook] executeRevertWithTimeout returned:', result)
+        return result
+      } catch (err) {
+        console.error('[Revert:Hook] Unexpected error in revertToMessage:', err)
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
       } finally {
         setReverting(false)
       }
     },
-    [sessionId, loadSessionData, onSessionUpdate]
+    [sessionId, loadSessionData, onSessionUpdate, sessionDir]
   )
 
   /**

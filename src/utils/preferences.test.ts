@@ -16,8 +16,8 @@ describe('Preferences Utilities (preferences.ts)', () => {
     assert.equal(DEFAULT_PREFERENCES.themeMode, 'dark')
     assert.equal(DEFAULT_PREFERENCES.darkThemePreset, 'default-dark')
     assert.deepEqual(DEFAULT_PREFERENCES.themeColors, DEFAULT_THEME_COLORS)
-    assert.equal(DEFAULT_PREFERENCES.userProfile?.name, 'skin Jeff')
-    assert.equal(DEFAULT_PREFERENCES.userProfile?.email, 'jeffskin15@gmail.com')
+    assert.equal(DEFAULT_PREFERENCES.userProfile?.name, 'Developer')
+    assert.equal(DEFAULT_PREFERENCES.userProfile?.email, 'developer@example.com')
   })
 
   it('provides rich built-in theme presets with valid hex colors', () => {

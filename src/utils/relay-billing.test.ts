@@ -11,6 +11,7 @@ import {
   formatBalance,
   aggregateBalances,
   syncRelayPresets,
+  parseRelayIntake,
   RELAY_PROVIDERS_STORAGE_KEY,
   type RelayProvider,
 } from './relay-billing'
@@ -407,6 +408,48 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       assert.equal(ts?.apiKey, 'sk-updated')
       assert.equal(ts?.name, 'TokenShop (Grok)')
       assert.equal(ts?.redeemUrl, 'https://tokenshop.homes/redeem')
+    })
+  })
+
+  describe('parseRelayIntake (Smart URL & Key Parsing)', () => {
+    it('returns null for empty or invalid text', () => {
+      assert.equal(parseRelayIntake(''), null)
+      assert.equal(parseRelayIntake('just some random text without urls'), null)
+    })
+
+    it('parses bare /redeem url and normalizes origin', () => {
+      const res = parseRelayIntake('https://xn--fiq104an1x80s.com/redeem')
+      assert.ok(res)
+      assert.equal(res.baseUrl, 'https://xn--fiq104an1x80s.com')
+      assert.equal(res.redeemUrl, 'https://xn--fiq104an1x80s.com/redeem')
+      assert.equal(res.name, '稳定中转')
+    })
+
+    it('parses markdown links with keys url and sk-... key', () => {
+      const input = `
+[API Keys - 稳定中转.com](https://xn--fiq104an1x80s.com/keys)
+sk-example-key-1234567890abcdef1234567890
+[稳定中转.com - AI API Gateway](https://xn--fiq104an1x80s.com/redeem)
+`
+      const res = parseRelayIntake(input)
+      assert.ok(res)
+      assert.equal(res.baseUrl, 'https://xn--fiq104an1x80s.com')
+      assert.equal(res.redeemUrl, 'https://xn--fiq104an1x80s.com/redeem')
+      assert.equal(res.apiKey, 'sk-example-key-1234567890abcdef1234567890')
+      assert.equal(res.name, '稳定中转.com')
+    })
+
+    it('parses TokenShop and local gateway urls', () => {
+      const res1 = parseRelayIntake('https://tokenshop.homes/redeem sk-example-key-abcdef1234567890')
+      assert.ok(res1)
+      assert.equal(res1.baseUrl, 'https://tokenshop.homes')
+      assert.equal(res1.name, 'TokenShop')
+      assert.equal(res1.apiKey, 'sk-example-key-abcdef1234567890')
+
+      const res2 = parseRelayIntake('http://127.0.0.1:3000')
+      assert.ok(res2)
+      assert.equal(res2.baseUrl, 'http://127.0.0.1:3000')
+      assert.equal(res2.name, 'Local New API')
     })
   })
 })

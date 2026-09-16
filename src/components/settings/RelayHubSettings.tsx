@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  Sparkles,
 } from 'lucide-react'
 import {
   getRelayProviders,
@@ -19,6 +20,7 @@ import {
   fetchRelayQuota,
   formatBalance,
   syncRelayPresets,
+  parseRelayIntake,
   type RelayProvider,
   DEFAULT_QUOTA_RATE,
   DEFAULT_CNY_RATE,
@@ -47,7 +49,7 @@ const PRESETS = [
     label: '稳定中转 (Flash 3.7)',
     name: '稳定中转 (Flash 3.7)',
     baseUrl: 'https://xn--fiq104an1x80s.com',
-    redeemUrl: 'https://xn--fiq104an1x80s.com',
+    redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
     currency: 'USD' as const,
   },
   {
@@ -77,9 +79,54 @@ export const RelayHubSettings: React.FC = () => {
     quotaRate: DEFAULT_QUOTA_RATE,
     cnyRate: DEFAULT_CNY_RATE,
   })
+  const [smartInput, setSmartInput] = useState('')
 
   const reload = () => {
     setProviders(getRelayProviders())
+  }
+
+  const handleSmartIntake = (text: string) => {
+    setSmartInput(text)
+    const parsed = parseRelayIntake(text)
+    if (parsed) {
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name && prev.name !== '新中转站' ? prev.name : parsed.name,
+        baseUrl: parsed.baseUrl || prev.baseUrl,
+        redeemUrl: parsed.redeemUrl || prev.redeemUrl,
+        apiKey: parsed.apiKey || prev.apiKey,
+        currency: parsed.currency || prev.currency,
+      }))
+    }
+  }
+
+  const handleBaseUrlChange = (val: string) => {
+    const parsed = parseRelayIntake(val)
+    if (parsed && parsed.baseUrl) {
+      setForm((prev) => ({
+        ...prev,
+        baseUrl: parsed.baseUrl,
+        redeemUrl: prev.redeemUrl || parsed.redeemUrl,
+        name: prev.name ? prev.name : parsed.name,
+        apiKey: parsed.apiKey || prev.apiKey,
+      }))
+    } else {
+      setForm((prev) => ({ ...prev, baseUrl: val }))
+    }
+  }
+
+  const handleRedeemUrlChange = (val: string) => {
+    const parsed = parseRelayIntake(val)
+    if (parsed && parsed.baseUrl && !form.baseUrl) {
+      setForm((prev) => ({
+        ...prev,
+        redeemUrl: val,
+        baseUrl: parsed.baseUrl,
+        name: prev.name ? prev.name : parsed.name,
+      }))
+    } else {
+      setForm((prev) => ({ ...prev, redeemUrl: val }))
+    }
   }
 
   const handleOpenAdd = () => {
@@ -92,6 +139,7 @@ export const RelayHubSettings: React.FC = () => {
       quotaRate: DEFAULT_QUOTA_RATE,
       cnyRate: DEFAULT_CNY_RATE,
     })
+    setSmartInput('')
     setEditingId(null)
     setShowKey(false)
     setTestResult(null)
@@ -307,6 +355,33 @@ export const RelayHubSettings: React.FC = () => {
             </div>
           </div>
 
+          {/* Smart Auto-Intake Banner */}
+          <div className="p-3 rounded-lg border border-dashed border-blue-500/40 bg-blue-500/5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-blue-300 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                <span>智能识别导入 (粘贴包含 /redeem、/keys 链接与 API Key 自动解析)</span>
+              </span>
+              <span className="text-[10px] text-zinc-500">免手动编辑各字段</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="直接粘贴如: [稳定中转](https://xn--fiq104an1x80s.com/redeem) sk-example-..."
+                value={smartInput}
+                onChange={(e) => handleSmartIntake(e.target.value)}
+                className="flex-1 bg-[#111317] border border-[#272b35] rounded-lg px-3 py-1.5 text-zinc-200 font-mono text-[11px] focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => handleSmartIntake(smartInput)}
+                className="px-3 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-medium transition-colors shrink-0 cursor-pointer"
+              >
+                自动识别
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
             <div>
               <label className="block text-zinc-400 mb-1">中转站名称 *</label>
@@ -323,9 +398,9 @@ export const RelayHubSettings: React.FC = () => {
               <label className="block text-zinc-400 mb-1">接口基地址 (Base URL) *</label>
               <input
                 type="text"
-                placeholder="例如: https://api.tokenshop.homes"
+                placeholder="例如: https://api.tokenshop.homes 或粘贴 /redeem 链接"
                 value={form.baseUrl}
-                onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                onChange={(e) => handleBaseUrlChange(e.target.value)}
                 className="w-full bg-[#111317] border border-[#272b35] rounded-lg px-3 py-1.5 text-zinc-200 font-mono text-[11px] focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -337,7 +412,14 @@ export const RelayHubSettings: React.FC = () => {
                   type={showKey ? 'text' : 'password'}
                   placeholder="sk-..."
                   value={form.apiKey}
-                  onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val.includes('http') || val.includes('\n')) {
+                      handleSmartIntake(val)
+                    } else {
+                      setForm({ ...form, apiKey: val })
+                    }
+                  }}
                   className="w-full bg-[#111317] border border-[#272b35] rounded-lg pl-3 pr-9 py-1.5 text-zinc-200 font-mono text-[11px] focus:outline-none focus:border-blue-500"
                 />
                 <button
@@ -360,7 +442,7 @@ export const RelayHubSettings: React.FC = () => {
                 type="text"
                 placeholder="例如: https://tokenshop.homes/redeem"
                 value={form.redeemUrl}
-                onChange={(e) => setForm({ ...form, redeemUrl: e.target.value })}
+                onChange={(e) => handleRedeemUrlChange(e.target.value)}
                 className="w-full bg-[#111317] border border-[#272b35] rounded-lg px-3 py-1.5 text-zinc-200 font-mono text-[11px] focus:outline-none focus:border-blue-500"
               />
               <p className="text-[10px] text-zinc-500 mt-1">

@@ -22,7 +22,13 @@ export async function postGitCheckpoint(input: {
     body: JSON.stringify(input),
     signal: AbortSignal.timeout(25000),
   })
-  const data = (await res.json()) as GitCheckpointResult
+  const text = await res.text()
+  let data: GitCheckpointResult
+  try {
+    data = JSON.parse(text) as GitCheckpointResult
+  } catch {
+    return { ok: false, error: `host api returned non-json: ${text.slice(0, 80)}` }
+  }
   if (!res.ok) {
     return { ok: false, error: data.error || `HTTP ${res.status}` }
   }
@@ -39,7 +45,13 @@ export async function postExternalFileRollback(
     body: JSON.stringify({ actions }),
     signal: AbortSignal.timeout(15000),
   })
-  const data = (await res.json()) as { ok?: boolean; error?: string }
+  const text = await res.text()
+  let data: { ok?: boolean; error?: string }
+  try {
+    data = JSON.parse(text) as { ok?: boolean; error?: string }
+  } catch {
+    return { ok: false, error: `host api returned non-json: ${text.slice(0, 80)}` }
+  }
   if (!res.ok || data.ok === false) {
     return { ok: false, error: data.error || `HTTP ${res.status}` }
   }

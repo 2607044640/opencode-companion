@@ -31,6 +31,7 @@ export interface RelayQuotaResult {
 
 export const RELAY_PROVIDERS_STORAGE_KEY = 'opencode_relay_providers'
 export const RELAY_REFRESH_INTERVAL_KEY = 'opencode_relay_refresh_interval'
+export const DEFAULT_REFRESH_INTERVAL_MS = 10 * 60 * 1000 // 10 minutes (only active when app is open)
 
 export const DEFAULT_QUOTA_RATE = 500_000 // NewAPI/OneAPI standard: 500k quota = $1 USD
 export const DEFAULT_CNY_RATE = 7.2
@@ -447,3 +448,83 @@ export function aggregateBalances(providers: RelayProvider[]): BalanceSummary {
     isLoading,
   }
 }
+
+export interface ParsedRelayIntake {
+  baseUrl: string
+  redeemUrl: string
+  apiKey?: string
+  name: string
+  currency: 'USD' | 'CNY'
+}
+
+/**
+ * Automatically parses raw text, URLs, markdown links, or API keys into structured relay config.
+ * Auto-detects /redeem or /keys, normalizes origin base URL, extracts sk-..., and decodes punycode domain names.
+ */
+export function parseRelayIntake(rawText: string): ParsedRelayIntake | null {
+  if (!rawText || typeof rawText !== 'string') return null
+  const text = rawText.trim()
+  if (!text) return null
+
+  // 1. Extract API Key (sk-...)
+  const keyMatch = text.match(/\b(sk-[a-zA-Z0-9_-]{20,})\b/)
+  const apiKey = keyMatch ? keyMatch[1] : undefined
+
+  // 2. Extract URL
+  const urlMatch = text.match(/https?:\/\/[^\s\)"'<>]+/)
+  if (!urlMatch && !apiKey) return null
+
+  let baseUrl = ''
+  let redeemUrl = ''
+  let inferredName = ''
+
+  if (urlMatch) {
+    try {
+      const parsed = new URL(urlMatch[0].replace(/[,\.\)\]]+$/, ''))
+      const origin = `${parsed.protocol}//${parsed.host}`
+      baseUrl = origin
+      redeemUrl = `${origin}/redeem`
+
+      const hostname = parsed.hostname.toLowerCase()
+      if (hostname.includes('xn--fiq104an1x80s.com') || text.includes('稳定中转')) {
+        inferredName = '稳定中转'
+      } else if (hostname.includes('tokenshop')) {
+        inferredName = 'TokenShop'
+      } else if (hostname.includes('gguu')) {
+        inferredName = 'GGUU'
+      } else if (hostname.includes('127.0.0.1') || hostname.includes('localhost')) {
+        inferredName = 'Local New API'
+      } else {
+        const parts = hostname.replace(/^www\./, '').split('.')
+        const mainPart = parts[0]
+        inferredName = mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+      }
+    } catch {
+      // ignore URL parse error
+    }
+  }
+
+  // Check markdown label like [API Keys - 稳定中转.com](...)
+  const mdTitleMatch = text.match(/\[([^\]]+)\]\(/)
+  if (mdTitleMatch && mdTitleMatch[1]) {
+    const rawTitle = mdTitleMatch[1]
+      .replace(/API Keys\s*[-–—]\s*/i, '')
+      .replace(/AI API Gateway\s*[-–—]\s*/i, '')
+      .replace(/\s*[-–—]\s*AI API Gateway/i, '')
+      .trim()
+    if (rawTitle && rawTitle.length < 30) {
+      inferredName = rawTitle
+    }
+  }
+
+  if (!baseUrl && !apiKey) return null
+
+  return {
+    baseUrl,
+    redeemUrl: redeemUrl || (baseUrl ? `${baseUrl}/redeem` : ''),
+    apiKey,
+    name: inferredName || (baseUrl ? '新中转站' : ''),
+    currency: 'USD',
+  }
+}
+

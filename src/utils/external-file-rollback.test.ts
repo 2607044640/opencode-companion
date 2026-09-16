@@ -7,17 +7,17 @@ import {
 } from './external-file-rollback'
 
 describe('isExternalToolPath', () => {
-  test('treats /mnt/desktop and Windows Desktop as external', () => {
-    assert.equal(isExternalToolPath('/mnt/desktop/atlas-test.txt'), true)
-    assert.equal(isExternalToolPath('C:/Users/jeff/Desktop/atlas-test.txt'), true)
-    assert.equal(isExternalToolPath('/home/developer/projects/APISpace/src/a.ts'), false)
+  test('strictly returns false for all paths (external host paths disabled)', () => {
+    assert.equal(isExternalToolPath('/mnt/desktop/atlas-test.txt'), false)
+    assert.equal(isExternalToolPath('C:/test/atlas-test.txt'), false)
+    assert.equal(isExternalToolPath('/workspace/projects/APISpace/src/a.ts'), false)
     assert.equal(isExternalToolPath('src/hooks/useChatStream.ts'), false)
     assert.equal(isExternalToolPath('src/desktop/icon.svg'), false)
   })
 })
 
 describe('collectExternalRollbackActions', () => {
-  test('deletes desktop file created in revert range', () => {
+  test('does not collect desktop files for rollback (preserves host isolation)', () => {
     const messages: Message[] = [
       {
         info: { id: 'msg_user', sessionID: 's', role: 'user', time: { created: 1 } },
@@ -42,10 +42,10 @@ describe('collectExternalRollbackActions', () => {
     ]
 
     const actions = collectExternalRollbackActions(messages, 'msg_user')
-    assert.deepEqual(actions, [{ kind: 'delete', path: '/mnt/desktop/atlas-test.txt' }])
+    assert.deepEqual(actions, [])
   })
 
-  test('restores earliest oldString for edited desktop file', () => {
+  test('does not collect edited desktop files for rollback', () => {
     const messages: Message[] = [
       {
         info: { id: 'msg_user', sessionID: 's', role: 'user', time: { created: 1 } },
@@ -69,29 +69,12 @@ describe('collectExternalRollbackActions', () => {
               },
             },
           },
-          {
-            id: 'p3',
-            sessionID: 's',
-            messageID: 'msg_asst',
-            type: 'tool',
-            tool: 'edit',
-            state: {
-              status: 'completed',
-              input: {
-                path: '/mnt/desktop/atlas-test.txt',
-                oldString: '111',
-                newString: '222',
-              },
-            },
-          },
         ],
       },
     ]
 
     const actions = collectExternalRollbackActions(messages, 'msg_user')
-    assert.deepEqual(actions, [
-      { kind: 'restore', path: '/mnt/desktop/atlas-test.txt', content: 'before' },
-    ])
+    assert.deepEqual(actions, [])
   })
 
   test('ignores in-workspace edits', () => {
@@ -112,7 +95,7 @@ describe('collectExternalRollbackActions', () => {
             state: {
               status: 'completed',
               input: {
-                path: '/home/developer/projects/APISpace/src/App.tsx',
+                path: '/workspace/projects/APISpace/src/App.tsx',
                 oldString: 'a',
                 newString: 'b',
               },

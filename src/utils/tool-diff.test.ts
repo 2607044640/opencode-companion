@@ -74,10 +74,10 @@ describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
 
   test('parseUnifiedHunks skips Index/===/---/+++ preamble before first @@ hunk', () => {
     const diff = [
-      'Index: /home/developer/projects/APISpace/src/utils/tool-diff.ts',
+      'Index: /workspace/projects/APISpace/src/utils/tool-diff.ts',
       '===================================================================',
-      '--- /home/developer/projects/APISpace/src/utils/tool-diff.ts',
-      '+++ /home/developer/projects/APISpace/src/utils/tool-diff.ts',
+      '--- /workspace/projects/APISpace/src/utils/tool-diff.ts',
+      '+++ /workspace/projects/APISpace/src/utils/tool-diff.ts',
       '@@ -168,3 +168,3 @@ export function parseUnifiedHunks',
       ' const a = 1',
       '-const b = 2',

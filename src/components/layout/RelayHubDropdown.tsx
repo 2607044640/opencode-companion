@@ -14,6 +14,7 @@ import {
   syncRelayPresets,
   aggregateBalances,
   formatBalance,
+  DEFAULT_REFRESH_INTERVAL_MS,
   type RelayProvider,
 } from '../../utils/relay-billing'
 
@@ -32,38 +33,40 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
     setProviders(getRelayProviders())
   }, [])
 
-  // Auto-sync presets on mount if no providers are present or if outdated providers exist
+  // Auto-sync presets on mount: ensures any new gateway channels (e.g. 稳定中转 Flash 3.7) are auto-imported
   useEffect(() => {
     let mounted = true
     const initPresets = async () => {
-      const initial = getRelayProviders()
-      const hasOutdated = initial.some((p) => p.baseUrl.includes('once-cf.novai.su') || p.id === 'relay_novai')
-      if (initial.length === 0 || hasOutdated) {
-        const synced = await syncRelayPresets()
-        if (mounted && synced.length > 0) {
-          setProviders(synced)
-          for (const p of synced) {
-            fetchRelayQuota(p).then((res) => {
-              if (res.ok) {
-                updateRelayProvider(p.id, {
-                  balance: res.balance,
-                  totalQuota: res.totalQuota,
-                  usedQuota: res.usedQuota,
-                  isUnmetered: res.isUnmetered,
-                  note: res.note,
-                  status: 'ok',
-                  error: undefined,
-                  lastUpdated: Date.now(),
-                })
-              } else {
-                updateRelayProvider(p.id, {
-                  status: 'error',
-                  error: res.error || 'Fetch failed',
-                })
-              }
-              if (mounted) reloadProviders()
-            })
-          }
+      const synced = await syncRelayPresets()
+      if (!mounted) return
+      setProviders(synced)
+
+      // Auto-fetch balance for any provider that has apiKey and hasn't been updated recently (>= 10 mins)
+      const now = Date.now()
+      const needsFetch = synced.filter((p) => p.apiKey && (!p.lastUpdated || now - p.lastUpdated >= DEFAULT_REFRESH_INTERVAL_MS))
+      if (needsFetch.length > 0) {
+        for (const p of needsFetch) {
+          fetchRelayQuota(p).then((res) => {
+            if (!mounted) return
+            if (res.ok) {
+              updateRelayProvider(p.id, {
+                balance: res.balance,
+                totalQuota: res.totalQuota,
+                usedQuota: res.usedQuota,
+                isUnmetered: res.isUnmetered,
+                note: res.note,
+                status: 'ok',
+                error: undefined,
+                lastUpdated: Date.now(),
+              })
+            } else {
+              updateRelayProvider(p.id, {
+                status: 'error',
+                error: res.error || 'Fetch failed',
+              })
+            }
+            if (mounted) reloadProviders()
+          })
         }
       }
     }
@@ -130,18 +133,19 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
   }
 
   // Refresh all providers concurrently
-  const refreshAll = async () => {
-    if (isRefreshingAll || providers.length === 0) return
+  const refreshAll = useCallback(async (customList?: RelayProvider[]) => {
+    const list = customList ?? getRelayProviders()
+    if (list.length === 0) return
     setIsRefreshingAll(true)
 
     // Mark all loading
-    for (const p of providers) {
+    for (const p of list) {
       updateRelayProvider(p.id, { status: 'loading' })
     }
     reloadProviders()
 
     await Promise.allSettled(
-      providers.map(async (p) => {
+      list.map(async (p) => {
         try {
           const res = await fetchRelayQuota(p)
           if (res.ok) {
@@ -172,7 +176,52 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
 
     reloadProviders()
     setIsRefreshingAll(false)
-  }
+  }, [reloadProviders])
+
+  // 10-minute auto refresh interval (runs strictly when companion app is open and browser tab is visible)
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null
+
+    const scheduleTimer = () => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(() => {
+        // Guard: only refresh if software is currently open and tab is visible
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+          refreshAll()
+        }
+      }, DEFAULT_REFRESH_INTERVAL_MS)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Tab became visible: check if oldest provider was updated >= 10 minutes ago
+        const current = getRelayProviders()
+        if (current.length > 0) {
+          const oldest = Math.min(...current.map((p) => p.lastUpdated || 0))
+          if (Date.now() - oldest >= DEFAULT_REFRESH_INTERVAL_MS) {
+            refreshAll(current)
+          }
+        }
+        scheduleTimer()
+      } else {
+        // Tab is hidden / software inactive: stop interval so no phantom / midnight queries run
+        if (timer) {
+          clearInterval(timer)
+          timer = null
+        }
+      }
+    }
+
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      scheduleTimer()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      if (timer) clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [refreshAll])
 
   const summary = aggregateBalances(providers)
 
@@ -234,15 +283,21 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
             <div className="flex items-center gap-1.5">
               <Coins className="w-4 h-4 text-amber-400" />
               <span className="font-semibold text-xs text-zinc-100">中转站额度中心</span>
+              <span
+                className="text-[9px] text-zinc-400 font-mono bg-[#1c202a] px-1.5 py-0.5 rounded border border-[#2d3240]"
+                title="打开软件时每10分钟自动刷新，关闭或切换后台时不消耗资源"
+              >
+                10m自动刷新
+              </span>
             </div>
 
             <div className="flex items-center gap-1">
               {summary.hasProviders && (
                 <button
-                  onClick={refreshAll}
+                  onClick={() => refreshAll()}
                   disabled={isRefreshingAll}
-                  className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors"
-                  title="刷新全部中转站额度"
+                  className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
+                  title="刷新全部中转站额度 (应用开启时每10分钟自动刷新)"
                 >
                   <RefreshCw
                     className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin text-amber-400' : ''}`}

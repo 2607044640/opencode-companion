@@ -14,7 +14,7 @@ export type RevertFileDiff = {
 
 export type RollbackAction =
   | { readonly kind: 'delete'; readonly path: string }
-  | { readonly kind: 'restore'; readonly path: string; readonly content: string }
+  | { readonly kind: 'restore'; readonly path: string; readonly content?: string }
 
 const WRITE_TOOLS = new Set(['write', 'write_to_file', 'create'])
 const EDIT_TOOLS = new Set([
@@ -26,6 +26,7 @@ const EDIT_TOOLS = new Set([
   'apply_patch',
   'create',
 ])
+const READ_TOOLS = new Set(['read', 'view_file', 'cat'])
 
 function assertNever(x: never): never {
   throw new Error(`Unexpected value: ${JSON.stringify(x)}`)
@@ -64,26 +65,11 @@ function readString(input: Record<string, unknown> | undefined, keys: readonly s
 }
 
 export function toRollbackPath(filePath: string): string {
-  const posix = normalizePath(filePath)
-  const winDesk = posix.match(/^[a-zA-Z]:\/Users\/[^/]+\/(?:OneDrive\/)?Desktop\/(.*)$/i)
-  if (winDesk?.[1] !== undefined) return `/mnt/desktop/${winDesk[1]}`
-  const wslDesk = posix.match(/^\/mnt\/[a-zA-Z]\/Users\/[^/]+\/(?:OneDrive\/)?Desktop\/(.*)$/i)
-  if (wslDesk?.[1] !== undefined) return `/mnt/desktop/${wslDesk[1]}`
-  if (posix.startsWith('/workspace/projects/')) {
-    return `/home/developer/projects/${posix.slice('/workspace/projects/'.length)}`
-  }
-  return posix
+  return normalizePath(filePath)
 }
 
-export function isExternalToolPath(filePath: string): boolean {
-  const p = toRollbackPath(filePath)
-  if (!p) return false
-  const lower = p.toLowerCase()
-  if (lower === '/mnt/desktop' || lower.startsWith('/mnt/desktop/')) return true
-  if (/^[a-z]:\/users\/[^/]+\/(onedrive\/)?desktop(\/|$)/i.test(p)) return true
-  if (p.startsWith('/workspace/') || p.startsWith('/home/developer/projects/')) return false
-  if (!p.startsWith('/') && !/^[a-zA-Z]:\//.test(p)) return false
-  return true
+export function isExternalToolPath(_filePath: string): boolean {
+  return false
 }
 
 export function sameRevertFile(a: string, b: string): boolean {
@@ -116,10 +102,12 @@ export function fileExistedBeforeCheckpoint(
   filePath: string
 ): boolean {
   const targetIndex = messages.findIndex((m) => m.info.id === targetMsgId)
-  if (targetIndex <= 0) return false
+  if (targetIndex < 0) return false
+  if (targetIndex === 0) return false
   let existed = false
   forEachToolPart(messages, 0, targetIndex - 1, (part) => {
-    if (!EDIT_TOOLS.has(toolNameOf(part))) return
+    const name = toolNameOf(part)
+    if (!EDIT_TOOLS.has(name) && !READ_TOOLS.has(name)) return
     const path = toolFilePath(part.state?.input) || extractEditItem(part).filePath
     if (path && sameRevertFile(path, filePath)) existed = true
   })
@@ -134,6 +122,41 @@ export type FileAcc = {
   additions: number
   deletions: number
   earliestOld?: string
+  earliestReadOutput?: string
+  readBeforeFirstMutation: boolean
+  sawModifiedStatus: boolean
+  mutatedInRange: boolean
+}
+
+export function extractContentFromReadOutput(raw: string): string {
+  if (!raw || typeof raw !== 'string') return ''
+
+  let text = raw
+
+  // 1. If wrapped in <content>...</content>, extract inner text
+  const contentMatch = text.match(/<content>([\s\S]*?)(?:<\/content>|$)/i)
+  if (contentMatch) {
+    text = contentMatch[1]
+  } else {
+    // Strip <system-reminder>...</system-reminder>
+    text = text.replace(/<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/gi, '')
+    // Strip leading tool result headers
+    text = text.replace(/^GROK_TOOL_RESULT[^\n]*\n(?:[^\n]*\n)*?(?=\s*(?:\d+[:|]|\S))/i, '')
+  }
+
+  // 2. Strip trailing (End of file... or (truncated... markers
+  text = text.replace(/\n?\s*\((?:End of file|truncated)[^\n)]*\)\s*$/i, '')
+
+  // 3. Strip line number prefixes like "1: ", " 12: ", "  3 | "
+  const lines = text.split('\n')
+  const hasLineNumbers = lines.some((l) => /^\s*\d+[:|]\s?/.test(l))
+  if (hasLineNumbers) {
+    text = lines.map((line) => line.replace(/^\s*\d+[:|]\s?/, '')).join('\n')
+  }
+
+  // Trim leading redundant newlines
+  text = text.replace(/^\n+/, '')
+  return text.endsWith('\n') ? text : `${text}\n`
 }
 
 export function accumulateRange(messages: readonly Message[], targetIndex: number): Map<string, FileAcc> {
@@ -147,7 +170,7 @@ export function accumulateRange(messages: readonly Message[], targetIndex: numbe
 
   forEachToolPart(messages, targetIndex, messages.length - 1, (part) => {
     const name = toolNameOf(part)
-    if (!EDIT_TOOLS.has(name)) return
+    if (!EDIT_TOOLS.has(name) && !READ_TOOLS.has(name)) return
     const item = extractEditItem(part)
     const path = toolFilePath(part.state?.input) || item.filePath
     if (!path) return
@@ -159,17 +182,48 @@ export function accumulateRange(messages: readonly Message[], targetIndex: numbe
       deletedInRange: false,
       additions: 0,
       deletions: 0,
+      readBeforeFirstMutation: false,
+      sawModifiedStatus: false,
+      mutatedInRange: false,
     }
+
+    if (READ_TOOLS.has(name)) {
+      if (!acc.mutatedInRange) {
+        acc.readBeforeFirstMutation = true
+        if (acc.earliestReadOutput === undefined && typeof part.state?.output === 'string') {
+          const cleaned = extractContentFromReadOutput(part.state.output)
+          if (cleaned) acc.earliestReadOutput = cleaned
+        }
+      }
+      files.set(key, acc)
+      return
+    }
+
     acc.additions += item.additions
     acc.deletions += item.deletions
     if (WRITE_TOOLS.has(name) || item.status === 'added') acc.createdInRange = true
     if (item.status === 'deleted') acc.deletedInRange = true
     if (!WRITE_TOOLS.has(name) || item.status === 'modified') acc.editedInRange = true
+    if (item.status === 'modified') acc.sawModifiedStatus = true
     const oldStr = readString(part.state?.input, ['oldString', 'old_string', 'oldText', 'targetContent'])
     if (oldStr !== undefined && acc.earliestOld === undefined) acc.earliestOld = oldStr
+    acc.mutatedInRange = true
     files.set(key, acc)
   })
   return files
+}
+
+export function fileExistedAtCheckpoint(
+  messages: readonly Message[],
+  targetMsgId: string,
+  filePath: string,
+  acc: FileAcc
+): boolean {
+  if (fileExistedBeforeCheckpoint(messages, targetMsgId, filePath)) return true
+  if (acc.earliestOld !== undefined) return true
+  if (acc.readBeforeFirstMutation) return true
+  if (acc.sawModifiedStatus) return true
+  return false
 }
 
 function classifyStatus(acc: FileAcc, existedBefore: boolean): RevertFileStatus {
@@ -187,7 +241,7 @@ export function computeRevertDiffs(
   if (targetIndex === -1) return []
   const files = accumulateRange(messages, targetIndex)
   return Array.from(files.values()).map((acc) => {
-    const existedBefore = fileExistedBeforeCheckpoint(messages, targetMsgId, acc.path)
+    const existedBefore = fileExistedAtCheckpoint(messages, targetMsgId, acc.path, acc)
     return {
       file: displayName(acc.path),
       filePath: acc.path,

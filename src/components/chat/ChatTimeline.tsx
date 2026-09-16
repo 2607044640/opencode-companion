@@ -63,6 +63,7 @@ export function ChatTimeline({
 
   const handleInitiateRevert = useCallback(
     async (messageId: string) => {
+      console.log(`[Revert:UI] User initiated revert on message: ${messageId}`)
       setConfirmTargetMessageId(messageId)
       setIsConfirmUndoOpen(true)
       setLoadingDiff(true)
@@ -71,9 +72,13 @@ export function ChatTimeline({
 
       try {
         const clientDiffs = computeClientSideDiffs(messages, messageId)
+        console.log(`[Revert:UI] Computed client-side diffs:`, clientDiffs)
         let daemonDiffs: ConfirmUndoFileDiff[] = []
         if (activeSession?.id) {
-          const diffs = await api.getSessionDiff(activeSession.id, messageId).catch(() => [])
+          const diffs = await api.getSessionDiff(activeSession.id, messageId).catch((e) => {
+            console.warn('[Revert:UI] daemon getSessionDiff failed (will rely on client diffs):', e)
+            return []
+          })
           if (Array.isArray(diffs) && diffs.length > 0) {
             daemonDiffs = diffs.map((d) => ({
               file: d.file.replace(/\\/g, '/').split('/').pop() || d.file,
@@ -81,11 +86,14 @@ export function ChatTimeline({
               additions: d.additions || 0,
               deletions: d.deletions || 0,
             }))
+            console.log(`[Revert:UI] Daemon diffs received:`, daemonDiffs)
           }
         }
-        setConfirmDiffFiles(mergeRevertDiffs(daemonDiffs, clientDiffs))
+        const merged = mergeRevertDiffs(daemonDiffs, clientDiffs)
+        console.log(`[Revert:UI] Final merged diffs for modal:`, merged)
+        setConfirmDiffFiles(merged)
       } catch (err) {
-        console.error('Failed to get diff for revert:', err)
+        console.error('[Revert:UI] Failed to get diff for revert:', err)
         setConfirmDiffFiles(computeClientSideDiffs(messages, messageId))
       } finally {
         setLoadingDiff(false)
@@ -96,12 +104,18 @@ export function ChatTimeline({
 
   const handleExecuteRevert = useCallback(
     async (mode: RevertMode) => {
-      if (!confirmTargetMessageId || !onRevertToMessage) return
+      if (!confirmTargetMessageId || !onRevertToMessage) {
+        console.warn('[Revert:UI] handleExecuteRevert aborted: missing confirmTargetMessageId or onRevertToMessage')
+        return
+      }
+
+      console.log(`[Revert:UI] Executing revert: targetMsg=${confirmTargetMessageId}, mode=${mode}`)
 
       // Pre-populate input with target message draft (for modes that revert conversation)
       const targetMsg = messages.find((m) => m.info.id === confirmTargetMessageId)
       if (targetMsg && onDraftInject && mode !== 'code_only') {
         const draft = extractDraftFromMessage(targetMsg)
+        console.log(`[Revert:UI] Injected draft text into PromptInput:`, draft.text)
         onDraftInject({
           text: draft.text,
           attachments: draft.attachments,
@@ -110,12 +124,17 @@ export function ChatTimeline({
       }
 
       const res = await onRevertToMessage(confirmTargetMessageId, { mode })
+      console.log('[Revert:UI] onRevertToMessage completed with result:', res)
+
       if (res?.ok !== false) {
+        console.log(`[Revert:UI] Revert succeeded for message: ${confirmTargetMessageId}`)
         setIsConfirmUndoOpen(false)
         setConfirmTargetMessageId(null)
         setRevertError(null)
       } else {
-        setRevertError(res?.error || 'Revert failed')
+        const err = res?.error || 'Revert failed'
+        console.error(`[Revert:UI] Revert execution failed: ${err}`)
+        setRevertError(err)
       }
     },
     [confirmTargetMessageId, onRevertToMessage, messages, onDraftInject]
