@@ -133,20 +133,27 @@ export function canonicalizeDirectory(dir?: string): string | undefined {
 
 export function resolveAgentName(agentName?: string): string | undefined {
   if (!agentName || agentName === 'Default Agent') return undefined
+  const key = agentName.trim().toLowerCase()
   const map: Record<string, string> = {
-    'atlas': 'Atlas - Plan Executor',
-    'Atlas': 'Atlas - Plan Executor',
-    'Atlas - Plan Executor': 'Atlas - Plan Executor',
-    'prometheus': 'Prometheus - Plan Builder',
-    'Prometheus': 'Prometheus - Plan Builder',
-    'Prometheus - Plan Builder': 'Prometheus - Plan Builder',
-    'sisyphus': 'Sisyphus - ultraworker',
-    'Sisyphus': 'Sisyphus - ultraworker',
-    'Sisyphus - ultraworker': 'Sisyphus - ultraworker',
-    'build': 'build',
-    'plan': 'plan',
+    atlas: 'build',
+    'atlas - plan executor': 'build',
+    sisyphus: 'build',
+    'sisyphus - ultraworker': 'build',
+    prometheus: 'plan',
+    'prometheus - plan builder': 'plan',
+    momus: 'plan',
+    'momus - plan critic': 'plan',
+    plan: 'plan',
+    build: 'build',
+    scout: 'scout',
+    explore: 'explore',
+    general: 'general',
+    'atlas-executor': 'atlas-executor',
+    'prometheus-planner': 'prometheus-planner',
+    researcher: 'researcher',
+    worker: 'worker',
   }
-  return map[agentName] || agentName
+  return map[key] || key
 }
 
 export function deduplicateAndFilterProjects(rawProjects: Project[]): Project[] {
@@ -247,9 +254,9 @@ export function normalizeSession(raw: any): Session {
       ''
     ),
     title: sanitizeSessionTitle(raw.title, 'Untitled Session'),
-    agent: raw.agent === 'Atlas'
-      ? 'Atlas - Plan Executor'
-      : (raw.agent && raw.agent !== 'Default Agent' ? String(raw.agent) : ''),
+    agent: raw.agent && raw.agent !== 'Default Agent'
+      ? (resolveAgentName(String(raw.agent)) || String(raw.agent))
+      : '',
     model: {
       id: String(raw.model?.id || raw.model?.modelID || ''),
       providerID: String(raw.model?.providerID || ''),
@@ -919,6 +926,7 @@ export const api = {
         description: a.description ? String(a.description) : undefined,
         mode: a.mode ? String(a.mode) : undefined,
         native: Boolean(a.native),
+        hidden: Boolean(a.hidden),
       }))
     } catch {
       return []

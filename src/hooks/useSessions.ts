@@ -14,6 +14,7 @@ import {
   toggleArchiveSessionId,
   isSessionArchived,
 } from '../utils/archiving'
+import { planSessionActivation, resolveCanonicalProjectId } from '../utils/session-workspace'
 
 export const DRAFT_SESSION_ID = '__draft__'
 
@@ -57,6 +58,52 @@ export function useSessions() {
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(true)
 
+  const sessionsRef = useRef<Session[]>(sessions)
+  const projectsRef = useRef<Project[]>(projects)
+  const activeSessionIdRef = useRef<string | null>(activeSessionId)
+  const selectGenerationRef = useRef(0)
+
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
+  useEffect(() => {
+    projectsRef.current = projects
+  }, [projects])
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId
+  }, [activeSessionId])
+
+  const writeSessionUrl = useCallback((sessionId: string | null) => {
+    try {
+      const url = new URL(window.location.href)
+      if (!sessionId || sessionId === DRAFT_SESSION_ID) {
+        url.searchParams.delete('session')
+      } else {
+        url.searchParams.set('session', sessionId)
+      }
+      window.history.replaceState({}, '', url.toString())
+    } catch {
+      // ignore in non-browser environments
+    }
+  }, [])
+
+  const applySessionActivation = useCallback(
+    (plan: ReturnType<typeof planSessionActivation>) => {
+      if (!plan.session) return
+      const session = plan.session
+      if (plan.shouldInsert) {
+        setSessions((prev) => (prev.some((s) => s.id === session.id) ? prev : [session, ...prev]))
+      }
+      setActiveSessionId(session.id)
+      setOpenTabIds((prev) => (prev.includes(session.id) ? prev : [...prev, session.id]))
+      if (plan.projectId) {
+        setSelectedProjectId(plan.projectId)
+      }
+      writeSessionUrl(session.id)
+    },
+    [writeSessionUrl]
+  )
+
   const refresh = useCallback(async () => {
     try {
       const [projList, sessList] = await Promise.all([
@@ -64,16 +111,38 @@ export function useSessions() {
         api.getSessions(),
       ])
       setProjects(projList)
-      setSessions(sessList)
 
-      // If URL specifies ?session=xxx, select that session; otherwise pick latest valid session
       const urlParams = new URLSearchParams(window.location.search)
       const urlSessionId = urlParams.get('session')
-      if (urlSessionId && sessList.some((s) => s.id === urlSessionId)) {
-        setActiveSessionId(urlSessionId)
-        setOpenTabIds((prev) => (prev.includes(urlSessionId) ? prev : [...prev, urlSessionId]))
-      } else if (sessList.length > 0 && !activeSessionId) {
-        const validSessions = sessList.filter((s) => {
+      let nextSessions = sessList
+      let fetchedMissing: Session | null = null
+
+      if (urlSessionId && !sessList.some((s) => s.id === urlSessionId)) {
+        try {
+          fetchedMissing = await api.getSession(urlSessionId)
+          nextSessions = [fetchedMissing, ...sessList.filter((s) => s.id !== fetchedMissing?.id)]
+        } catch (err) {
+          console.error('Failed to fetch deep-linked session:', err)
+        }
+      }
+
+      setSessions(nextSessions)
+
+      if (urlSessionId) {
+        const plan = planSessionActivation({
+          sessionId: urlSessionId,
+          localSessions: nextSessions,
+          fetchedSession: fetchedMissing,
+          projects: projList,
+        })
+        if (plan.session) {
+          applySessionActivation({ ...plan, shouldInsert: false })
+          return
+        }
+      }
+
+      if (nextSessions.length > 0 && !activeSessionIdRef.current) {
+        const validSessions = nextSessions.filter((s) => {
           const isAbandoned =
             Boolean(s.title?.startsWith('New session - ')) &&
             (!s.tokens || (s.tokens.input === 0 && s.tokens.output === 0)) &&
@@ -81,9 +150,11 @@ export function useSessions() {
           return !isAbandoned
         })
         if (validSessions.length > 0) {
-          const first = validSessions[0].id
-          setActiveSessionId(first)
-          setOpenTabIds([first])
+          const first = validSessions[0]
+          setActiveSessionId(first.id)
+          setOpenTabIds([first.id])
+          const pid = resolveCanonicalProjectId(first, projList)
+          if (pid) setSelectedProjectId(pid)
         }
       }
     } catch (err) {
@@ -91,7 +162,7 @@ export function useSessions() {
     } finally {
       setLoading(false)
     }
-  }, [activeSessionId])
+  }, [applySessionActivation])
 
   useEffect(() => {
     refresh()
@@ -146,27 +217,46 @@ export function useSessions() {
     }
   }, [])
 
-  // Select a session and add it to open tabs if not present
   const selectSession = useCallback((sessionId: string) => {
-    setActiveSessionId(sessionId)
-    setOpenTabIds((prev) => {
-      if (!prev.includes(sessionId)) {
-        return [...prev, sessionId]
-      }
-      return prev
-    })
-    try {
-      const url = new URL(window.location.href)
-      if (sessionId === DRAFT_SESSION_ID) {
-        url.searchParams.delete('session')
-      } else {
-        url.searchParams.set('session', sessionId)
-      }
-      window.history.replaceState({}, '', url.toString())
-    } catch {
-      // ignore in non-browser environments
+    const generation = ++selectGenerationRef.current
+    if (sessionId === DRAFT_SESSION_ID) {
+      setActiveSessionId(DRAFT_SESSION_ID)
+      setOpenTabIds((prev) => (prev.includes(DRAFT_SESSION_ID) ? prev : [...prev, DRAFT_SESSION_ID]))
+      writeSessionUrl(DRAFT_SESSION_ID)
+      return
     }
-  }, [])
+
+    const localPlan = planSessionActivation({
+      sessionId,
+      localSessions: sessionsRef.current,
+      fetchedSession: null,
+      projects: projectsRef.current,
+    })
+    if (localPlan.session) {
+      applySessionActivation(localPlan)
+      return
+    }
+
+    void api
+      .getSession(sessionId)
+      .then((fetched) => {
+        if (generation !== selectGenerationRef.current) return
+        const remotePlan = planSessionActivation({
+          sessionId,
+          localSessions: sessionsRef.current,
+          fetchedSession: fetched,
+          projects: projectsRef.current,
+        })
+        applySessionActivation(remotePlan)
+      })
+      .catch((err: unknown) => {
+        if (generation !== selectGenerationRef.current) return
+        console.error('Failed to fetch session for selection:', err)
+        setActiveSessionId(sessionId)
+        setOpenTabIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]))
+        writeSessionUrl(sessionId)
+      })
+  }, [applySessionActivation, writeSessionUrl])
 
   const recentlyClosedRef = useRef<string[]>([])
   const [recentlyClosedTabIds, setRecentlyClosedTabIds] = useState<string[]>([])
@@ -403,7 +493,7 @@ export function useSessions() {
         projectID: selectedProjectId || 'global',
         directory: canonicalizeDirectory(selectedProject?.worktree) || '',
         title: '新会话',
-        agent: 'Atlas - Plan Executor',
+        agent: 'build',
         model: { id: 'grok-4.6', providerID: 'obsidian' },
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         cost: 0,

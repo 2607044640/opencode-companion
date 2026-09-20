@@ -1,7 +1,13 @@
 import type { Message, MessagePart, ReasoningPart, TextPart } from '../types/opencode'
+import {
+  sanitizeMessageRepetition,
+  REPETITION_LOOP_ERROR_NAME,
+  REPETITION_LOOP_ERROR_MESSAGE,
+} from '../utils/repetition-fuse'
 
 export const EMPTY_RESPONSE_ERROR_NAME = 'EmptyResponseError' as const
 export const SYSTEM_ABORT_ERROR_NAME = 'SystemAbortError' as const
+export { REPETITION_LOOP_ERROR_NAME, REPETITION_LOOP_ERROR_MESSAGE }
 
 export const EMPTY_RESPONSE_MESSAGE =
   '中转服务未返回有效响应（空响应），请点击重试' as const
@@ -9,7 +15,12 @@ export const EMPTY_RESPONSE_MESSAGE =
 export const SYSTEM_ABORT_MESSAGE =
   '生成被中断（备选模型队列耗尽或通道异常），请点击重试' as const
 
-export type EmptyIdleFuseKind = 'none' | 'empty_response' | 'system_abort' | 'user_abort'
+export type EmptyIdleFuseKind =
+  | 'none'
+  | 'empty_response'
+  | 'system_abort'
+  | 'user_abort'
+  | 'repetition_loop'
 
 export type EmptyIdleFuseVerdict =
   | { readonly kind: 'none' }
@@ -22,6 +33,11 @@ export type EmptyIdleFuseVerdict =
   | {
       readonly kind: 'system_abort'
       readonly errorName: typeof SYSTEM_ABORT_ERROR_NAME
+      readonly message: string
+    }
+  | {
+      readonly kind: 'repetition_loop'
+      readonly errorName: typeof REPETITION_LOOP_ERROR_NAME
       readonly message: string
     }
 
@@ -57,6 +73,16 @@ export function classifyEmptyIdleFuse(input: EmptyIdleFuseInput): EmptyIdleFuseV
     return { kind: 'none' }
   }
   if (hasTurnContent(last)) {
+    if (last.info.finish === 'abort') {
+      const { hasLoop } = sanitizeMessageRepetition(last)
+      if (hasLoop) {
+        return {
+          kind: 'repetition_loop',
+          errorName: REPETITION_LOOP_ERROR_NAME,
+          message: REPETITION_LOOP_ERROR_MESSAGE,
+        }
+      }
+    }
     return { kind: 'none' }
   }
   if (last.info.finish === 'abort') {

@@ -89,6 +89,7 @@ function FloatingMapContent({
   const selectedDirectory = selectedDirectoryOverride ?? "all"
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(true)
   const [layoutTrigger, setLayoutTrigger] = useState(0)
+  const [isBlueprintMenuOpen, setIsBlueprintMenuOpen] = useState(false)
 
   const handleAutoLayout = useCallback(() => {
     setLayoutTrigger((prev) => prev + 1)
@@ -207,8 +208,31 @@ function FloatingMapContent({
   // Lossless keystroke redirection and navigation from anywhere on modal to search input
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 1. If BlueprintActionMenu is open, do NOT steal focus or redirect keys to top-left search
+      const isMenuOpen =
+        isBlueprintMenuOpen ||
+        document.querySelector('[data-testid="blueprint-action-menu"]') !== null
+      if (isMenuOpen) {
+        return
+      }
+
+      // 2. Check if an input, textarea, select, or contenteditable is currently active
+      const activeEl = document.activeElement
+      const isSearchFocused = activeEl === searchInputRef.current
+      const isInputActive =
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl instanceof HTMLSelectElement ||
+        (activeEl instanceof HTMLElement && activeEl.isContentEditable)
+
+      // If user is focused on any other input/editor, never steal focus or redirect keys
+      if (isInputActive && !isSearchFocused) {
+        return
+      }
+
+      // 3. IME handling: only redirect to searchInput if NOT in another input
       if (isIMEActive(e)) {
-        if (document.activeElement !== searchInputRef.current) {
+        if (!isSearchFocused) {
           searchInputRef.current?.focus()
         }
         return
@@ -220,14 +244,8 @@ function FloatingMapContent({
         return
       }
 
-      const activeEl = document.activeElement
-      const isInputActive =
-        activeEl instanceof HTMLInputElement ||
-        activeEl instanceof HTMLTextAreaElement ||
-        activeEl instanceof HTMLSelectElement ||
-        (activeEl instanceof HTMLElement && activeEl.isContentEditable)
-
-      if (isInputActive) {
+      // If search input is focused, allow standard typing inside it
+      if (isSearchFocused) {
         return
       }
 
@@ -266,7 +284,6 @@ function FloatingMapContent({
         return
       }
 
-      const isSearchFocused = document.activeElement === searchInputRef.current
       if (isBlueprintReservedKey(e, isSearchFocused)) {
         // Allow canvas blueprint hotkeys (F, C, Home, Space, Ctrl+A, Delete) to pass through to the canvas
         return
@@ -278,7 +295,6 @@ function FloatingMapContent({
 
       // H or Home: Return view to conversation cards (Home view)
       if (
-        !isSearchFocused &&
         (e.key.toLowerCase() === "h" || e.key === "Home") &&
         !e.ctrlKey &&
         !e.metaKey &&
@@ -290,7 +306,7 @@ function FloatingMapContent({
       }
 
       // Lossless printable character redirection: typing anywhere on canvas focuses search input and inserts first character
-      if (e.key.length === 1 && !isSearchFocused) {
+      if (e.key.length === 1) {
         e.preventDefault()
         const input = searchInputRef.current
         if (input) {
@@ -309,7 +325,7 @@ function FloatingMapContent({
 
     window.addEventListener("keydown", handleGlobalKeyDown)
     return () => window.removeEventListener("keydown", handleGlobalKeyDown)
-  }, [centerOnCard, fitView, matchedSessions, onClose, onSelectSession, safeActiveIndex])
+  }, [centerOnCard, fitView, isBlueprintMenuOpen, matchedSessions, onClose, onSelectSession, safeActiveIndex])
 
   const handleSelectSession = useCallback(
     (sessionId: string) => {
@@ -488,6 +504,7 @@ function FloatingMapContent({
           autoSyncEnabled={autoSyncEnabled}
           onProjectsLoaded={handleProjectsLoaded}
           layoutTrigger={layoutTrigger}
+          onBlueprintMenuOpenChange={setIsBlueprintMenuOpen}
         />
       </div>
     </>

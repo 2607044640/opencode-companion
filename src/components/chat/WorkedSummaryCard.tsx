@@ -12,7 +12,7 @@ import {
 import type { WorkedTurn } from '../../utils/worked-summary'
 import { formatWorkedLabel } from '../../utils/worked-summary'
 import { HierarchicalToolList } from './HierarchicalToolList'
-import { useDiffDrawer, editItemToDiffPayload } from '../diff/DiffDrawerContext'
+import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
 import { tr } from '../../utils/i18n'
 
 interface WorkedSummaryCardProps {
@@ -22,8 +22,8 @@ interface WorkedSummaryCardProps {
 }
 
 export function WorkedSummaryCard({ turn, messageId, isBusy }: WorkedSummaryCardProps) {
-  const { open } = useDiffDrawer()
-  const editGroups = turn.groups.filter((g) => g.kind === 'edit')
+  const { openTurn } = useDiffDrawer()
+  const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
   const editCount = editGroups.length
 
   // A turn is live ONLY if turn itself claims live AND the parent session is currently busy
@@ -83,13 +83,16 @@ export function WorkedSummaryCard({ turn, messageId, isBusy }: WorkedSummaryCard
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                const firstEdit = editGroups[0]
-                if (firstEdit && firstEdit.kind === 'edit') {
-                  open(editItemToDiffPayload(firstEdit.item, messageId))
-                }
+                const editItems = editGroups.map((g) => g.item)
+                const turnFiles = editItemsToTurnFiles(editItems, messageId)
+                openTurn({
+                  messageId,
+                  title: 'For Turn',
+                  files: turnFiles,
+                })
               }}
               className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-700/60 text-emerald-300 font-mono text-[10px] font-medium transition-colors ml-1 cursor-pointer"
-              title={tr('点击在侧边抽屉查看文件差异', 'Click to open file diff drawer', 'Klicken, um Diff-Drawer zu öffnen')}
+              title={tr('点击打开审查面板查看本轮差异', 'Click to review turn diffs', 'Klicken, um Runden-Diffs zu prüfen')}
             >
               <FileCode className="w-3 h-3 text-emerald-400" />
               <span>

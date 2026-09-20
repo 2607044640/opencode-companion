@@ -17,6 +17,7 @@ export interface UserPreferences {
   collapseToolBatch: boolean
   collapseSidebarOnStartup?: boolean
   autoGitCheckpoint?: boolean
+  floatingDiffView?: boolean
   promptCharThreshold: number
   promptLineThreshold: number
   language: LanguagePreference
@@ -93,6 +94,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   collapseToolBatch: true,
   collapseSidebarOnStartup: false,
   autoGitCheckpoint: true,
+  floatingDiffView: true,
   promptCharThreshold: 240,
   promptLineThreshold: 4,
   language: 'zh-CN',

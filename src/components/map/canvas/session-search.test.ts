@@ -23,6 +23,17 @@ describe("sessionMatchesQuery", () => {
     assert.equal(sessionMatchesQuery("ses_abc", fields), true)
     assert.equal(sessionMatchesQuery("missing", fields), false)
   })
+
+  it("matches multi-token queries like fix c across words", () => {
+    const fields = {
+      title: "Fix Companion agent dispatch UnknownError",
+      nextStep: "Ship patch",
+      sessionId: "ses_fix",
+    }
+    assert.equal(sessionMatchesQuery("fix c", fields), true)
+    assert.equal(sessionMatchesQuery("dispatch unknown", fields), true)
+    assert.equal(sessionMatchesQuery("fix nonexistent", fields), false)
+  })
 })
 
 describe("searchHighlight", () => {
@@ -36,11 +47,13 @@ describe("searchHighlight", () => {
       isDimmed: false,
       isHighlighted: true,
       isSelected: true,
+      searchQuery: "map",
     })
     assert.deepEqual(searchHighlight({ query: "map", matches: false, selected: false }), {
       isDimmed: true,
       isHighlighted: false,
       isSelected: false,
+      searchQuery: "map",
     })
   })
 })
@@ -92,6 +105,7 @@ describe("withSearchHighlight", () => {
     const highlighted = withSearchHighlight(nodes, "alpha", "ses_a")
     assert.equal(highlighted[0]?.data.isHighlighted, true)
     assert.equal(highlighted[0]?.data.isSelected, true)
+    assert.equal(highlighted[0]?.data.searchQuery, "alpha")
     assert.equal(highlighted[1]?.data.isDimmed, true)
     assert.equal(highlighted[1]?.data.isHighlighted, false)
   })

@@ -1,6 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { filterProjectSessions } from "./blueprint-action-helpers"
+import {
+  filterProjectSessions,
+  sessionIdFromNodeData,
+  executeConnectAction,
+} from "./blueprint-action-helpers"
 
 test("filterProjectSessions", async (t) => {
   const cards = {
@@ -52,4 +56,90 @@ test("filterProjectSessions", async (t) => {
     assert.equal(results.length, 1)
     assert.equal(results[0].cardId, "c2")
   })
+
+  await t.test("matches multi-token query like fix c across words", () => {
+    const results = filterProjectSessions({
+      cards: {
+        ...cards,
+        c_fix: {
+          cardId: "c_fix",
+          sessionId: "s_fix",
+          directory: "/projects/APISpace",
+          position: { x: 0, y: 0 },
+          ghost: false,
+        },
+      },
+      titles: {
+        ...titles,
+        s_fix: "Fix Companion agent dispatch UnknownError",
+      },
+      directory: "all",
+      query: "fix c",
+    })
+    assert.ok(results.some((r) => r.cardId === "c_fix"))
+    const hit = results.find((r) => r.cardId === "c_fix")
+    assert.equal(hit?.title, "Fix Companion agent dispatch UnknownError")
+    assert.equal(hit?.projectBadge, "[APISpace]")
+  })
+
+  await t.test("searches across all directories when directory is all", () => {
+    const results = filterProjectSessions({
+      cards,
+      titles,
+      directory: "all",
+      query: "",
+    })
+    assert.equal(results.length, 4)
+  })
 })
+
+test("sessionIdFromNodeData extracts sessionId safely", () => {
+  assert.equal(sessionIdFromNodeData(null), undefined)
+  assert.equal(sessionIdFromNodeData({}), undefined)
+  assert.equal(sessionIdFromNodeData({ sessionId: "ses_123" }), "ses_123")
+  assert.equal(sessionIdFromNodeData({ sessionId: 123 }), undefined)
+})
+
+test("executeConnectAction handles self connection and session select", () => {
+  let toastMsg = ""
+  const setToast = (msg: string) => {
+    toastMsg = msg
+  }
+
+  // 1. Self connection attempt
+  const selfResult = executeConnectAction({
+    menu: {
+      clientPoint: { x: 0, y: 0 },
+      flowPos: { x: 0, y: 0 },
+      fromNode: { id: "card_1", data: {} },
+    },
+    view: { kind: "unreachable" },
+    session: { cardId: "card_1", title: "Self" },
+    persistMap: () => {},
+    setView: () => {},
+    setToast,
+  })
+  assert.equal(selfResult, false)
+  assert.equal(toastMsg, "无法连接自身")
+
+  // 2. Select session when fromNode is null
+  let selectedSessionId = ""
+  const selectResult = executeConnectAction({
+    menu: {
+      clientPoint: { x: 0, y: 0 },
+      flowPos: { x: 0, y: 0 },
+      fromNode: null,
+    },
+    view: { kind: "unreachable" },
+    session: { cardId: "card_2", sessionId: "ses_target", title: "Target" },
+    persistMap: () => {},
+    setView: () => {},
+    setToast,
+    onSelectSession: (id) => {
+      selectedSessionId = id
+    },
+  })
+  assert.equal(selectResult, true)
+  assert.equal(selectedSessionId, "ses_target")
+})
+

@@ -24,6 +24,15 @@ import {
   queryAllCachedMessages,
   type SessionSearchTarget,
 } from './message-search'
+import {
+  formatProjectPill,
+  resolveSessionProject,
+  selectSearchCorpus,
+  sessionBelongsToProjectFilter,
+  type SessionProjectBadge,
+} from '../../utils/session-workspace'
+
+import { HighlightedText } from '../map/canvas/HighlightedText'
 
 export interface FloatingSearchModalProps {
   readonly isOpen: boolean
@@ -33,65 +42,6 @@ export interface FloatingSearchModalProps {
   readonly projects: readonly Project[]
   readonly initialSelectedProjectId?: string | null
   readonly unreadSessionIds?: readonly string[]
-}
-
-const PROJECT_COLOR_MAP: Record<string, string> = {
-  cyan: 'bg-cyan-950/60 text-cyan-300 border-cyan-700/50',
-  blue: 'bg-blue-950/60 text-blue-300 border-blue-700/50',
-  green: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50',
-  purple: 'bg-purple-950/60 text-purple-300 border-purple-700/50',
-  magenta: 'bg-pink-950/60 text-pink-300 border-pink-700/50',
-  pink: 'bg-pink-950/60 text-pink-300 border-pink-700/50',
-  amber: 'bg-amber-950/60 text-amber-300 border-amber-700/50',
-  orange: 'bg-orange-950/60 text-orange-300 border-orange-700/50',
-  mint: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50',
-}
-
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function HighlightedText({ text, query }: { text: string; query: string }) {
-  const trimmed = query.trim()
-  if (!trimmed) {
-    return <>{text}</>
-  }
-
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  if (words.length === 0) {
-    return <>{text}</>
-  }
-
-  let tokens: { isMatch: boolean; text: string }[] = []
-  try {
-    const pattern = words.map(escapeRegExp).join('|')
-    const regex = new RegExp(`(${pattern})`, 'gi')
-    const rawParts = text.split(regex)
-    const wordSet = new Set(words.map((w) => w.toLowerCase()))
-    tokens = rawParts.map((part) => ({
-      isMatch: wordSet.has(part.toLowerCase()),
-      text: part,
-    }))
-  } catch {
-    tokens = [{ isMatch: false, text }]
-  }
-
-  return (
-    <>
-      {tokens.map((token, i) =>
-        token.isMatch ? (
-          <mark
-            key={i}
-            className="bg-orange-500/30 text-orange-300 font-semibold rounded-xs px-0.5"
-          >
-            {token.text}
-          </mark>
-        ) : (
-          <span key={i}>{token.text}</span>
-        )
-      )}
-    </>
-  )
 }
 
 function formatSessionTime(timestamp?: number, t?: TranslationDictionary): string {
@@ -116,81 +66,19 @@ function formatSessionTime(timestamp?: number, t?: TranslationDictionary): strin
   return `${month}-${day} ${hours}:${minutes}`
 }
 
-function normalizePath(p?: string): string {
-  if (!p) return ''
-  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+const FALLBACK_SEARCH_BADGE: SessionProjectBadge = {
+  id: 'unknown',
+  name: 'Project',
+  colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  abbreviation: 'PR',
 }
 
-function isSameOrSubdirectory(parentPath: string, targetPath: string): boolean {
-  const parent = normalizePath(parentPath)
-  const target = normalizePath(targetPath)
-  if (!parent || !target) return false
-  if (parent === target) return true
-  if (target.startsWith(parent + '/')) return true
-
-  const parentSegments = parent.split('/').filter(Boolean)
-  const parentBase = parentSegments.pop()
-  if (!parentBase) return false
-
-  const targetSegments = target.split('/').filter(Boolean)
-  return targetSegments.includes(parentBase)
-}
-
-function resolveSessionProject(
-  session: Session,
-  projects: readonly Project[]
-): { id: string; name: string; colorClass: string } {
-  const matchedById = projects.find(
-    (p) =>
-      p.id !== 'global' &&
-      (p.id === session.projectID || Boolean(p.associatedIds && p.associatedIds.includes(session.projectID)))
-  )
-  if (matchedById) {
-    const canonical = matchCanonicalWorkspace(matchedById.worktree, matchedById.name)
-    const colorKey = matchedById.icon?.color || canonical?.defaultColor || 'blue'
-    return {
-      id: matchedById.id,
-      name: canonical?.name || matchedById.name || matchedById.worktree.split('/').filter(Boolean).pop() || 'Project',
-      colorClass: PROJECT_COLOR_MAP[colorKey] || 'bg-zinc-800 text-zinc-300 border-zinc-700',
-    }
-  }
-
-  if (session.directory) {
-    const matchedByDir = projects.find(
-      (p) => p.worktree && p.worktree !== '/' && isSameOrSubdirectory(p.worktree, session.directory)
-    )
-    if (matchedByDir) {
-      const canonical = matchCanonicalWorkspace(matchedByDir.worktree, matchedByDir.name)
-      const colorKey = matchedByDir.icon?.color || canonical?.defaultColor || 'blue'
-      return {
-        id: matchedByDir.id,
-        name: canonical?.name || matchedByDir.name || matchedByDir.worktree.split('/').filter(Boolean).pop() || 'Project',
-        colorClass: PROJECT_COLOR_MAP[colorKey] || 'bg-zinc-800 text-zinc-300 border-zinc-700',
-      }
-    }
-
-    const canonicalDirect = matchCanonicalWorkspace(session.directory)
-    if (canonicalDirect) {
-      return {
-        id: canonicalDirect.fallbackId,
-        name: canonicalDirect.name,
-        colorClass: PROJECT_COLOR_MAP[canonicalDirect.defaultColor] || 'bg-zinc-800 text-zinc-300 border-zinc-700',
-      }
-    }
-
-    const dirParts = session.directory.replace(/\\/g, '/').split('/').filter(Boolean)
-    const dirBase = dirParts.pop() || 'Workspace'
-    return {
-      id: 'dir-' + dirBase,
-      name: dirBase,
-      colorClass: 'bg-zinc-800/80 text-zinc-300 border-zinc-700',
-    }
-  }
-
+function toMessageSearchMeta(badge: SessionProjectBadge, directory?: string) {
   return {
-    id: 'global',
-    name: 'Global',
-    colorClass: 'bg-zinc-800/80 text-zinc-400 border-zinc-700',
+    projectId: badge.id,
+    projectName: formatProjectPill(badge.name),
+    projectColorClass: badge.colorClass,
+    directory,
   }
 }
 
@@ -237,7 +125,7 @@ function FloatingSearchContent({
   onSelectSession,
   sessions,
   projects,
-  initialSelectedProjectId: _initialSelectedProjectId,
+  initialSelectedProjectId,
   unreadSessionIds,
 }: FloatingSearchModalProps) {
   const { t, lang } = useI18n()
@@ -268,7 +156,9 @@ function FloatingSearchContent({
 
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [selectedProjectIdFilter, setSelectedProjectIdFilter] = useState<string>('ALL')
+  const [selectedProjectIdFilter, setSelectedProjectIdFilter] = useState<string>(
+    () => initialSelectedProjectId || 'ALL'
+  )
 
   const [messageHits, setMessageHits] = useState<MessageSearchHit[]>([])
   const [isSearchingMessages, setIsSearchingMessages] = useState(false)
@@ -308,9 +198,8 @@ function FloatingSearchContent({
     )
   }
 
-  // Pre-resolve project mapping for all sessions for high performance
   const sessionProjectMap = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; colorClass: string }>()
+    const map = new Map<string, SessionProjectBadge>()
     for (const s of sessions) {
       map.set(s.id, resolveSessionProject(s, projects))
     }
@@ -329,26 +218,12 @@ function FloatingSearchContent({
     return Array.from(distinct.entries()).map(([id, name]) => ({ id, name }))
   }, [projects])
 
-  // Sessions filtered by selected project
   const projectFilteredSessions = useMemo(() => {
-    return sessions.filter((session) => {
-      if (selectedProjectIdFilter === 'ALL') return true
-      const proj = sessionProjectMap.get(session.id)
-      if (!proj) return false
-
-      const targetProj = projects.find((p) => p.id === selectedProjectIdFilter)
-      if (!targetProj) return proj.id === selectedProjectIdFilter
-
-      if (targetProj.associatedIds && targetProj.associatedIds.includes(session.projectID)) {
-        return true
-      }
-      if (targetProj.id === session.projectID) return true
-      if (targetProj.worktree && session.directory && isSameOrSubdirectory(targetProj.worktree, session.directory)) {
-        return true
-      }
-      return proj.id === selectedProjectIdFilter || proj.name.toLowerCase() === (targetProj.name || '').toLowerCase()
+    return selectSearchCorpus(sessions, query, selectedProjectIdFilter, (session) => {
+      const badge = sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE
+      return sessionBelongsToProjectFilter(session, selectedProjectIdFilter, projects, badge)
     })
-  }, [sessions, selectedProjectIdFilter, sessionProjectMap, projects])
+  }, [sessions, query, selectedProjectIdFilter, sessionProjectMap, projects])
 
   // Titles mode: Filtered & Ranked sessions
   const filteredSessions = useMemo(() => {
@@ -460,10 +335,10 @@ function FloatingSearchContent({
 
       for (const session of projectFilteredSessions) {
         const cachedDocs = messageCache.get(session.id, session.time?.updated)
-        const meta = {
-          ...sessionProjectMap.get(session.id),
-          directory: session.directory,
-        }
+        const meta = toMessageSearchMeta(
+          sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE,
+          session.directory
+        )
         if (cachedDocs) {
           cachedTargets.push({
             sessionId: session.id,
@@ -506,10 +381,10 @@ function FloatingSearchContent({
               const docs = extractSearchableDocs(rawMessages)
               messageCache.set(session.id, session.time?.updated || 0, docs)
 
-              const meta = {
-                ...sessionProjectMap.get(session.id),
-                directory: session.directory,
-              }
+              const meta = toMessageSearchMeta(
+                sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE,
+                session.directory
+              )
               allTargets.push({
                 sessionId: session.id,
                 sessionTitle: session.title || 'Untitled Session',
@@ -937,11 +812,8 @@ function FloatingSearchContent({
           ) : (
             filteredSessions.map((session, index) => {
               const isActive = index === safeIndex
-              const projMeta = sessionProjectMap.get(session.id) || {
-                id: 'unknown',
-                name: 'Project',
-                colorClass: 'bg-zinc-800 text-zinc-300 border-zinc-700',
-              }
+              const projMeta = sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE
+              const projectPill = formatProjectPill(projMeta.name)
               const agentInitial = ((session.agent || 'A').charAt(0) || 'A').toUpperCase()
               const timeDisplay = formatSessionTime(session.time?.updated || session.time?.created, t)
 
@@ -978,7 +850,7 @@ function FloatingSearchContent({
                       className={`px-2 py-0.5 rounded text-[10px] font-medium border shrink-0 ${projMeta.colorClass}`}
                       title={`工程: ${projMeta.name}`}
                     >
-                      {projMeta.name}
+                      {projectPill}
                     </span>
 
                     {isSessionArchived(session.id, archivedIds) && (
@@ -1012,6 +884,7 @@ function FloatingSearchContent({
                           <HighlightedText
                             text={session.title || 'Untitled Session'}
                             query={query}
+                            preset="orange"
                           />
                         </span>
                       </div>
@@ -1120,13 +993,12 @@ function FloatingSearchContent({
                         </span>
                       )}
 
-                      {/* Project Pill */}
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-medium border shrink-0 ${
                           hit.projectColorClass || 'bg-zinc-800 text-zinc-300 border-zinc-700'
                         }`}
                       >
-                        {hit.projectName || 'Project'}
+                        {formatProjectPill(hit.projectName || 'Project')}
                       </span>
 
                       {isSessionArchived(hit.sessionId, archivedIds) && (

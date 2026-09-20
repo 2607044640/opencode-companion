@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import type { AgentInfo, ProviderInfo, Session, CommandItem, Project, TodoItem } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
-import { api } from '../../services/api'
+import { api, resolveAgentName } from '../../services/api'
 import { PromptPopover, type PopoverItem } from './PromptPopover'
 import { ProjectDropdown } from './ProjectDropdown'
 import { TodoButton } from './TodoButton'
@@ -78,7 +78,7 @@ export function PromptInput({
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [commands, setCommands] = useState<CommandItem[]>([])
-  const [selectedAgent, setSelectedAgent] = useState<string>('Atlas - Plan Executor')
+  const [selectedAgent, setSelectedAgent] = useState<string>('build')
   const [selectedModel, setSelectedModel] = useState<{ providerID: string; modelID: string; name?: string }>({
     providerID: 'obsidian',
     modelID: 'grok-4.6',
@@ -173,11 +173,14 @@ export function PromptInput({
     activeSessionRef.current = activeSession
     if (activeSession) {
       if (activeSession.agent && activeSession.agent !== 'Default Agent') {
-        const rawName = activeSession.agent
-        const mappedName = rawName === 'Atlas' ? 'Atlas - Plan Executor' : rawName
-        const matchingAgent = agents.find((a) => a.name === mappedName)
+        const canonical = resolveAgentName(activeSession.agent) || activeSession.agent
+        const matchingAgent = agents.find(
+          (a) => a.name === canonical || a.name.toLowerCase() === canonical.toLowerCase()
+        )
         if (matchingAgent) {
           setSelectedAgent(matchingAgent.name)
+        } else if (canonical) {
+          setSelectedAgent(canonical)
         }
       }
       if (activeSession.model?.id) {
@@ -204,10 +207,30 @@ export function PromptInput({
           api.getConfig(),
         ])
 
-        // Filter agents to only primary agents (M1)
-        const primaryAgents = agentList.filter((a) => a.mode === 'primary')
-        const usableAgents = primaryAgents.length > 0 ? primaryAgents : agentList
-        setAgents(usableAgents)
+        // Filter selectable agents (Prometheus S1 + Refinement):
+        // Exclude subagents, hidden utilities (compaction/summary/title), internal librarian, and duplicate lowercase aliases
+        const aliasNames = ['prometheus', 'atlas', 'sisyphus']
+        const usableAgents = agentList.filter((a) => {
+          if (a.hidden) return false
+          if (a.mode === 'subagent') return false
+          if (a.name === 'librarian') return false
+          if (aliasNames.includes(a.name.toLowerCase())) return false
+          return true
+        })
+
+        // Sort order: prioritize build, plan, scout, then others
+        usableAgents.sort((a, b) => {
+          const priority = (name: string) => {
+            if (name === 'build') return 1
+            if (name === 'plan') return 2
+            if (name === 'scout') return 3
+            return 10
+          }
+          return priority(a.name) - priority(b.name)
+        })
+
+        const finalAgents = usableAgents.length > 0 ? usableAgents : agentList
+        setAgents(finalAgents)
         setProviders(providerList)
         // Merge built-in commands like compaction, summary, title (Image 4)
         const defaultCommands: CommandItem[] = [
@@ -225,20 +248,20 @@ export function PromptInput({
         setCommands(mergedCmds)
 
         // Determine default agent from daemon config or first primary agent
-        let defaultAgentName = 'Atlas - Plan Executor'
-        if (daemonConfig.default_agent && usableAgents.some((a) => a.name === daemonConfig.default_agent)) {
+        let defaultAgentName = 'build'
+        if (daemonConfig.default_agent && finalAgents.some((a) => a.name === daemonConfig.default_agent)) {
           defaultAgentName = daemonConfig.default_agent
         } else {
-          const atlas = usableAgents.find((a) => a.name === 'Atlas - Plan Executor' || a.name.toLowerCase().includes('atlas'))
-          if (atlas) {
-            defaultAgentName = atlas.name
-          } else if (usableAgents.length > 0) {
-            defaultAgentName = usableAgents[0].name
+          const buildAgent = finalAgents.find((a) => a.name === 'build')
+          if (buildAgent) {
+            defaultAgentName = buildAgent.name
+          } else if (finalAgents.length > 0) {
+            defaultAgentName = finalAgents[0].name
           }
         }
 
         const currentAgent = activeSessionRef.current?.agent
-        if (!currentAgent || currentAgent === 'Default Agent' || currentAgent === 'Atlas') {
+        if (!currentAgent || currentAgent === 'Default Agent' || currentAgent === 'Atlas' || currentAgent === 'Atlas - Plan Executor') {
           setSelectedAgent(defaultAgentName)
         }
 

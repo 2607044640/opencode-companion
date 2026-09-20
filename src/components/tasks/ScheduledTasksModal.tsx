@@ -52,7 +52,7 @@ export function ScheduledTasksModal({
   const [formIntervalMinutes, setFormIntervalMinutes] = useState(120)
   const [formCronExpr, setFormCronExpr] = useState('0 9 * * *')
   const [formDirectory, setFormDirectory] = useState<string>('')
-  const [formAgent, setFormAgent] = useState<string>('Atlas - Plan Executor')
+  const [formAgent, setFormAgent] = useState<string>('build')
 
   const canonicalProjects = projects.filter(
     (p) => p.id !== 'global' && Boolean(matchCanonicalWorkspace(p.worktree, p.name))
@@ -126,7 +126,7 @@ export function ScheduledTasksModal({
       title: formTitle.trim(),
       prompt: formPrompt.trim(),
       directory: formDirectory || canonicalProjects[0]?.worktree,
-      agent: formAgent || 'Atlas - Plan Executor',
+      agent: formAgent || 'build',
       scheduleType: formType,
       delayMs: formDelayMinutes * 60_000,
       dailyTime: formDailyTime,
@@ -390,9 +390,9 @@ export function ScheduledTasksModal({
                     onChange={(e) => setFormAgent(e.target.value)}
                     className="w-full bg-[#111317] border border-[#272a30] text-xs text-[#f0f6fc] px-3 py-2 rounded-md focus:outline-none focus:border-orange-500"
                   >
-                    <option value="Atlas - Plan Executor">Atlas - Plan Executor</option>
-                    <option value="Prometheus - Plan Builder">Prometheus - Plan Builder</option>
-                    <option value="Momus - Plan Critic">Momus - Plan Critic</option>
+                    <option value="build">build</option>
+                    <option value="plan">plan</option>
+                    <option value="scout">scout</option>
                   </select>
                 </div>
               </div>
@@ -490,7 +490,7 @@ export function ScheduledTasksModal({
                         </span>
                         <span className="flex items-center gap-1">
                           <Bot className="w-3 h-3 text-zinc-400" />
-                          {task.agent || 'Atlas'}
+                          {task.agent || 'build'}
                         </span>
                         <span className="flex items-center gap-1 text-orange-400 font-medium">
                           <Clock className="w-3 h-3" />

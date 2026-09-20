@@ -30,7 +30,7 @@ import { partitionAssistantTurn } from '../../utils/worked-summary'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n, tr } from '../../utils/i18n'
 import { evaluatePromptCollapsing } from './quick-jump'
-import { useDiffDrawer, editItemToDiffPayload } from '../diff/DiffDrawerContext'
+import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
 
 interface MessageBubbleProps {
   message: Message
@@ -70,6 +70,30 @@ function getAgentBadge(agent?: string) {
       accent: 'border-l-emerald-500',
     }
   }
+  if (name.includes('build')) {
+    return {
+      bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+      initial: 'B',
+      label: agent || 'build',
+      accent: 'border-l-emerald-500',
+    }
+  }
+  if (name.includes('plan')) {
+    return {
+      bg: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
+      initial: 'P',
+      label: agent || 'plan',
+      accent: 'border-l-amber-500',
+    }
+  }
+  if (name.includes('scout')) {
+    return {
+      bg: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
+      initial: 'S',
+      label: agent || 'scout',
+      accent: 'border-l-blue-500',
+    }
+  }
   if (name.includes('compaction')) {
     return {
       bg: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
@@ -88,8 +112,8 @@ function getAgentBadge(agent?: string) {
   }
   return {
     bg: 'bg-zinc-800 text-zinc-300 border-zinc-700',
-    initial: (agent?.charAt(0) || 'A').toUpperCase(),
-    label: agent || 'OpenCode Agent',
+    initial: (agent?.charAt(0) || 'B').toUpperCase(),
+    label: agent || 'build',
     accent: 'border-l-orange-500',
   }
 }
@@ -629,7 +653,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const { prefs } = usePreferences()
   const { t, tr } = useI18n()
-  const { open: openDiffDrawer } = useDiffDrawer()
+  const { openTurn: openDiffTurn } = useDiffDrawer()
   const [copied, setCopied] = useState(false)
   const [isReportExpanded, setIsReportExpanded] = useState(true)
   const isUser = message.info.role === 'user'
@@ -684,8 +708,8 @@ export function MessageBubble({
 
   const tokens = message.info.tokens
   const errorMessage = message.info.error ? extractRelayErrorMessage(message.info.error) : null
-  const firstEditGroup = turn.groups.find((g) => g.kind === 'edit')
-  const hasEdits = Boolean(firstEditGroup)
+  const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
+  const hasEdits = editGroups.length > 0
 
   if (isUser) {
     return (
@@ -787,12 +811,21 @@ export function MessageBubble({
 
           {/* Right Action Controls: Diff, Retry & Copy */}
           <div className="flex items-center gap-2">
-            {hasEdits && firstEditGroup && firstEditGroup.kind === 'edit' && (
+            {hasEdits && (
               <button
                 type="button"
-                onClick={() => openDiffDrawer(editItemToDiffPayload(firstEditGroup.item, message.info.id))}
-                className="flex items-center gap-1 px-2 py-0.5 hover:bg-emerald-950/60 text-emerald-400 hover:text-emerald-200 rounded text-[11px] transition-colors border border-emerald-800/40"
-                title={tr('在侧边抽屉查看文件差异', 'Open file diff drawer', 'Datei-Diff-Drawer öffnen')}
+                onClick={() => {
+                  const editItems = editGroups.map((g) => g.item)
+                  const turnFiles = editItemsToTurnFiles(editItems, message.info.id)
+                  openDiffTurn({
+                    messageId: message.info.id,
+                    title: 'For Turn',
+                    turnBadge: agentName || undefined,
+                    files: turnFiles,
+                  })
+                }}
+                className="flex items-center gap-1 px-2 py-0.5 hover:bg-emerald-950/60 text-emerald-400 hover:text-emerald-200 rounded text-[11px] transition-colors border border-emerald-800/40 cursor-pointer"
+                title={tr('在审查面板查看本轮文件差异', 'Review turn file diffs', 'Datei-Diffs dieser Runde prüfen')}
               >
                 <FileCode className="w-3 h-3" />
                 <span>Diff</span>

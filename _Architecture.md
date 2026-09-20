@@ -18,9 +18,9 @@ At most three. System-wide. Modules reference these; they do not restate them.
 
 | Subsystem | Doc | Owns | Do not put here |
 | :--- | :--- | :--- | :--- |
-| SessionManagement | `docs/modules/session-management.md` | List/tabs, `__draft__`, pin DnD, unread, archive, revert dock, JSON export, `normalizeSession` | SSE deltas, prompt composer, map geometry |
-| DialogueBlueprint | `docs/modules/dialogue-blueprint.md` | React Flow canvas, Dagre LR, laser, lazy connect, pin-break, undo vs SSE | Daemon `/session` writes, prompt send |
-| StreamingChat | `docs/modules/streaming-chat.md` | `/global/event`, optimistic swap, `<think>`, worked summary, unified diffs | Textarea, map persist |
+| SessionManagement | `docs/modules/session-management.md` | List/tabs, `__draft__`, pin DnD, unread, archive, revert dock, JSON export, `normalizeSession`, 2-letter project badges | SSE deltas, prompt composer, map geometry |
+| DialogueBlueprint | `docs/modules/dialogue-blueprint.md` | React Flow canvas, Dagre LR, laser, lazy connect, pin-break, multi-token search, quick right-click menu, `blueprint-action-helpers`, undo vs SSE | Daemon `/session` writes, prompt send |
+| StreamingChat | `docs/modules/streaming-chat.md` | `/global/event`, optimistic swap, `<think>`, worked summary, floating/drawer diffs, hunk folding | Textarea, map persist |
 | PromptController | `docs/modules/prompt-controller.md` | Autogrow composer, `/` `@`, paste, next-send agent/model | Timeline merge, historical badges |
 | LayoutModes | `docs/modules/layout-modes.md` | Sidebar/tabs, Ctrl+K / Ctrl+F, F11 zen, shortcuts, 2s countdown | REST normalize, Bézier math |
 | RelayGateway | `docs/modules/relay-gateway.md` | Model picker, relay hub, `:3000` billing view, loopback bind | New API channel provisioning |
@@ -30,9 +30,9 @@ At most three. System-wide. Modules reference these; they do not restate them.
 
 | Trigger | Module |
 | :--- | :--- |
-| Draft, pin DnD, unread ring, revert dock, export, canonical workspaces | SessionManagement |
-| Laser, lazy connect, pin-break, Dagre `Alt+R`, undo vs SSE | DialogueBlueprint |
-| SSE fuse, optimistic `usr_` swap, `<think>`, diffs | StreamingChat |
+| Draft, pin DnD, unread ring, revert dock, export, canonical workspaces, 2-letter tab badges (`ON`/`OD`/`AS`/`AI`) | SessionManagement |
+| Laser, lazy connect, pin-break, Dagre `Alt+R`, canvas search, quick right-click menu, undo vs SSE | DialogueBlueprint |
+| SSE fuse, optimistic `usr_` swap, `<think>`, floating diffs, hunk `+N more lines` | StreamingChat |
 | Enter send, `/` `@`, image paste, next-send agent | PromptController |
 | Sidebar, Ctrl+K vs Ctrl+F, F11 zen, 2s countdown | LayoutModes |
 | Relay keys, `:3000` quota, loopback bind | RelayGateway |
@@ -49,7 +49,8 @@ At most three. System-wide. Modules reference these; they do not restate them.
 - `src/services/api.ts` — REST + defensive normalize (`extra="allow"`). Every daemon payload crosses here before React state.
 - `src/services/sse.ts` — single `EventSource` to `/global/event`.
 - `src/hooks/useSessions.ts` / `useChatStream.ts` — session list vs transcript.
-- `src/components/{chat,layout,map,search,settings,diff}/` — UI stores named in the table above.
+- `src/utils/session-workspace.ts` — project resolve, `formatProjectPill` (`[APISpace]`), `getProjectAbbreviation` (`AS`/`ON`/`OD`/`AI`/`NS`).
+- `src/components/{chat,layout,map,search,settings,diff}/` — UI stores named in the table above. `map/canvas/session-search.ts`, `HighlightedText.tsx`, `blueprint-action-helpers.ts` belong to DialogueBlueprint. Diff drawer chrome is StreamingChat.
 - `serve.mjs` — host static + `/api/map`, `/api/export-session`, `/api/git-revert`, `/api/proxy/relay-quota`. Bind `127.0.0.1`.
 
 Skill (JIT, not this tree): `OpenCodeCompanionDev`. Daemon/jail: `OpenCodeBackendOps`. Channel provision on `:3000`: `GatewayAPIManager`.

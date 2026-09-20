@@ -1,24 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { Search, GitBranch, PlusCircle, Link2, X } from "lucide-react"
+import { Search, GitBranch, PlusCircle, X } from "lucide-react"
 import type { ViewState } from "./map-interactions"
 import type { TalkMapClient } from "../opencode/client"
 import type { TalkMap } from "../schema/talk-map"
-import { applyInjectedBranch, createInjectedBranch } from "./connect-inject"
-import { applyCreatedSession } from "./map-interactions"
-import { createUntitledAtClick } from "./create-at-click"
-import { applyLinkOnView } from "./map-gestures"
-import { filterProjectSessions, type ProjectSessionItem } from "./blueprint-action-helpers"
+import {
+  filterProjectSessions,
+  executeBranchAction,
+  executeNewSessionAction,
+  executeConnectAction,
+  sessionIdFromNodeData,
+  type ProjectSessionItem,
+  type BlueprintMenuState,
+} from "./blueprint-action-helpers"
+import { HighlightedText } from "./HighlightedText"
 
-export type BlueprintMenuState = {
-  readonly clientPoint: { readonly x: number; readonly y: number }
-  readonly flowPos: { readonly x: number; readonly y: number }
-  readonly fromNode: {
-    readonly id: string
-    readonly data: unknown
-    readonly position?: { readonly x: number; readonly y: number }
-  } | null
-  readonly fromHandleType?: "source" | "target"
-}
+export type { BlueprintMenuState }
 
 export type BlueprintActionMenuProps = {
   readonly menu: BlueprintMenuState
@@ -29,6 +25,7 @@ export type BlueprintActionMenuProps = {
   readonly setView: React.Dispatch<React.SetStateAction<ViewState>>
   readonly setToast: React.Dispatch<React.SetStateAction<string | undefined>>
   readonly onClose: () => void
+  readonly onSelectSession?: (sessionId: string) => void
 }
 
 type QuickActionItem =
@@ -39,24 +36,8 @@ type ConnectSessionItem = { readonly kind: "connect_session"; readonly session: 
 
 type MenuItem = QuickActionItem | ConnectSessionItem
 
-function sessionIdFromNodeData(data: unknown): string | undefined {
-  if (data === null || typeof data !== "object" || !("sessionId" in data)) {
-    return undefined
-  }
-  return typeof data.sessionId === "string" ? data.sessionId : undefined
-}
-
-export function BlueprintActionMenu(props: {
-  readonly menu: BlueprintMenuState
-  readonly view: ViewState
-  readonly client: TalkMapClient
-  readonly newCardId: () => string
-  readonly persistMap: (map: TalkMap) => void
-  readonly setView: React.Dispatch<React.SetStateAction<ViewState>>
-  readonly setToast: React.Dispatch<React.SetStateAction<string | undefined>>
-  readonly onClose: () => void
-}) {
-  const { menu, view, client, newCardId, persistMap, setView, setToast, onClose } = props
+export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
+  const { menu, view, client, newCardId, persistMap, setView, setToast, onClose, onSelectSession } = props
   const [query, setQuery] = useState("")
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -64,20 +45,50 @@ export function BlueprintActionMenu(props: {
 
   useEffect(() => {
     inputRef.current?.focus()
+    const timer = setTimeout(() => {
+      inputRef.current?.focus()
+    }, 50)
+    return () => clearTimeout(timer)
   }, [])
 
-  const directory = view.kind === "ready" ? view.directory : undefined
+  useEffect(() => {
+    const handleMenuGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
+        onClose()
+        return
+      }
+
+      // If user types printable characters when menu is open, ensure input receives focus
+      if (
+        e.key.length === 1 &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        document.activeElement !== inputRef.current
+      ) {
+        inputRef.current?.focus()
+      }
+    }
+
+    window.addEventListener("keydown", handleMenuGlobalKeyDown, { capture: true })
+    return () => window.removeEventListener("keydown", handleMenuGlobalKeyDown, { capture: true })
+  }, [onClose])
+
+  const directory = view.kind === "ready" ? (view.directory ?? "all") : undefined
 
   const matchedSessions = useMemo(() => {
-    if (view.kind !== "ready" || !directory) {
+    if (view.kind !== "ready") {
       return []
     }
     return filterProjectSessions({
       cards: view.map.cards,
       titles: view.titles,
-      directory,
+      directory: directory ?? "all",
       query,
       excludeCardId: menu.fromNode?.id,
+      projects: view.projects,
     })
   }, [directory, menu.fromNode?.id, query, view])
 
@@ -127,117 +138,53 @@ export function BlueprintActionMenu(props: {
     if (!item) return
 
     if (item.kind === "branch") {
-      const source = menu.fromNode
-      if (!source || view.kind !== "ready" || !directory) {
-        onClose()
-        return
-      }
-      const sourceCard = view.map.cards[source.id]
-      const sourceSession =
-        sessionIdFromNodeData(source.data) ?? sourceCard?.sessionId
-      if (!sourceSession) {
-        onClose()
-        return
-      }
-      const sourceTitle =
-        sourceCard?.label ?? view.titles[sourceSession] ?? sourceSession
-      const sourcePos =
-        source.position ?? sourceCard?.position ?? { x: 0, y: 0 }
-      void createInjectedBranch({
+      void executeBranchAction({
         client,
         directory,
-        source: {
-          cardId: source.id,
-          sessionId: sourceSession,
-          title: sourceTitle,
-          digest: view.map.digests[sourceSession],
-          position: sourcePos,
-        },
+        view,
+        menu,
+        newCardId,
+        persistMap,
+        setView,
+        setToast,
       })
-        .then((created) => {
-          const cardId = newCardId()
-          setView((current) => {
-            const next = applyInjectedBranch({
-              current,
-              sourceCardId: source.id,
-              sourcePosition: sourcePos,
-              targetPosition: menu.flowPos,
-              cardId,
-              created,
-            })
-            if (next.kind === "ready") {
-              persistMap(next.map)
-            }
-            return next
-          })
-          setToast("已创建分支会话")
-        })
-        .catch((error: unknown) => {
-          if (error instanceof Error) {
-            setToast(error.message)
-          }
-        })
       onClose()
       return
     }
 
     if (item.kind === "new_session") {
-      if (view.kind !== "ready" || !directory) {
-        onClose()
-        return
-      }
-      void createUntitledAtClick({
+      void executeNewSessionAction({
         client,
-        map: view.map,
         directory,
-        position: menu.flowPos,
+        view,
+        menu,
         newCardId,
+        persistMap,
+        setView,
+        setToast,
       })
-        .then((created) => {
-          setView((current) => applyCreatedSession(current, directory, created))
-          persistMap(created.map)
-          setToast("已创建独立会话")
-        })
-        .catch((error: unknown) => {
-          if (error instanceof Error) {
-            setToast(error.message)
-          }
-        })
       onClose()
       return
     }
 
     if (item.kind === "connect_session") {
-      if (menu.fromNode) {
-        const targetCardId = item.session.cardId
-        const finalSource = menu.fromHandleType === "target" ? targetCardId : menu.fromNode.id
-        const finalTarget = menu.fromHandleType === "target" ? menu.fromNode.id : targetCardId
-
-        if (finalSource === finalTarget) {
-          setToast("无法连接自身")
-          onClose()
-          return
-        }
-
-        if (view.kind === "ready") {
-          const already = Object.values(view.map.edges).some(
-            (e) => e.sourceCardId === finalSource && e.targetCardId === finalTarget,
-          )
-          if (already) {
-            setToast("连线已存在")
-            onClose()
-            return
-          }
-        }
-
-        applyLinkOnView(setView, persistMap, finalSource, finalTarget)
-        setToast("已连接到会话")
-      }
+      executeConnectAction({
+        menu,
+        view,
+        session: item.session,
+        persistMap,
+        setView,
+        setToast,
+        onSelectSession,
+      })
       onClose()
+      return
     }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    event.stopPropagation()
+
     if (event.key === "Escape") {
       event.preventDefault()
       onClose()
@@ -263,8 +210,8 @@ export function BlueprintActionMenu(props: {
     }
   }
 
-  const menuWidth = 340
-  const menuHeight = 360
+  const menuWidth = 400
+  const menuHeight = 400
   const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1200
   const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 800
 
@@ -278,9 +225,14 @@ export function BlueprintActionMenu(props: {
       data-testid="blueprint-action-menu-backdrop"
     >
       <div
-        className="absolute flex flex-col w-[340px] max-h-[380px] bg-[#14171f]/95 backdrop-blur-md border border-[#2d3342] rounded-lg shadow-2xl overflow-hidden text-zinc-200 z-51 font-sans"
+        className="absolute flex flex-col w-[400px] max-h-[420px] bg-[#14171f]/95 backdrop-blur-md border border-[#2d3342] rounded-lg shadow-2xl overflow-hidden text-zinc-200 z-51 font-sans"
         style={{ left, top }}
-        onPointerDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          if (document.activeElement !== inputRef.current && (e.target as HTMLElement).tagName !== "BUTTON") {
+            inputRef.current?.focus()
+          }
+        }}
         data-testid="blueprint-action-menu"
       >
         <div className="flex items-center px-3 py-2 border-b border-[#272b38] gap-2 bg-[#1a1e29]/70">
@@ -356,30 +308,40 @@ export function BlueprintActionMenu(props: {
               {matchedSessions.map((session, sIdx) => {
                 const globalIdx = quickActions.length + sIdx
                 const isSelected = globalIdx === activeIndex
+                const projectColor =
+                  session.projectColorClass || "bg-blue-950/60 text-blue-300 border-blue-700/50"
+                const projectPill = session.projectBadge || `[${session.projectName || "APISpace"}]`
+
                 return (
                   <button
                     key={session.cardId}
                     type="button"
-                    className={`w-full text-left px-2.5 py-1.5 rounded flex items-center gap-2.5 transition-colors ${
-                      isSelected ? "bg-[#2563eb] text-white" : "hover:bg-[#1e2330] text-zinc-200"
+                    className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between gap-2.5 transition-all border ${
+                      isSelected
+                        ? "bg-[#181c24] border-blue-500/60 text-white shadow-sm"
+                        : "bg-transparent border-transparent hover:bg-[#15181f] text-zinc-200"
                     }`}
                     onClick={() => executeItem({ kind: "connect_session", session })}
                     onMouseEnter={() => setSelectedIndex(globalIdx)}
                     data-testid={`session-item-${session.cardId}`}
                   >
-                    <Link2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <span className="text-xs font-medium leading-tight truncate">{session.title}</span>
-                      {session.sessionId && (
-                        <span
-                          className={`text-[10px] font-mono leading-tight truncate ${
-                            isSelected ? "text-blue-100" : "text-zinc-500"
-                          }`}
-                        >
-                          {session.sessionId}
-                        </span>
-                      )}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${projectColor}`}
+                        title={session.projectName ? `工程: ${session.projectName}` : undefined}
+                      >
+                        {projectPill}
+                      </span>
+                      <span className="text-xs font-medium leading-tight truncate flex-1">
+                        <HighlightedText text={session.title} query={query} />
+                      </span>
                     </div>
+
+                    {isSelected && (
+                      <span className="flex items-center gap-0.5 text-[9px] font-mono text-blue-300 bg-blue-950/50 border border-blue-800/60 px-1.5 py-0.5 rounded shrink-0">
+                        <span>Enter ↵</span>
+                      </span>
+                    )}
                   </button>
                 )
               })}

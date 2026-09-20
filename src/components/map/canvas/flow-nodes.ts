@@ -20,6 +20,7 @@ export type SessionCardData = {
   readonly isDimmed?: boolean
   readonly isHighlighted?: boolean
   readonly isSelected?: boolean
+  readonly searchQuery?: string
   readonly onOpen?: (sessionId: string) => void
   readonly onCommitTitle?: (input: {
     readonly cardId: string

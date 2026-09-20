@@ -13,15 +13,17 @@ import {
   BookmarkPlus,
   Network,
 } from 'lucide-react'
-import type { Session, SessionStatusPayload } from '../../types/opencode'
+import type { Project, Session, SessionStatusPayload } from '../../types/opencode'
 import { CopyExportButton } from '../chat/CopyExportButton'
 import { useI18n } from '../../utils/i18n'
 import { TabContextMenu } from './TabContextMenu'
 import { RelayHubDropdown } from './RelayHubDropdown'
 import { DaemonStatusDot } from './DaemonStatusDot'
 import type { SettingsTab } from '../settings/SettingsModal'
+import { resolveSessionProject } from '../../utils/session-workspace'
 
 interface HeaderProps {
+  projects?: Project[]
   sessions: Session[]
   openTabIds: string[]
   activeSessionId: string | null
@@ -60,6 +62,7 @@ function formatTokens(n: number | undefined): string {
 }
 
 export function Header({
+  projects = [],
   sessions,
   openTabIds,
   activeSessionId,
@@ -142,7 +145,8 @@ export function Header({
             const title = isDraft
               ? (isZh ? '新会话' : 'New session')
               : (rawTitle || (isZh ? '未命名会话' : 'Untitled session'))
-            const agentInitial = isDraft ? '+' : ((session?.agent || 'A').charAt(0) || 'A').toUpperCase()
+            const projectBadge = session ? resolveSessionProject(session, projects) : null
+            const tabBadge = isDraft ? '+' : (projectBadge?.abbreviation || 'OP')
             const isEditing = !isDraft && editingTabId === tabId
 
             const handleCommitTitle = () => {
@@ -193,9 +197,12 @@ export function Header({
                     : 'bg-[#121418]/80 text-[#8b949e] border-t-transparent hover:bg-[#181b20] hover:text-[#c9d1d9] border-x border-[#1a1d24]'
                 }`}
               >
-                {/* Agent Icon badge */}
-                <span className="w-3.5 h-3.5 shrink-0 rounded text-[9px] font-bold flex items-center justify-center bg-amber-950/80 text-amber-400 border border-amber-800/40">
-                  {agentInitial}
+                {/* Project / Folder 2-letter icon badge (e.g. ON, OD, AS) */}
+                <span
+                  className="min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center bg-amber-950/80 text-amber-400 border border-amber-800/40 select-none shadow-sm"
+                  title={projectBadge ? (isZh ? `所属工程: ${projectBadge.name}` : `Project: ${projectBadge.name}`) : undefined}
+                >
+                  {tabBadge}
                 </span>
 
                 {/* Unread marker (blue dot) */}

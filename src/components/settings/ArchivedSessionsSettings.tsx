@@ -82,7 +82,7 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
           projectID: 'global',
           directory: '',
           title: isZh ? '已归档会话' : 'Archived session',
-          agent: 'Atlas',
+          agent: 'build',
           model: { id: '', providerID: '' },
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           cost: 0,

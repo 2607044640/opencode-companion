@@ -465,7 +465,12 @@ export default function App() {
               agent: task.agent,
               model: task.model,
             })
-            await api.sendPrompt(newSession.id, task.prompt)
+            await api.sendPrompt(newSession.id, task.prompt, {
+              agent: task.agent,
+              model: task.model?.id && task.model?.providerID
+                ? { providerID: task.model.providerID, modelID: task.model.id }
+                : undefined,
+            })
             const advanced = advanceTaskAfterRun(task, now)
             updateScheduledTask(task.id, {
               enabled: advanced.enabled,
@@ -499,7 +504,12 @@ export default function App() {
         agent: task.agent,
         model: task.model,
       })
-      await api.sendPrompt(newSession.id, task.prompt)
+      await api.sendPrompt(newSession.id, task.prompt, {
+        agent: task.agent,
+        model: task.model?.id && task.model?.providerID
+          ? { providerID: task.model.providerID, modelID: task.model.id }
+          : undefined,
+      })
       const advanced = advanceTaskAfterRun(task, Date.now())
       updateScheduledTask(task.id, {
         enabled: advanced.enabled,
@@ -879,6 +889,7 @@ export default function App() {
         {/* Top Header Bar */}
         {!isZenMode && (
           <Header
+            projects={projects}
             sessions={sessions}
             openTabIds={openTabIds}
             activeSessionId={activeSessionId}
@@ -1044,17 +1055,6 @@ export default function App() {
         targetSessionId={mapTargetSessionId}
         onSelectSession={(sessionId) => {
           selectSession(sessionId)
-          const target = sessions.find((s) => s.id === sessionId)
-          if (target?.projectID && target.projectID !== 'global') {
-            setSelectedProjectId(target.projectID)
-          } else if (target?.directory) {
-            const matchedProj = projects.find(
-              (p) => p.worktree && p.worktree !== '/' && (p.worktree === target.directory || target.directory.startsWith(p.worktree))
-            )
-            if (matchedProj) {
-              setSelectedProjectId(matchedProj.id)
-            }
-          }
         }}
         projects={projects}
         activeDirectory={
@@ -1076,20 +1076,6 @@ export default function App() {
             setTargetMessageId(messageId)
           }
           selectSession(sessionId)
-          const target = sessions.find((s) => s.id === sessionId)
-          if (target?.projectID && target.projectID !== 'global') {
-            setSelectedProjectId(target.projectID)
-          } else if (target?.directory) {
-            const matchedProj = projects.find(
-              (p) =>
-                p.worktree &&
-                p.worktree !== '/' &&
-                (p.worktree === target.directory || target.directory.startsWith(p.worktree))
-            )
-            if (matchedProj) {
-              setSelectedProjectId(matchedProj.id)
-            }
-          }
         }}
         sessions={sessions}
         projects={projects}

@@ -2,7 +2,7 @@
 
 Realtime transcript: SSE `/global/event`, optimistic user bubble, delta concatenation, session error fuse, thinking/`<think>` accordion, worked summary, unified diffs, GFM markdown tables.
 
-There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/DiffViewer.tsx` fed by `parseUnifiedHunks` in `tool-diff.ts`.
+There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/DiffViewer.tsx` fed by `parseUnifiedHunks` + `collapseUnchangedLines` in `tool-diff.ts`. Drawer chrome is `DiffSidebarDrawer.tsx` (`prefs.floatingDiffView` default true → centered overlay; false → right sidebar).
 
 ## Scope Boundaries
 
@@ -14,8 +14,10 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | `MessageBubble.tsx` | Per-message agent badge, model pill, `react-markdown` + `remark-gfm` + `rehype-highlight` | Prompt target dropdown (next-send, not author) |
 | `src/utils/worked-summary.ts` | `classifyTool`, `partitionAssistantTurn`, `<think>` split, duration labels, diff line counts | HTTP |
 | `WorkedSummaryCard.tsx` | Collapsed explore/command/thought groups; per-edit cards | Session CRUD |
-| `src/utils/tool-diff.ts` | `parseUnifiedHunks`, `buildUnifiedDiff` (skip files >20k lines) | Drawer chrome |
-| `src/components/diff/DiffViewer.tsx` | Render hunks (`ctx`/`add`/`del` + line numbers) | Prompt send |
+| `src/utils/tool-diff.ts` | `parseUnifiedHunks`, `buildUnifiedDiff` (skip files >20k lines), `collapseUnchangedLines` | Drawer chrome |
+| `src/components/diff/DiffViewer.tsx` | Hunk headers, line numbers, `+N more lines` / `+10` fold UI | Prompt send, session CRUD |
+| `src/components/diff/DiffSidebarDrawer.tsx` | Floating overlay vs right drawer, turn-mode file accordion, Esc close | Hunk parse |
+| `src/components/diff/DiffDrawerContext.tsx` | `payload` / `turnPayload` open state | SSE concat |
 | `ToolCard.tsx` / `ToolBatchCard.tsx` / `ReasoningCard.tsx` | Tool I/O, batched tools, collapsible reasoning | Session CRUD |
 | `src/services/api.ts` (`normalizeMessage*`) | Defensive ingress (`extra="allow"`) | UI collapsing |
 
@@ -24,6 +26,7 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 - Normalize once at the API/SSE boundary (`normalizeMessageInfo`, `normalizeMessagePart`). Components must not sprinkle `x?.y || ''` as a substitute. (Why chosen over per-widget defaults: daemon omits `model` / `tokens` / `name` across roles.)
 - Error fuse: `session.error` immediately sets status `idle` and `error`. Do not wait for a later `session.status`. (Why chosen over waiting for idle: a hung `busy` spinner traps the abort button.)
 - Optimistic user id `usr_<ts>` is swapped for the real id on `message.updated` (`pendingOptimisticIdRef`). (Why chosen over appending a second bubble: without the swap, the user message duplicates.)
+- Unchanged hunk context is folded (`collapseUnchangedLines`: pad 3, minCollapse 4). The fold control is `+N more lines` (expand remaining) plus `+10` head/tail when `count > 10`. `prefs.floatingDiffView !== false` (default on) renders a centered `min(88vw, 1100px)` × `min(86vh, 900px)` dialog; turning the setting off restores the right `w-[min(48vw,720px)]` drawer. (Why chosen over dumping full context: long ctx blocks bury the actual add/del lines.)
 
 ## Numbered Data Flow
 
@@ -34,7 +37,7 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 5. `message.part.updated`: replace by id, or replace the first optimistic part of the same type.
 6. `message.updated`: merge `info` (tokens, finish, agent). If role is user and pending optimistic id is set, rewrite that bubble's id and part `messageID`s in place.
 7. `partitionAssistantTurn` splits `<think>...</think>` (unclosed tag allowed) into thought groups; `classifyTool` buckets explore/edit/command/other; edits get `countDiffLines` + `extractEditItem`. Label: `formatWorkedLabel` (`Worked for 32s` / `Working for 4m`).
-8. Tool cards flip `state.status` (`pending` → `running` → `completed` | `error`) from full part payloads, not deltas. Diff drawer: `parseUnifiedHunks` → `DiffViewer`.
+8. Tool cards flip `state.status` (`pending` → `running` → `completed` | `error`) from full part payloads, not deltas. Diff open: `parseUnifiedHunks` → `DiffViewer` (`collapseUnchangedLines` per hunk). `DiffSidebarDrawer` is a floating dialog when `prefs.floatingDiffView !== false`, else a right sidebar. Turn mode accordion-folds files (`collapsedFiles`); Esc / backdrop click closes.
 9. `session.error` → fuse to idle + banner. Retry resends last user text/attachments. Abort → `POST /session/{id}/abort`.
 
 ## Side-effects API
@@ -54,7 +57,8 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | `partitionAssistantTurn` | `(parts, info?, now?) => WorkedTurn` | Pure |
 | `formatWorkedLabel` | `(ms, isLive) => string` | Pure |
 | `countDiffLines` | `(unified: string) => { additions, deletions }` | Pure |
-| `parseUnifiedHunks` | `(unified: string) => DiffHunk[]` | Pure |
+| `parseUnifiedHunks` | `(unified: string) => DiffHunk[]` | Pure; skips `diff --git` / `---` / `+++` preamble |
+| `collapseUnchangedLines` | `(lines, { pad=3, minCollapse=4, revealed? }) => DiffViewRow[]` | Pure; `line` vs `collapse` rows |
 | `buildUnifiedDiff` | `(filePath, oldStr?, newStr?) => string` | Pure; >20k lines → stub hunk |
 
 `RevertMode`: `both` (files+conversation), `conversation_only` (`files: false` / v2 stage), `code_only` (revert files then `unrevert` to keep messages), `summarize` (`POST /summarize`).
@@ -85,4 +89,5 @@ User vs assistant author fields differ: user has `model: { providerID, modelID }
 - Historical agent/model badges read `info.agent` / `info.mode` / normalized `modelID`. Never substitute the bottom PromptInput selection.
 - Optimistic user-message swap (`pendingOptimisticIdRef`) stays. Removing it reintroduces duplicate bubbles.
 - `remark-gfm` tables and `rehype-highlight` fences stay on assistant markdown.
+- Diff hunk context folding (`+N more lines` / `+10`) and the floating-vs-drawer pref stay. Do not dump full unchanged context by default.
 <!-- END USER-SPECIFIED -->

@@ -39,7 +39,7 @@ Do not invent a plugin registry from this document.
 | `usePreferences` | `() => { prefs, updatePreferences }` | Subscribes to `preferences-changed` |
 | `isModelVisible` | see `model-filter.ts` | Pure |
 
-`UserPreferences` (live): `showReasoning`, `autoCollapsePrompt`, `collapseToolBatch`, `promptCharThreshold`, `promptLineThreshold`, `language`, `showModelSelector`, `showTimelineQuickJump`, `modelVisibility`, `providerVisibility`, `verboseAgentChat`, `conversationWidth`, `themeMode`, `darkThemePreset`, `themeColors`, `userProfile`.
+`UserPreferences` (live): `showReasoning`, `autoCollapsePrompt`, `collapseToolBatch`, `collapseSidebarOnStartup`, `autoGitCheckpoint`, `floatingDiffView` (default `true`; StreamingChat drawer vs overlay), `promptCharThreshold`, `promptLineThreshold`, `language`, `showModelSelector`, `showTimelineQuickJump`, `modelVisibility`, `providerVisibility`, `verboseAgentChat`, `conversationWidth`, `themeMode`, `darkThemePreset`, `themeColors`, `userProfile`.
 
 Absent (do not document as implemented): `Plugin` type, categories `canvas` \| `navigation` \| `input` \| `analytics` \| `system`, `usePlugins()`, enable-all, plugin DOM events.
 

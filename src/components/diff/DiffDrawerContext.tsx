@@ -18,10 +18,22 @@ export interface DiffDrawerPayload {
   rawOutput?: string
 }
 
+export interface TurnDiffPayload {
+  messageId: string
+  title?: string
+  turnBadge?: string
+  files: DiffDrawerPayload[]
+}
+
+export type DiffDrawerMode = 'single' | 'turn'
+
 interface DiffDrawerContextType {
+  mode: DiffDrawerMode
   payload: DiffDrawerPayload | null
+  turnPayload: TurnDiffPayload | null
   isOpen: boolean
   open: (payload: DiffDrawerPayload) => void
+  openTurn: (payload: TurnDiffPayload) => void
   close: () => void
 }
 
@@ -33,19 +45,36 @@ interface DiffDrawerProviderProps {
 }
 
 export function DiffDrawerProvider({ children, activeSessionId }: DiffDrawerProviderProps) {
+  const [mode, setMode] = useState<DiffDrawerMode>('single')
   const [payload, setPayload] = useState<DiffDrawerPayload | null>(null)
+  const [turnPayload, setTurnPayload] = useState<TurnDiffPayload | null>(null)
 
   const open = useCallback((newPayload: DiffDrawerPayload) => {
-    // If hunks are not already parsed, parse them now
     const hunks = newPayload.hunks ?? parseUnifiedHunks(newPayload.unified)
+    setMode('single')
+    setTurnPayload(null)
     setPayload({
       ...newPayload,
       hunks,
     })
   }, [])
 
+  const openTurn = useCallback((newTurn: TurnDiffPayload) => {
+    const filesWithHunks = newTurn.files.map((file) => ({
+      ...file,
+      hunks: file.hunks ?? parseUnifiedHunks(file.unified),
+    }))
+    setMode('turn')
+    setPayload(filesWithHunks[0] || null)
+    setTurnPayload({
+      ...newTurn,
+      files: filesWithHunks,
+    })
+  }, [])
+
   const close = useCallback(() => {
     setPayload(null)
+    setTurnPayload(null)
   }, [])
 
   // Auto-close on session change
@@ -54,9 +83,12 @@ export function DiffDrawerProvider({ children, activeSessionId }: DiffDrawerProv
   }, [activeSessionId, close])
 
   const value: DiffDrawerContextType = {
+    mode,
     payload,
-    isOpen: payload !== null,
+    turnPayload,
+    isOpen: payload !== null || turnPayload !== null,
     open,
+    openTurn,
     close,
   }
 
@@ -73,6 +105,14 @@ export function useDiffDrawer(): DiffDrawerContextType {
     throw new Error('useDiffDrawer must be used within a DiffDrawerProvider')
   }
   return ctx
+}
+
+export function editItemsToTurnFiles(items: EditItem[], messageId?: string): DiffDrawerPayload[] {
+  const map = new Map<string, EditItem>()
+  for (const it of items) {
+    map.set(it.filePath, it)
+  }
+  return Array.from(map.values()).map((it) => editItemToDiffPayload(it, messageId))
 }
 
 export function editItemToDiffPayload(item: EditItem, messageId?: string): DiffDrawerPayload {

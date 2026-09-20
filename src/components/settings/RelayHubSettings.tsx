@@ -53,6 +53,13 @@ const PRESETS = [
     currency: 'USD' as const,
   },
   {
+    label: 'LLM Free (Grok 4.6)',
+    name: 'LLM Free',
+    baseUrl: 'https://llmfree.work',
+    redeemUrl: 'https://llmfree.work/redeem',
+    currency: 'USD' as const,
+  },
+  {
     label: '本地 New API 网关',
     name: 'Local New API',
     baseUrl: 'http://127.0.0.1:3000',

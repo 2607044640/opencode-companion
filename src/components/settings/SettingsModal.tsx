@@ -690,6 +690,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
+                    <div className="text-xs text-zinc-300 font-medium">{t.settings.floatingDiffViewLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.floatingDiffViewDesc}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.floatingDiffView !== false}
+                    onChange={(e) => updatePreferences({ floatingDiffView: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
                     <div className="text-xs text-zinc-300 font-medium">{t.settings.autoGitCheckpointLabel}</div>
                     <div className="text-[11px] text-zinc-500">{t.settings.autoGitCheckpointDesc}</div>
                   </div>

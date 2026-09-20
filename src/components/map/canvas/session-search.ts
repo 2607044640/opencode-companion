@@ -25,6 +25,7 @@ export type SearchHighlight = {
   readonly isDimmed: boolean
   readonly isHighlighted: boolean
   readonly isSelected: boolean
+  readonly searchQuery?: string
 }
 
 export function normalizeSearchQuery(query: string | undefined): string {
@@ -32,14 +33,37 @@ export function normalizeSearchQuery(query: string | undefined): string {
 }
 
 export function sessionMatchesQuery(query: string, fields: SessionSearchFields): boolean {
-  if (query.length === 0) {
+  const trimmed = query.trim().toLowerCase()
+  if (trimmed.length === 0) {
     return true
   }
-  return (
-    fields.title.toLowerCase().includes(query) ||
-    fields.nextStep.toLowerCase().includes(query) ||
-    fields.sessionId.toLowerCase().includes(query)
-  )
+  const words = trimmed.split(/\s+/).filter(Boolean)
+  if (words.length === 0) {
+    return true
+  }
+
+  const titleLower = fields.title.toLowerCase()
+  const nextStepLower = fields.nextStep.toLowerCase()
+  const sessionLower = fields.sessionId.toLowerCase()
+
+  if (
+    titleLower.includes(trimmed) ||
+    nextStepLower.includes(trimmed) ||
+    sessionLower.includes(trimmed)
+  ) {
+    return true
+  }
+
+  for (const w of words) {
+    const matched =
+      titleLower.includes(w) ||
+      nextStepLower.includes(w) ||
+      sessionLower.includes(w)
+    if (!matched) {
+      return false
+    }
+  }
+  return true
 }
 
 export function searchHighlight(input: {
@@ -47,10 +71,12 @@ export function searchHighlight(input: {
   readonly matches: boolean
   readonly selected: boolean
 }): SearchHighlight {
+  const trimmed = input.query.trim()
   return {
-    isDimmed: input.query.length > 0 && !input.matches,
-    isHighlighted: input.matches && input.query.length > 0,
+    isDimmed: trimmed.length > 0 && !input.matches,
+    isHighlighted: input.matches && trimmed.length > 0,
     isSelected: input.selected,
+    ...(trimmed.length > 0 ? { searchQuery: trimmed } : {}),
   }
 }
 

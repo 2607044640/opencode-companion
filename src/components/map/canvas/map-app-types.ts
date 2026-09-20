@@ -26,6 +26,7 @@ export type MapAppProps = {
   readonly onProjectsLoaded?: (projects: readonly { id: string; worktree: string; name?: string }[]) => void
   readonly layoutTrigger?: number
   readonly onAutoLayout?: () => void
+  readonly onBlueprintMenuOpenChange?: (isOpen: boolean) => void
 }
 
 export type { MatchedSessionCard }

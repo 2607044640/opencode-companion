@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseUnifiedHunks, buildUnifiedDiff } from './tool-diff'
+import { parseUnifiedHunks, buildUnifiedDiff, collapseUnchangedLines } from './tool-diff'
 import { countDiffLines } from './worked-summary'
 
 describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
@@ -124,5 +124,98 @@ describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
       hunks.some((hunk) => hunk.lines.some((line) => line.text.startsWith('diff --git'))),
       false
     )
+  })
+
+  test('collapseUnchangedLines keeps short context around edits', () => {
+    const lines = [
+      { kind: 'ctx' as const, text: 'a', oldNo: 1, newNo: 1 },
+      { kind: 'ctx' as const, text: 'b', oldNo: 2, newNo: 2 },
+      { kind: 'add' as const, text: 'c', newNo: 3 },
+      { kind: 'ctx' as const, text: 'd', oldNo: 3, newNo: 4 },
+    ]
+    const rows = collapseUnchangedLines(lines)
+    assert.equal(rows.every((row) => row.type === 'line'), true)
+    assert.equal(rows.length, 4)
+  })
+
+  test('collapseUnchangedLines hides long leading context with +N more lines', () => {
+    const lines = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        kind: 'ctx' as const,
+        text: `ctx${i}`,
+        oldNo: i + 1,
+        newNo: i + 1,
+      })),
+      { kind: 'add' as const, text: 'changed', newNo: 11 },
+    ]
+    const rows = collapseUnchangedLines(lines)
+    assert.equal(rows[0].type, 'collapse')
+    if (rows[0].type === 'collapse') {
+      assert.equal(rows[0].count, 7)
+    }
+    assert.equal(rows.filter((row) => row.type === 'line').length, 4)
+  })
+
+  test('collapseUnchangedLines keeps pad on both sides between two edits', () => {
+    const lines = [
+      { kind: 'add' as const, text: 'first', newNo: 1 },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        kind: 'ctx' as const,
+        text: `mid${i}`,
+        oldNo: i + 1,
+        newNo: i + 2,
+      })),
+      { kind: 'del' as const, text: 'last', oldNo: 13 },
+    ]
+    const rows = collapseUnchangedLines(lines)
+    const collapse = rows.find((row) => row.type === 'collapse')
+    assert.ok(collapse)
+    if (collapse && collapse.type === 'collapse') {
+      assert.equal(collapse.count, 6)
+    }
+    assert.equal(rows[0].type, 'line')
+    assert.equal(rows[rows.length - 1].type, 'line')
+  })
+
+  test('collapseUnchangedLines reveals lines partially from head and tail', () => {
+    const lines = [
+      { kind: 'add' as const, text: 'start', newNo: 1 },
+      ...Array.from({ length: 30 }, (_, i) => ({
+        kind: 'ctx' as const,
+        text: `ctx${i}`,
+        oldNo: i + 1,
+        newNo: i + 2,
+      })),
+      { kind: 'add' as const, text: 'end', newNo: 32 },
+    ]
+    // 30 context lines: keepHead=3, keepTail=3, hidden=24.
+    const initialRows = collapseUnchangedLines(lines)
+    const initialCollapse = initialRows.find((r) => r.type === 'collapse')
+    assert.ok(initialCollapse)
+    assert.equal(initialCollapse?.type === 'collapse' ? initialCollapse.count : 0, 24)
+    const collapseId = initialCollapse?.type === 'collapse' ? initialCollapse.id : ''
+
+    // Reveal 10 from head
+    const headRows = collapseUnchangedLines(lines, {
+      revealed: { [collapseId]: { head: 10, tail: 0 } },
+    })
+    const headCollapse = headRows.find((r) => r.type === 'collapse')
+    assert.ok(headCollapse)
+    assert.equal(headCollapse?.type === 'collapse' ? headCollapse.count : 0, 14)
+
+    // Reveal 10 from head + 10 from tail
+    const bothRows = collapseUnchangedLines(lines, {
+      revealed: { [collapseId]: { head: 10, tail: 10 } },
+    })
+    const bothCollapse = bothRows.find((r) => r.type === 'collapse')
+    assert.ok(bothCollapse)
+    assert.equal(bothCollapse?.type === 'collapse' ? bothCollapse.count : 0, 4)
+
+    // Fully revealed (head + tail >= hidden) -> collapse disappears completely
+    const fullyRows = collapseUnchangedLines(lines, {
+      revealed: { [collapseId]: { head: 15, tail: 15 } },
+    })
+    assert.equal(fullyRows.some((r) => r.type === 'collapse'), false)
+    assert.equal(fullyRows.length, 32)
   })
 })

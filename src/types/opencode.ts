@@ -202,6 +202,7 @@ export interface AgentInfo {
   description?: string
   mode?: string
   native?: boolean
+  hidden?: boolean
 }
 
 export interface ProviderModelInfo {

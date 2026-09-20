@@ -12,6 +12,101 @@ export interface DiffHunk {
   lines: DiffLineItem[]
 }
 
+export type DiffViewRow =
+  | { type: 'line'; line: DiffLineItem; index: number }
+  | { type: 'collapse'; id: string; count: number; startIndex: number; endIndex: number }
+
+export interface CollapseUnchangedOptions {
+  pad?: number
+  minCollapse?: number
+  revealed?: Record<string, { head: number; tail: number }>
+}
+
+const DEFAULT_CONTEXT_PAD = 3
+const DEFAULT_MIN_COLLAPSE = 4
+
+export function collapseUnchangedLines(
+  lines: DiffLineItem[],
+  options: CollapseUnchangedOptions = {}
+): DiffViewRow[] {
+  const pad = options.pad ?? DEFAULT_CONTEXT_PAD
+  const minCollapse = options.minCollapse ?? DEFAULT_MIN_COLLAPSE
+  const revealed = options.revealed ?? {}
+  const rows: DiffViewRow[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    if (lines[i].kind !== 'ctx') {
+      rows.push({ type: 'line', line: lines[i], index: i })
+      i += 1
+      continue
+    }
+
+    const start = i
+    while (i < lines.length && lines[i].kind === 'ctx') {
+      i += 1
+    }
+    const end = i
+    const len = end - start
+    const atStart = start === 0
+    const atEnd = end === lines.length
+
+    let keepHead = pad
+    let keepTail = pad
+    if (atStart && atEnd) {
+      keepHead = 0
+      keepTail = 0
+    } else if (atStart) {
+      keepHead = 0
+      keepTail = pad
+    } else if (atEnd) {
+      keepHead = pad
+      keepTail = 0
+    }
+
+    if (keepHead + keepTail >= len) {
+      for (let j = start; j < end; j += 1) {
+        rows.push({ type: 'line', line: lines[j], index: j })
+      }
+      continue
+    }
+
+    const hidden = len - keepHead - keepTail
+    if (hidden < minCollapse) {
+      for (let j = start; j < end; j += 1) {
+        rows.push({ type: 'line', line: lines[j], index: j })
+      }
+      continue
+    }
+
+    const id = `ctx_${start}_${end}`
+    const rev = revealed[id] || { head: 0, tail: 0 }
+    const head = Math.max(0, Math.min(hidden, rev.head || 0))
+    const tail = Math.max(0, Math.min(hidden - head, rev.tail || 0))
+
+    for (let j = start; j < start + keepHead + head; j += 1) {
+      rows.push({ type: 'line', line: lines[j], index: j })
+    }
+
+    const remaining = hidden - head - tail
+    if (remaining > 0) {
+      rows.push({
+        type: 'collapse',
+        id,
+        count: remaining,
+        startIndex: start + keepHead + head,
+        endIndex: end - keepTail - tail,
+      })
+    }
+
+    for (let j = end - keepTail - tail; j < end; j += 1) {
+      rows.push({ type: 'line', line: lines[j], index: j })
+    }
+  }
+
+  return rows
+}
+
 function isUnifiedDiffPreamble(line: string): boolean {
   return (
     line.startsWith('diff --git') ||

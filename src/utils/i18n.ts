@@ -95,6 +95,8 @@ export interface TranslationDictionary {
     collapseSidebarOnStartupDesc: string
     collapseToolBatchLabel: string
     collapseToolBatchDesc: string
+    floatingDiffViewLabel: string
+    floatingDiffViewDesc: string
     autoGitCheckpointLabel: string
     autoGitCheckpointDesc: string
     expandShellLabel: string
@@ -285,6 +287,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       collapseSidebarOnStartupDesc: '打开应用或刷新页面时，默认不展开左侧会话历史栏（按 Ctrl+B 可随时展开）',
       collapseToolBatchLabel: '工具执行批次自动归拢',
       collapseToolBatchDesc: '连续 3 个及以上工具调用自动归拢为紧凑单行条，点击可随时展开',
+      floatingDiffViewLabel: '以悬浮窗口打开文件差异',
+      floatingDiffViewDesc: '打开文件 diff 时使用居中悬浮面板，而不是右侧侧栏。关闭后恢复右侧抽屉。',
       autoGitCheckpointLabel: '对话结束后自动 Git Checkpoint',
       autoGitCheckpointDesc: '本轮有工作区改动时本地提交（不推送）；空 diff / 纯问答跳过。密钥与 .env 永不入库。设置仅保存在本机。',
       expandShellLabel: '默认展开 Shell 工具详情',
@@ -473,6 +477,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       collapseSidebarOnStartupDesc: 'Keep the left sidebar collapsed by default when opening or reloading the app (press Ctrl+B to toggle)',
       collapseToolBatchLabel: 'Auto-collapse tool batches',
       collapseToolBatchDesc: 'Automatically group 3 or more consecutive tool calls into a single compact bar',
+      floatingDiffViewLabel: 'Open file diffs in a floating panel',
+      floatingDiffViewDesc: 'Show file diffs in a centered floating UI instead of the right sidebar. Turn off to restore the drawer.',
       autoGitCheckpointLabel: 'Auto Git checkpoint after each turn',
       autoGitCheckpointDesc: 'When a turn changes workspace files, create a local commit (never push). Skip empty diffs. Secrets and .env are never staged. This toggle stays in local preferences.',
       expandShellLabel: 'Expand Shell tool output by default',
@@ -661,6 +667,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       collapseSidebarOnStartupDesc: 'Die linke Seitenleiste beim Öffnen der App standardmäßig einklappen (Strg+B zum Umschalten)',
       collapseToolBatchLabel: 'Aufeinanderfolgende Tool-Aufrufe zusammenfassen',
       collapseToolBatchDesc: 'Fasst 3 oder mehr aufeinanderfolgende Tool-Aufrufe kompakt zusammen',
+      floatingDiffViewLabel: 'Dateidiffs in einem schwebenden Fenster öffnen',
+      floatingDiffViewDesc: 'Zeigt Dateidiffs in einem zentrierten Overlay statt in der rechten Seitenleiste. Deaktivieren, um die Schublade zu behalten.',
       autoGitCheckpointLabel: 'Nach jeder Runde automatisch Git-Checkpoint',
       autoGitCheckpointDesc: 'Bei Arbeitskopie-Änderungen lokalen Commit erstellen (kein Push). Leere Diffs überspringen. Geheimnisse und .env werden nie gestaged. Einstellung bleibt lokal.',
       expandShellLabel: 'Shell-Tool-Details standardmäßig ausklappen',

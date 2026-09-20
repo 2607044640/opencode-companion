@@ -12,7 +12,7 @@ Live sidebar width is `w-64 sm:w-[260px]` on `Sidebar.tsx` (`<aside>`). There is
 | `src/components/layout/Sidebar.tsx` | Project/session chrome, pin/archive menus | Prompt send, SSE delta |
 | `src/components/layout/Header.tsx` | Compact tabs, token chip, desktop deep-link, map trigger | `POST /session` |
 | `src/utils/tab-navigation.ts` | Close/other/right, next/prev tab, index jump | Persistence |
-| `src/components/search/FloatingSearchModal.tsx` | A1 85vw×85vh session + message search, IME shield | Map mutations |
+| `src/components/search/FloatingSearchModal.tsx` | A1 85vw×85vh session + message search, IME shield, `[Project]` pills + `HighlightedText` | Map mutations |
 | `src/utils/find-in-page.ts` + `FindInPageBar.tsx` | In-timeline query (case/word/regex), scroll to hit | Cross-session search (that is Ctrl+K) |
 | `src/utils/shortcuts.ts` | Defaults, localStorage merge, match/double-tap, overlay/editable guards | Feature logic |
 | `CountdownConfirmDialog.tsx` | Mandatory countdown lock (default 2s) | Business mutations (caller does the work) |
@@ -29,7 +29,7 @@ Live sidebar width is `w-64 sm:w-[260px]` on `Sidebar.tsx` (`<aside>`). There is
 
 1. App reads `opencode_sidebar_open` and `getShortcuts()`.
 2. Keydown: `matchesShortcut` / `createDoubleTapTracker.check` → toggle sidebar, new draft, tabs, search, find, map, settings, zen, close/reopen tab.
-3. `Ctrl+K` mounts `FloatingSearchModal` (`data-floating-modal`). IME composition is shielded; first printable key redirects into the query box. Select hit → `selectSession` (+ optional `targetMessageId` for ChatTimeline scroll animation).
+3. `Ctrl+K` mounts `FloatingSearchModal` (`data-floating-modal`). IME composition is shielded; first printable key redirects into the query box. Hits show `formatProjectPill` (`[APISpace]`) plus `HighlightedText` on title/snippet. Select hit → `selectSession` (+ optional `targetMessageId` for ChatTimeline scroll animation).
 4. `Ctrl+F` sets `isFindOpen`; `findMatchesInMessages` scans text (and reasoning) parts; bar cycles hits with scroll-into-view.
 5. Tab close uses `calculateCloseTabState`; recently closed stack (max 30, skip draft) powers `Ctrl+Shift+T`. Header tabs stay compact; overflow via context menu (`TabContextMenu.tsx`).
 6. Zen: hide `Sidebar` + `Header`; floating exit chip; prompt docks bottom-center. Esc / F11 leaves.

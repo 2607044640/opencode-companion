@@ -49,6 +49,7 @@ export function MapCanvas(props: MapAppProps) {
     onDirectoryChange,
     autoSyncEnabled = true,
     onProjectsLoaded,
+    onBlueprintMenuOpenChange,
   } = props
   const client = useMemo(
     () => deps?.client ?? createOpencodeClient({ baseUrl: OPENCODE_BASE_URL }),
@@ -63,6 +64,10 @@ export function MapCanvas(props: MapAppProps) {
   const [band, setBand] = useState<RubberBand | undefined>(undefined)
   const [hotkeyMenu, setHotkeyMenu] = useState<HotkeyMenu | undefined>(undefined)
   const [blueprintMenu, setBlueprintMenu] = useState<BlueprintMenuState | undefined>(undefined)
+
+  useEffect(() => {
+    onBlueprintMenuOpenChange?.(blueprintMenu !== undefined)
+  }, [blueprintMenu, onBlueprintMenuOpenChange])
   const [isLayoutAnimating, setIsLayoutAnimating] = useState(false)
   const mapRef = useRef<TalkMap | undefined>(undefined)
   const historyRef = useRef<MapHistory>(INITIAL_MAP_HISTORY)
@@ -322,6 +327,7 @@ export function MapCanvas(props: MapAppProps) {
         setToast,
         setHotkeyMenu,
         setBlueprintMenu,
+        onSelectSession,
       }}
     />
   )

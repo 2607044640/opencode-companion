@@ -33,6 +33,7 @@ import type { RubberBand } from "./rubber-band"
 import { SessionCard, SkeletonCard } from "./SessionCard"
 import { createNodeHandleResolver, findIntersectedEdges, type Point } from "./cutting-wire"
 import type { BlueprintMenuState } from "./BlueprintActionMenu"
+import { isQuickRightClick } from "./map-gestures"
 import "@xyflow/react/dist/style.css"
 import "./map-app.css"
 
@@ -82,6 +83,7 @@ export type MapFlowChrome = {
   readonly setToast?: Dispatch<SetStateAction<string | undefined>>
   readonly setHotkeyMenu: Dispatch<SetStateAction<HotkeyMenu | undefined>>
   readonly setBlueprintMenu?: Dispatch<SetStateAction<BlueprintMenuState | undefined>>
+  readonly onSelectSession?: (sessionId: string) => void
 }
 
 export function MapFlow(props: {
@@ -179,6 +181,99 @@ export function MapFlow(props: {
     handlers.onPointerMove(event)
   }
 
+  const rightClickStartRef = useRef<{
+    time: number
+    point: { x: number; y: number }
+    moved: boolean
+  } | null>(null)
+
+  const triggerQuickRightClickMenu = (clientX: number, clientY: number, target: EventTarget | null) => {
+    const start = rightClickStartRef.current
+    rightClickStartRef.current = null
+
+    const el = target as HTMLElement | null
+    if (
+      el?.closest(".react-flow__node") ||
+      el?.closest(".session-card") ||
+      el?.closest(".session-card__palette") ||
+      el?.closest(".react-flow__minimap") ||
+      el?.closest(".react-flow__controls") ||
+      el?.closest('[data-testid="blueprint-action-menu"]')
+    ) {
+      return false
+    }
+
+    if (
+      start !== null &&
+      !start.moved &&
+      isQuickRightClick({
+        startPoint: start.point,
+        endPoint: { x: clientX, y: clientY },
+        durationMs: Date.now() - start.time,
+        maxDistance: 6,
+        maxDurationMs: 500,
+      })
+    ) {
+      const clientPoint = { x: clientX, y: clientY }
+      const flowPos = props.screenToFlowPosition(clientPoint)
+      chrome.setBlueprintMenu?.({
+        clientPoint,
+        flowPos,
+        fromNode: null,
+      })
+      return true
+    }
+    return false
+  }
+
+  const handleCanvasPointerDownCapture = (e: ReactPointerEvent) => {
+    if (e.button === 2) {
+      rightClickStartRef.current = {
+        time: Date.now(),
+        point: { x: e.clientX, y: e.clientY },
+        moved: false,
+      }
+    }
+    if (e.button === 1 && e.altKey) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+  }
+
+  const handleCanvasPointerMoveCapture = (e: ReactPointerEvent) => {
+    if (rightClickStartRef.current && !rightClickStartRef.current.moved) {
+      const moved = !isQuickRightClick({
+        startPoint: rightClickStartRef.current.point,
+        endPoint: { x: e.clientX, y: e.clientY },
+        durationMs: 0,
+        maxDistance: 6,
+      })
+      if (moved) {
+        rightClickStartRef.current.moved = true
+      }
+    }
+  }
+
+  const handleCanvasPointerUpCapture = (e: ReactPointerEvent) => {
+    if (e.button === 2 && rightClickStartRef.current) {
+      triggerQuickRightClickMenu(e.clientX, e.clientY, e.target)
+    }
+  }
+
+  const handleCanvasContextMenuCapture = (e: ReactMouseEvent) => {
+    const el = e.target as HTMLElement | null
+    if (el?.closest(".react-flow__node") || el?.closest(".session-card__palette")) {
+      return
+    }
+
+    // Always prevent native browser context menu on canvas
+    e.preventDefault()
+
+    if (rightClickStartRef.current) {
+      triggerQuickRightClickMenu(e.clientX, e.clientY, e.target)
+    }
+  }
+
   const handlePointerUp = () => {
     handlers.onPointerUp()
   }
@@ -196,6 +291,10 @@ export function MapFlow(props: {
       <div
         className="talk-map__canvas"
         onPointerLeave={handlePointerLeave}
+        onPointerDownCapture={handleCanvasPointerDownCapture}
+        onPointerMoveCapture={handleCanvasPointerMoveCapture}
+        onPointerUpCapture={handleCanvasPointerUpCapture}
+        onContextMenuCapture={handleCanvasContextMenuCapture}
         onMouseDownCapture={(e) => {
           if (e.button === 1 && e.altKey) {
             e.preventDefault()
@@ -288,6 +387,7 @@ export function MapFlow(props: {
           setHotkeyMenu={chrome.setHotkeyMenu}
           setBlueprintMenu={chrome.setBlueprintMenu}
           onAutoLayout={handlers.onAutoLayout}
+          onSelectSession={chrome.onSelectSession}
         />
       </div>
     </div>

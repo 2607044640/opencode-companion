@@ -144,3 +144,20 @@ export function startInjectFromConnectEnd(input: {
       throw error
     })
 }
+
+export function isQuickRightClick(input: {
+  readonly startPoint: { readonly x: number; readonly y: number }
+  readonly endPoint: { readonly x: number; readonly y: number }
+  readonly durationMs: number
+  readonly maxDistance?: number
+  readonly maxDurationMs?: number
+}): boolean {
+  const maxDist = input.maxDistance ?? 6
+  const maxDur = input.maxDurationMs ?? 500
+  if (input.durationMs >= maxDur) {
+    return false
+  }
+  const dx = input.endPoint.x - input.startPoint.x
+  const dy = input.endPoint.y - input.startPoint.y
+  return Math.hypot(dx, dy) <= maxDist
+}

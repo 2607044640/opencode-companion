@@ -148,7 +148,7 @@ const server = http.createServer((req, res) => {
       }
 
       const headers = {
-        'User-Agent': 'OpenCode-Companion/1.0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json',
       }
       if (token) {
@@ -208,58 +208,43 @@ const server = http.createServer((req, res) => {
         }
 
         const presets = []
-        // 1. TokenShop (Channel 13 / tokenshop.homes)
-        const tokenShop = channels.find(c => c.base_url && c.base_url.includes('tokenshop.homes'))
-        if (tokenShop) {
-          presets.push({
-            id: 'relay_tokenshop',
-            name: 'TokenShop (Grok)',
-            baseUrl: tokenShop.base_url,
-            apiKey: tokenShop.key,
-            redeemUrl: 'https://tokenshop.homes/redeem',
-            currency: 'USD',
-            quotaRate: 500000,
-            cnyRate: 7.2,
-          })
-        }
-        // 2. 稳定中转 (Channel 15 / xn--fiq104an1x80s.com - Flash 3.7)
-        const wending = channels.find(c => c.base_url && (c.base_url.includes('xn--fiq104an1x80s.com') || c.base_url.includes('ai6666.shop') || (c.name && c.name.includes('稳定中转'))))
-        if (wending) {
-          presets.push({
-            id: 'relay_wending',
-            name: '稳定中转 (Flash 3.7)',
-            baseUrl: wending.base_url,
-            apiKey: wending.key,
-            redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
-            currency: 'USD',
-            quotaRate: 500000,
-            cnyRate: 7.2,
-          })
-        } else {
-          // Fallback to GGUU if present
-          const gguu = channels.find(c => c.base_url && (c.base_url.includes('gguuai.com') || (c.name && c.name.toLowerCase().includes('gguu'))))
-          if (gguu) {
-            presets.push({
-              id: 'relay_gguu',
-              name: 'GGUU (Flash 3.8)',
-              baseUrl: gguu.base_url,
-              apiKey: gguu.key,
-              redeemUrl: 'https://gguuai.com/redeem',
-              currency: 'USD',
-              quotaRate: 500000,
-              cnyRate: 7.2,
-            })
+        const seenUrls = new Set()
+
+        // Dynamic Active Channels: automatically map every active channel from Gateway
+        const activeChannels = channels.filter(c => c.status === 1 && c.base_url && c.key)
+
+        for (const c of activeChannels) {
+          const cleanBase = c.base_url.replace(/\/+$/, '')
+          if (seenUrls.has(cleanBase)) continue
+          seenUrls.add(cleanBase)
+
+          let id = `relay_${c.id}`
+          if (cleanBase.includes('tokenshop.homes')) id = 'relay_tokenshop'
+          else if (cleanBase.includes('xn--fiq104an1x80s.com') || cleanBase.includes('ai6666.shop')) id = 'relay_wending'
+          else if (cleanBase.includes('llmfree.work')) id = 'relay_llmfree'
+          else if (cleanBase.includes('gguuai.com')) id = 'relay_gguu'
+          else if (cleanBase.includes('aimoniker.top')) id = 'relay_moniker'
+          else {
+            try {
+              const u = new URL(cleanBase)
+              id = `relay_${u.hostname.replace(/[^a-zA-Z0-9]/g, '_')}`
+            } catch {
+              id = `relay_${c.id}`
+            }
           }
-        }
-        // 3. Moniker fallback
-        const moniker = channels.find(c => c.base_url && c.base_url.includes('aimoniker.top'))
-        if (moniker && presets.length < 2) {
+
+          let name = c.name || '中转站'
+          if (c.models && !name.includes('(')) {
+            const firstModel = c.models.split(',')[0].trim()
+            name = `${name} (${firstModel})`
+          }
+
           presets.push({
-            id: 'relay_moniker',
-            name: 'Moniker AI',
-            baseUrl: moniker.base_url,
-            apiKey: moniker.key,
-            redeemUrl: 'https://aimoniker.top',
+            id,
+            name,
+            baseUrl: cleanBase,
+            apiKey: c.key,
+            redeemUrl: `${cleanBase}/redeem`,
             currency: 'USD',
             quotaRate: 500000,
             cnyRate: 7.2,

@@ -57,7 +57,7 @@ describe('empty-idle-fuse', () => {
     assert.equal(verdict.kind, 'user_abort')
   })
 
-  it('ignores abort when the turn already has content', () => {
+  it('ignores abort when the turn already has content and no repetition', () => {
     const msg = assistant({
       finish: 'abort',
       parts: [
@@ -66,13 +66,33 @@ describe('empty-idle-fuse', () => {
           sessionID: 'ses_1',
           messageID: 'msg_a',
           type: 'text',
-          text: 'partial answer',
+          text: 'partial answer that is normal and not repeating',
         },
       ],
     })
     assert.equal(hasTurnContent(msg), true)
     const verdict = classifyEmptyIdleFuse({ lastMessage: msg, userAborted: false })
     assert.equal(verdict.kind, 'none')
+  })
+
+  it('classifies aborted turn with repetition loop as repetition_loop', () => {
+    const p =
+      'Let me start by inspecting App.tsx for setSelectedProjectId usage. I will grep for setSelectedProjectId in App.tsx.'
+    const msg = assistant({
+      finish: 'abort',
+      parts: [
+        {
+          id: 'p1',
+          sessionID: 'ses_1',
+          messageID: 'msg_a',
+          type: 'text',
+          text: (p + '\n\n').repeat(4),
+        },
+      ],
+    })
+    assert.equal(hasTurnContent(msg), true)
+    const verdict = classifyEmptyIdleFuse({ lastMessage: msg, userAborted: false })
+    assert.equal(verdict.kind, 'repetition_loop')
   })
 
   it('returns none when last message is not assistant', () => {

@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react"
 import { Trash2 } from "lucide-react"
 import { COLOR_PALETTE } from "./card-meta"
 import type { SessionFlowNode, SkeletonFlowNode } from "./flow-nodes"
+import { HighlightedText } from "./HighlightedText"
 
 export function SessionCard(props: NodeProps<SessionFlowNode>) {
   const sessionId = props.data.sessionId
@@ -163,7 +164,11 @@ export function SessionCard(props: NodeProps<SessionFlowNode>) {
           onDoubleClick={startEdit}
           title="双击重命名标题"
         >
-          {props.data.title}
+          {props.data.searchQuery ? (
+            <HighlightedText text={props.data.title} query={props.data.searchQuery} />
+          ) : (
+            props.data.title
+          )}
         </div>
       )}
       {props.data.nextStep !== undefined ? (
