@@ -6,7 +6,14 @@ import {
   extractMessageSearchableText,
   FIND_MATCH_FALLBACK_PADDING_PX,
 } from './find-in-page'
-import { computeMatchScrollTop } from './find-in-page-dom'
+import {
+  computeMatchScrollTop,
+  computeOverlayRect,
+  collectAllMatchRanges,
+  updateCSSHighlights,
+  clearCSSHighlights,
+  scrollContainerToMatch,
+} from './find-in-page-dom'
 
 function createMockMessage(id: string, text: string, thinking?: string): Message {
   const parts: any[] = [{ id: `p_${id}_1`, type: 'text', text }]
@@ -180,5 +187,52 @@ describe('Find in Page Utility (find-in-page.ts)', () => {
     const second = computeMatchScrollTop(container, { top: 900, height: 20, width: 10 } as DOMRect, fallbackEl)
     assert.notEqual(first, second)
     assert.ok(second > first)
+  })
+
+  it('computes overlay rect taking into account container scroll position', () => {
+    const container = {
+      getBoundingClientRect: () => ({ top: 120, left: 30 }),
+      scrollTop: 450,
+      scrollLeft: 10,
+    } as HTMLElement
+    const matchRect = {
+      top: 200,
+      left: 150,
+      width: 80,
+      height: 22,
+    } as DOMRect
+
+    const overlay = computeOverlayRect(container, matchRect)
+    // top = (200 - 120) + 450 = 530
+    assert.equal(overlay.top, 530)
+    // left = (150 - 30) + 10 = 130
+    assert.equal(overlay.left, 130)
+    assert.equal(overlay.width, 80)
+    assert.equal(overlay.height, 22)
+  })
+
+  it('clamps minimum dimensions for overlay rect', () => {
+    const container = {
+      getBoundingClientRect: () => ({ top: 0, left: 0 }),
+      scrollTop: 0,
+      scrollLeft: 0,
+    } as HTMLElement
+    const matchRect = {
+      top: 10,
+      left: 10,
+      width: 2,
+      height: 4,
+    } as DOMRect
+
+    const overlay = computeOverlayRect(container, matchRect)
+    assert.equal(overlay.width, 6)
+    assert.equal(overlay.height, 16)
+  })
+
+  it('safely calls updateCSSHighlights and clearCSSHighlights without throwing in node environment', () => {
+    assert.doesNotThrow(() => {
+      clearCSSHighlights()
+      updateCSSHighlights([], null)
+    })
   })
 })

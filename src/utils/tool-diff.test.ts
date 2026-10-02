@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseUnifiedHunks, buildUnifiedDiff, collapseUnchangedLines } from './tool-diff'
+import { parseUnifiedHunks, buildUnifiedDiff, collapseUnchangedLines, mergeUnifiedDiffs } from './tool-diff'
 import { countDiffLines } from './worked-summary'
 
 describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
@@ -217,5 +217,34 @@ describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
     })
     assert.equal(fullyRows.some((r) => r.type === 'collapse'), false)
     assert.equal(fullyRows.length, 32)
+  })
+
+  test('mergeUnifiedDiffs stitches two distant edits and marks the gap as +N more lines', () => {
+    const first = ['@@ -42,3 +42,4 @@', ' const BLACKLISTED_SKILLS =', '-new Set([', '+new Set([', '+  "aictl",'].join('\n')
+    const second = ['@@ -50,2 +51,2 @@', ' "browserautomation",', '-])', '+])'].join('\n')
+
+    const hunks = mergeUnifiedDiffs([first, second])
+    assert.equal(hunks.length, 1)
+    const texts = hunks[0].lines.map((line) => line.text)
+    assert.equal(texts.includes('const BLACKLISTED_SKILLS ='), true)
+    assert.equal(texts.includes('"browserautomation",'), true)
+    assert.equal(texts.includes('  "aictl",'), true)
+
+    const rows = collapseUnchangedLines(hunks[0].lines)
+    const gap = rows.find((row) => row.type === 'collapse')
+    assert.ok(gap)
+    if (gap && gap.type === 'collapse') {
+      // old lines 44..49 sit between the two hunks and were never captured
+      assert.equal(gap.count, 6)
+      assert.equal(gap.expandable, false)
+    }
+  })
+
+  test('mergeUnifiedDiffs lets a later edit replace the same old line', () => {
+    const first = ['@@ -10,1 +10,1 @@', '-old', '+first'].join('\n')
+    const second = ['@@ -10,1 +10,1 @@', '-old', '+second'].join('\n')
+    const hunks = mergeUnifiedDiffs([first, second])
+    const adds = hunks[0].lines.filter((line) => line.kind === 'add').map((line) => line.text)
+    assert.deepEqual(adds, ['second'])
   })
 })

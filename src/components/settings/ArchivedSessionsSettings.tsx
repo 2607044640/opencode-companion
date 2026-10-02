@@ -224,7 +224,11 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
           {archivedSessions.map((session) => {
             const timeLabel = formatCompactTime(session.time?.updated || session.time?.created)
             const tokenTotal =
-              (session.tokens?.input || 0) + (session.tokens?.output || 0)
+              (session.tokens?.input || 0) +
+              (session.tokens?.output || 0) +
+              (session.tokens?.reasoning || 0) +
+              (session.tokens?.cache?.read || 0) +
+              (session.tokens?.cache?.write || 0)
             const isDeleting = deletingId === session.id
 
             return (

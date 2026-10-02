@@ -91,9 +91,9 @@ export const ProjectDropdown: React.FC<ProjectDropdownProps> = ({
 
   const currentDisplayName = currentProject ? currentProject.name || currentProject.id : (isZh ? '全部项目' : 'APISpace')
 
-  // Canonical projects ordering: APISpace, ObsidianNote, ObsidianDev, NullSpace, AISpace
+  // Canonical projects ordering: APISpace, ObsidianNote, ObsidianDev, AICore, AISpace
   const orderedProjects = useMemo(() => {
-    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'NullSpace', 'AISpace']
+    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AICore', 'AISpace']
     const canonicalList: Project[] = []
     const others: Project[] = []
 

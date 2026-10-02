@@ -1,4 +1,5 @@
 import type { Message, MessagePart, ReasoningPart, TextPart } from '../types/opencode'
+import { isAbortError } from '../services/api'
 import {
   sanitizeMessageRepetition,
   REPETITION_LOOP_ERROR_NAME,
@@ -85,8 +86,8 @@ export function classifyEmptyIdleFuse(input: EmptyIdleFuseInput): EmptyIdleFuseV
     }
     return { kind: 'none' }
   }
-  if (last.info.finish === 'abort') {
-    if (input.userAborted) {
+  if (last.info.finish === 'abort' || isAbortError(last.info.error)) {
+    if (input.userAborted || isAbortError(last.info.error)) {
       return { kind: 'user_abort' }
     }
     return {

@@ -1,8 +1,68 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_SHORTCUTS, matchesShortcut, isIMEActive, getShortcuts, createDoubleTapTracker, isEditableTarget, hasActiveOverlay } from './shortcuts'
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_CATEGORIES,
+  filterShortcutKeys,
+  matchesShortcut,
+  isIMEActive,
+  getShortcuts,
+  createDoubleTapTracker,
+  isEditableTarget,
+  hasActiveOverlay,
+} from './shortcuts'
 
 describe('shortcuts matching and registration', () => {
+  it('SHORTCUT_CATEGORIES defines all, map, dialogue, workspace, and general groups and filterShortcutKeys filters accurately', () => {
+    const categoryIds = SHORTCUT_CATEGORIES.map((c) => c.id)
+    assert.deepEqual(categoryIds, ['all', 'map', 'dialogue', 'workspace', 'general'])
+
+    const allKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'all')
+    assert.equal(allKeys.length, Object.keys(DEFAULT_SHORTCUTS).length)
+
+    const mapKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'map')
+    assert.ok(mapKeys.includes('toggleMap'))
+    assert.ok(mapKeys.includes('addSessionToMap'))
+    assert.ok(mapKeys.includes('mapUndo'))
+    assert.ok(mapKeys.includes('mapRedo'))
+    assert.ok(mapKeys.includes('mapFocus'))
+    assert.ok(mapKeys.includes('mapCommentGroup'))
+    assert.ok(mapKeys.includes('mapSelectAll'))
+    assert.ok(mapKeys.includes('mapHome'))
+    assert.ok(mapKeys.includes('mapRearrange'))
+    assert.equal(mapKeys.length, 9)
+    for (const k of mapKeys) {
+      assert.equal(DEFAULT_SHORTCUTS[k].category, 'map')
+    }
+
+    const dialogueKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'dialogue')
+    assert.equal(dialogueKeys.length, 7)
+    for (const k of dialogueKeys) {
+      assert.equal(DEFAULT_SHORTCUTS[k].category, 'dialogue')
+    }
+
+    const workspaceKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'workspace')
+    assert.equal(workspaceKeys.length, 6)
+    for (const k of workspaceKeys) {
+      assert.equal(DEFAULT_SHORTCUTS[k].category, 'workspace')
+    }
+
+    const generalKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'general')
+    assert.equal(generalKeys.length, 3)
+    for (const k of generalKeys) {
+      assert.equal(DEFAULT_SHORTCUTS[k].category, 'general')
+    }
+
+    assert.equal(
+      mapKeys.length + dialogueKeys.length + workspaceKeys.length + generalKeys.length,
+      allKeys.length
+    )
+
+    // Combined category + search query filtering
+    const mapUndoFiltered = filterShortcutKeys(DEFAULT_SHORTCUTS, 'map', 'undo')
+    assert.deepEqual(mapUndoFiltered, ['mapUndo'])
+  })
+
   it('DEFAULT_SHORTCUTS includes tab navigation and close tab shortcuts', () => {
     assert.ok(DEFAULT_SHORTCUTS.nextTab)
     assert.equal(DEFAULT_SHORTCUTS.nextTab.key, 'Tab')

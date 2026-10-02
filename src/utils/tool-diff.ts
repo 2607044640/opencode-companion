@@ -14,7 +14,7 @@ export interface DiffHunk {
 
 export type DiffViewRow =
   | { type: 'line'; line: DiffLineItem; index: number }
-  | { type: 'collapse'; id: string; count: number; startIndex: number; endIndex: number }
+  | { type: 'collapse'; id: string; count: number; startIndex: number; endIndex: number; expandable?: boolean }
 
 export interface CollapseUnchangedOptions {
   pad?: number
@@ -24,11 +24,39 @@ export interface CollapseUnchangedOptions {
 
 const DEFAULT_CONTEXT_PAD = 3
 const DEFAULT_MIN_COLLAPSE = 4
+const OMITTED_MARK = '\u0000omitted'
+
+export function omittedLineCount(line: DiffLineItem): number {
+  if (!line.text.startsWith(OMITTED_MARK)) return 0
+  const count = Number(line.text.slice(OMITTED_MARK.length))
+  return Number.isFinite(count) && count > 0 ? count : 0
+}
 
 export function collapseUnchangedLines(
   lines: DiffLineItem[],
   options: CollapseUnchangedOptions = {}
 ): DiffViewRow[] {
+  const omittedAt = lines.findIndex((line) => omittedLineCount(line) > 0)
+  if (omittedAt >= 0) {
+    const rows: DiffViewRow[] = []
+    lines.forEach((line, index) => {
+      const omitted = omittedLineCount(line)
+      if (omitted > 0) {
+        rows.push({
+          type: 'collapse',
+          id: `omit_${index}`,
+          count: omitted,
+          startIndex: index,
+          endIndex: index + 1,
+          expandable: false,
+        })
+        return
+      }
+      rows.push({ type: 'line', line, index })
+    })
+    return rows
+  }
+
   const pad = options.pad ?? DEFAULT_CONTEXT_PAD
   const minCollapse = options.minCollapse ?? DEFAULT_MIN_COLLAPSE
   const revealed = options.revealed ?? {}
@@ -219,6 +247,138 @@ export function parseUnifiedHunks(unified: string): DiffHunk[] {
   }
 
   return hunks
+}
+
+interface FileLine {
+  /** Present only when some hunk actually showed this old line. */
+  shown?: DiffLineItem
+  /** Insertions that belong immediately after this old line. 0 = before line 1. */
+  inserts: DiffLineItem[]
+}
+
+function emptyFileLine(): FileLine {
+  return { inserts: [] }
+}
+
+function applyHunk(file: Map<number, FileLine>, hunk: DiffHunk) {
+  const oldLines = hunk.lines.filter((line) => line.kind !== 'add')
+  if (oldLines.length === 0) {
+    const row = file.get(hunk.oldStart) ?? emptyFileLine()
+    row.inserts = hunk.lines.filter((line) => line.kind === 'add').map((line) => ({ kind: 'add' as const, text: line.text }))
+    file.set(hunk.oldStart, row)
+    return
+  }
+
+  let oldCursor = hunk.oldStart
+  let pending: DiffLineItem[] = []
+  const flush = (afterOld: number) => {
+    if (pending.length === 0) return
+    const row = file.get(afterOld) ?? emptyFileLine()
+    row.inserts = pending
+    file.set(afterOld, row)
+    pending = []
+  }
+
+  for (const line of hunk.lines) {
+    if (line.kind === 'add') {
+      pending.push({ kind: 'add', text: line.text })
+      continue
+    }
+    flush(oldCursor - 1)
+    const row = file.get(oldCursor) ?? emptyFileLine()
+    row.shown = { kind: line.kind, text: line.text, oldNo: oldCursor }
+    row.inserts = []
+    file.set(oldCursor, row)
+    oldCursor += 1
+  }
+  flush(oldCursor - 1)
+}
+
+function formatHunkHeader(oldStart: number, oldCount: number, newStart: number, newCount: number): string {
+  const oldPart = oldCount === 1 ? `${oldStart}` : `${oldStart},${oldCount}`
+  const newPart = newCount === 1 ? `${newStart}` : `${newStart},${newCount}`
+  return `@@ -${oldPart} +${newPart} @@`
+}
+
+/**
+ * Stitches separate unified diffs of the same file into one GitHub-style view.
+ * Unchanged lines that no hunk captured become a numberless context row so the
+ * viewer can render "+N more lines" without inventing source text.
+ * A later diff wins when two edits cover the same old line.
+ */
+export function mergeUnifiedDiffs(diffs: string[]): DiffHunk[] {
+  const inputs = diffs.filter((diff) => typeof diff === 'string' && diff.trim().length > 0)
+  if (inputs.length === 0) return []
+
+  const parsed = inputs.map((diff) => parseUnifiedHunks(diff))
+  if (parsed.some((hunks) => hunks.length === 0)) {
+    return parsed.flat()
+  }
+  if (inputs.length === 1) return parsed[0]
+
+  const file = new Map<number, FileLine>()
+  for (const hunks of parsed) {
+    for (const hunk of hunks) applyHunk(file, hunk)
+  }
+
+  const shownKeys = [...file.keys()].filter((key) => key > 0 && file.get(key)?.shown).sort((a, b) => a - b)
+  const insertKeys = [...file.keys()].filter((key) => (file.get(key)?.inserts.length ?? 0) > 0).sort((a, b) => a - b)
+  if (shownKeys.length === 0 && insertKeys.length === 0) return []
+
+  const lines: DiffLineItem[] = []
+  let oldCount = 0
+  let newCount = 0
+  const firstShown = shownKeys[0]
+  const firstInsert = insertKeys[0]
+  const oldStart = firstShown ?? Math.max(firstInsert ?? 1, 1)
+  let newNo = oldStart
+  let coveredThrough = (firstShown ?? firstInsert ?? 1) - 1
+
+  const pushInserts = (afterOld: number) => {
+    const inserts = file.get(afterOld)?.inserts ?? []
+    for (const ins of inserts) {
+      lines.push({ kind: 'add', text: ins.text, newNo })
+      newNo += 1
+      newCount += 1
+    }
+  }
+
+  const pushGap = (untilOld: number) => {
+    const missing = untilOld - coveredThrough - 1
+    if (missing > 0) {
+      lines.push({ kind: 'ctx', text: `${OMITTED_MARK}${missing}` })
+      oldCount += missing
+      newCount += missing
+      newNo += missing
+    }
+  }
+
+  if (insertKeys.includes(0)) pushInserts(0)
+
+  const marks = [...new Set([...shownKeys, ...insertKeys.filter((key) => key > 0)])].sort((a, b) => a - b)
+  for (const oldNo of marks) {
+    pushGap(oldNo)
+    const shown = file.get(oldNo)?.shown
+    if (shown && shown.kind === 'del') {
+      lines.push({ kind: 'del', text: shown.text, oldNo })
+      oldCount += 1
+    } else if (shown) {
+      lines.push({ kind: 'ctx', text: shown.text, oldNo, newNo })
+      oldCount += 1
+      newCount += 1
+      newNo += 1
+    }
+    coveredThrough = oldNo
+    pushInserts(oldNo)
+  }
+  return [
+    {
+      header: formatHunkHeader(oldStart, Math.max(oldCount, 0), oldStart, Math.max(newCount, 0)),
+      oldStart,
+      newStart: oldStart,
+      lines,
+    },
+  ]
 }
 
 /**

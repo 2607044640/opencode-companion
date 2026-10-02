@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { DiffHunk } from '../../utils/tool-diff'
-import { parseUnifiedHunks } from '../../utils/tool-diff'
+import { mergeUnifiedDiffs, parseUnifiedHunks } from '../../utils/tool-diff'
 import type { EditItem } from '../../utils/worked-summary'
 
 export interface DiffDrawerPayload {
@@ -16,6 +16,8 @@ export interface DiffDrawerPayload {
   hunks?: DiffHunk[]
   rawInput?: Record<string, any>
   rawOutput?: string
+  /** How many tool calls were folded into this one file card. */
+  mergedEditCount?: number
 }
 
 export interface TurnDiffPayload {
@@ -107,12 +109,60 @@ export function useDiffDrawer(): DiffDrawerContextType {
   return ctx
 }
 
+function fileKey(item: { filePath: string; fileName: string }): string {
+  return item.filePath || item.fileName
+}
+
+/**
+ * One card per file. Repeated edits of the same path are stitched into a single
+ * unified diff (GitHub / Antigravity style) instead of Edit 1/N cards.
+ */
 export function editItemsToTurnFiles(items: EditItem[], messageId?: string): DiffDrawerPayload[] {
-  const map = new Map<string, EditItem>()
-  for (const it of items) {
-    map.set(it.filePath, it)
+  const groups: EditItem[][] = []
+  const indexByKey = new Map<string, number>()
+
+  for (const item of items) {
+    const key = fileKey(item)
+    const existing = indexByKey.get(key)
+    if (existing == null) {
+      indexByKey.set(key, groups.length)
+      groups.push([item])
+    } else {
+      groups[existing].push(item)
+    }
   }
-  return Array.from(map.values()).map((it) => editItemToDiffPayload(it, messageId))
+
+  return groups.map((group) => {
+    const last = group[group.length - 1]
+    const payload = editItemToDiffPayload(last, messageId)
+    if (group.length === 1) return payload
+
+    const unifiedParts = group.map((item) => item.unified).filter(Boolean)
+    const hunks = mergeUnifiedDiffs(unifiedParts)
+    let additions = 0
+    let deletions = 0
+    for (const hunk of hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind === 'add') additions += 1
+        else if (line.kind === 'del') deletions += 1
+      }
+    }
+    const status = group.some((item) => item.status === 'added')
+      ? 'added'
+      : group.every((item) => item.status === 'deleted')
+        ? 'deleted'
+        : 'modified'
+
+    return {
+      ...payload,
+      status,
+      additions,
+      deletions,
+      unified: unifiedParts.join('\n'),
+      hunks,
+      mergedEditCount: group.length,
+    }
+  })
 }
 
 export function editItemToDiffPayload(item: EditItem, messageId?: string): DiffDrawerPayload {

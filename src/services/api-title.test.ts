@@ -1,6 +1,6 @@
 import test, { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { sanitizeSessionTitle, normalizeSession, extractRelayErrorMessage, normalizeMessageInfo } from './api'
+import { sanitizeSessionTitle, normalizeSession, extractRelayErrorMessage, normalizeMessageInfo, isAbortError } from './api'
 
 describe('Session Title Sanitization & Normalization', () => {
   it('sanitizes whitespace-only titles to default fallback', () => {
@@ -105,6 +105,20 @@ describe('Relay Error Extraction and Normalization', () => {
   it('handles null or undefined error safely', () => {
     assert.equal(extractRelayErrorMessage(null), '')
     assert.equal(extractRelayErrorMessage(undefined), '')
+  })
+
+  it('correctly detects abort errors and suppresses relay error messages', () => {
+    assert.equal(isAbortError('Aborted'), true)
+    assert.equal(isAbortError('abort'), true)
+    assert.equal(isAbortError('user aborted'), true)
+    assert.equal(isAbortError({ name: 'AbortError', message: 'The operation was aborted' }), true)
+    assert.equal(isAbortError({ name: 'MessageAbortedError', message: 'Aborted' }), true)
+    assert.equal(isAbortError({ name: 'APIError', message: 'Network timeout' }), false)
+
+    // extractRelayErrorMessage must return empty string for aborts so they are not treated as relay errors
+    assert.equal(extractRelayErrorMessage('Aborted'), '')
+    assert.equal(extractRelayErrorMessage({ name: 'AbortError', message: 'Aborted' }), '')
+    assert.equal(extractRelayErrorMessage({ name: 'MessageAbortedError', message: 'Aborted' }), '')
   })
 
   it('normalizeMessageInfo preserves error structure', () => {

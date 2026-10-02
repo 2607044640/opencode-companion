@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, ChevronUp, ChevronDown, X } from 'lucide-react'
 import type { Message } from '../../types/opencode'
 import { useI18n } from '../../utils/i18n'
@@ -7,6 +8,12 @@ import {
   expandCollapsedFindTargets,
   resolveFindMessageElement,
   scrollContainerToMatch,
+  locateTextMatchInElement,
+  computeOverlayRect,
+  collectAllMatchRanges,
+  updateCSSHighlights,
+  clearCSSHighlights,
+  type ActiveMatchOverlayRect,
 } from '../../utils/find-in-page-dom'
 
 interface FindInPageBarProps {
@@ -30,10 +37,12 @@ export function FindInPageBar({
   const [matchWholeWord, setMatchWholeWord] = useState(false)
   const [useRegex, setUseRegex] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
+  const [overlayRect, setOverlayRect] = useState<ActiveMatchOverlayRect | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const pulseTimerRef = useRef<number | null>(null)
   const jumpFrameRef = useRef<number | null>(null)
+  const scrollRefineTimerRef = useRef<number | null>(null)
 
   const findOptions = useMemo<FindOptions>(
     () => ({ matchCase, matchWholeWord, useRegex }),
@@ -61,10 +70,16 @@ export function FindInPageBar({
   const jumpToMatch = useCallback(
     (match: FindMatch) => {
       const container = containerRef.current
-      if (!match || !container) return
+      if (!match || !container) {
+        setOverlayRect(null)
+        return
+      }
 
       const targetEl = resolveFindMessageElement(container, match.messageId)
-      if (!targetEl) return
+      if (!targetEl) {
+        setOverlayRect(null)
+        return
+      }
 
       if (jumpFrameRef.current !== null) {
         window.cancelAnimationFrame(jumpFrameRef.current)
@@ -72,9 +87,31 @@ export function FindInPageBar({
       }
 
       const reveal = () => {
-        pulseHighlight(
-          scrollContainerToMatch(container, targetEl, query, match.matchIndex, findOptions)
-        )
+        const res = scrollContainerToMatch(container, targetEl, query, match.matchIndex, findOptions)
+        pulseHighlight(res.hostEl)
+
+        // Highlight all matches on page, with active match distinctly highlighted
+        const allRanges = collectAllMatchRanges(container, query, findOptions)
+        updateCSSHighlights(allRanges, res.range)
+
+        if (res.rect && (res.rect.width > 0 || res.rect.height > 0)) {
+          setOverlayRect(computeOverlayRect(container, res.rect))
+        } else {
+          setOverlayRect(null)
+        }
+
+        // Refine overlay coordinates once smooth-scroll completes
+        if (scrollRefineTimerRef.current !== null) {
+          window.clearTimeout(scrollRefineTimerRef.current)
+        }
+        scrollRefineTimerRef.current = window.setTimeout(() => {
+          scrollRefineTimerRef.current = null
+          if (!containerRef.current) return
+          const fresh = locateTextMatchInElement(targetEl, query, match.matchIndex, findOptions)
+          if (fresh?.rect && (fresh.rect.width > 0 || fresh.rect.height > 0)) {
+            setOverlayRect(computeOverlayRect(containerRef.current, fresh.rect))
+          }
+        }, 350)
       }
 
       if (!expandCollapsedFindTargets(targetEl)) {
@@ -96,11 +133,17 @@ export function FindInPageBar({
     return () => {
       if (pulseTimerRef.current !== null) window.clearTimeout(pulseTimerRef.current)
       if (jumpFrameRef.current !== null) window.cancelAnimationFrame(jumpFrameRef.current)
+      if (scrollRefineTimerRef.current !== null) window.clearTimeout(scrollRefineTimerRef.current)
+      clearCSSHighlights()
     }
   }, [])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      clearCSSHighlights()
+      setOverlayRect(null)
+      return
+    }
 
     if (matches.length > 0) {
       const nextIdx = currentIndex >= matches.length ? 0 : currentIndex
@@ -108,8 +151,30 @@ export function FindInPageBar({
       jumpToMatch(matches[nextIdx])
     } else {
       setCurrentIndex(0)
+      clearCSSHighlights()
+      setOverlayRect(null)
     }
   }, [matches, isOpen])
+
+  // Clear highlights if query is emptied
+  useEffect(() => {
+    if (!query.trim() || matches.length === 0) {
+      clearCSSHighlights()
+      setOverlayRect(null)
+    }
+  }, [query, matches.length])
+
+  // Re-anchor active overlay on window resize
+  useEffect(() => {
+    if (!isOpen || matches.length === 0) return
+    const handleResize = () => {
+      if (matches[currentIndex]) {
+        jumpToMatch(matches[currentIndex])
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [isOpen, matches, currentIndex, jumpToMatch])
 
   useEffect(() => {
     if (isOpen) {
@@ -272,6 +337,28 @@ export function FindInPageBar({
       >
         <X className="w-3.5 h-3.5" />
       </button>
+
+      {containerRef.current && overlayRect && createPortal(
+        <div
+          data-find-overlay="active"
+          className="find-active-match-overlay"
+          style={{
+            top: `${overlayRect.top - 2}px`,
+            left: `${overlayRect.left - 3}px`,
+            width: `${overlayRect.width + 6}px`,
+            height: `${overlayRect.height + 4}px`,
+          }}
+        >
+          <span
+            className={`find-active-match-badge ${
+              overlayRect.top < 32 ? 'badge-below' : 'badge-above'
+            }`}
+          >
+            {currentIndex + 1} / {matches.length}
+          </span>
+        </div>,
+        containerRef.current
+      )}
     </div>
   )
 }

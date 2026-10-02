@@ -179,4 +179,20 @@ export function resolveCommandCopyText(
   return item.outputPreview || ''
 }
 
+/**
+ * Calculates the exact scroll target position when clicking or dragging along the timeline scrollbar track.
+ */
+export function calculateDragScrollTop(
+  clickY: number,
+  trackHeight: number,
+  scrollHeight: number,
+  clientHeight: number
+): number {
+  if (trackHeight <= 0 || scrollHeight <= clientHeight) return 0
+  const ratio = Math.max(0, Math.min(1, clickY / trackHeight))
+  const maxScroll = Math.max(0, scrollHeight - clientHeight)
+  return Math.round(ratio * maxScroll)
+}
+
+
 

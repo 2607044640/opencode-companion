@@ -51,6 +51,9 @@ export function applyCreatedSession(
     map: created.map,
     titles: { ...current.titles, [created.session.id]: created.session.title },
     updated: { ...current.updated, [created.session.id]: created.session.timeUpdated },
+    sessions: current.sessions
+      ? [...current.sessions.filter((s) => s.id !== created.session.id), created.session]
+      : [created.session],
   }
 }
 

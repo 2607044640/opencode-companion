@@ -54,7 +54,17 @@ export function getRelayProviders(storage?: Storage): RelayProvider[] {
         item !== null &&
         typeof item.id === 'string' &&
         typeof item.name === 'string' &&
-        typeof item.baseUrl === 'string'
+        typeof item.baseUrl === 'string' &&
+        !item.baseUrl.includes('tokenshop.homes') &&
+        item.id !== 'relay_tokenshop' &&
+        !item.baseUrl.includes('aimoniker.top') &&
+        item.id !== 'relay_moniker' &&
+        !item.baseUrl.includes('autorouter.net') &&
+        item.id !== 'relay_autorouter' &&
+        !item.baseUrl.includes('gguuai.com') &&
+        item.id !== 'relay_gguu' &&
+        !item.baseUrl.includes('once-cf.novai.su') &&
+        item.id !== 'relay_novai'
     )
   } catch {
     return []
@@ -318,13 +328,36 @@ export async function syncRelayPresets(
     let current = getRelayProviders(storage)
     let modified = false
 
-    // 1. Purge outdated or invalid presets (e.g. NovAI, dead GGUU)
+    // 1. Purge outdated, exhausted (< $1), or invalid presets (e.g. tokenshop, moniker, autorouter, novai, dead gguu)
     const cleaned = current.filter(
-      (p) => !p.baseUrl.includes('once-cf.novai.su') && !p.baseUrl.includes('gguuai.com') && p.id !== 'relay_novai' && p.id !== 'relay_gguu'
+      (p) =>
+        !p.baseUrl.includes('once-cf.novai.su') &&
+        !p.baseUrl.includes('gguuai.com') &&
+        !p.baseUrl.includes('tokenshop.homes') &&
+        !p.baseUrl.includes('aimoniker.top') &&
+        !p.baseUrl.includes('autorouter.net') &&
+        p.id !== 'relay_novai' &&
+        p.id !== 'relay_gguu' &&
+        p.id !== 'relay_tokenshop' &&
+        p.id !== 'relay_moniker' &&
+        p.id !== 'relay_autorouter' &&
+        !(typeof p.balance === 'number' && p.balance < 1 && !p.isUnmetered && p.status === 'ok')
     )
     if (cleaned.length !== current.length) {
       current = cleaned
       modified = true
+    }
+
+    // Auto-normalize model labels in existing provider names (e.g. LLMFree grok-4.6 -> 4.7, purge gemini-3.7-flash)
+    for (const p of current) {
+      if (p.baseUrl.includes('llmfree.work') && (p.name.includes('4.6') || !p.name.includes('4.7'))) {
+        p.name = 'LLMFree-Grok (grok-4.7)'
+        modified = true
+      }
+      if (p.baseUrl.includes('xn--fiq104an1x80s.com') && p.name.includes('gemini-3.7-flash')) {
+        p.name = '稳定中转-Gemini'
+        modified = true
+      }
     }
 
     // 2. Merge latest presets from server
@@ -488,8 +521,6 @@ export function parseRelayIntake(rawText: string): ParsedRelayIntake | null {
       const hostname = parsed.hostname.toLowerCase()
       if (hostname.includes('xn--fiq104an1x80s.com') || text.includes('稳定中转')) {
         inferredName = '稳定中转'
-      } else if (hostname.includes('tokenshop')) {
-        inferredName = 'TokenShop'
       } else if (hostname.includes('gguu')) {
         inferredName = 'GGUU'
       } else if (hostname.includes('127.0.0.1') || hostname.includes('localhost')) {

@@ -899,9 +899,15 @@ function FloatingSearchContent({
                   </div>
 
                   <div className="flex items-center gap-2.5 shrink-0">
-                    {session.tokens?.input || session.tokens?.output ? (
+                    {session.tokens ? (
                       <span className="hidden sm:inline-block text-[10px] font-mono text-zinc-500">
-                        {(session.tokens.input + session.tokens.output).toLocaleString()} tok
+                        {(
+                          (session.tokens.input || 0) +
+                          (session.tokens.output || 0) +
+                          (session.tokens.reasoning || 0) +
+                          (session.tokens.cache?.read || 0) +
+                          (session.tokens.cache?.write || 0)
+                        ).toLocaleString()} tok
                       </span>
                     ) : null}
 

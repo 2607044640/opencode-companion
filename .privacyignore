@@ -1,0 +1,11 @@
+_Architecture.md
+docs/modules/session-management.md
+host-api.mjs
+serve.mjs
+src/App.tsx
+src/components/chat/project-dropdown.test.ts
+src/components/map/canvas/project-directory.ts
+src/hooks/useSessions.ts
+src/services/api.ts
+src/utils/worked-summary.test.ts
+skill-discovery.mjs

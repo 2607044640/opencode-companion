@@ -21,7 +21,18 @@ import {
   Archive,
 } from 'lucide-react'
 import { api, BASE_URL, getAuthToken, setAuthToken } from '../../services/api'
-import { getShortcuts, resetShortcuts, saveShortcuts, type ShortcutsMap, type ShortcutItem } from '../../utils/shortcuts'
+import {
+  getShortcuts,
+  resetShortcuts,
+  saveShortcuts,
+  filterShortcutKeys,
+  SHORTCUT_CATEGORIES,
+  DEFAULT_SHORTCUTS,
+  type ShortcutsMap,
+  type ShortcutItem,
+  type ShortcutFilterCategory,
+  type ShortcutCategory,
+} from '../../utils/shortcuts'
 import {
   usePreferences,
   THEME_PRESETS,
@@ -76,6 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutsMap | null>(null)
   const [shortcutSearch, setShortcutSearch] = useState('')
+  const [shortcutCategory, setShortcutCategory] = useState<ShortcutFilterCategory>('all')
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
 
   // Models state
@@ -125,11 +137,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
       const label = parts.join(' + ')
 
       const updatedShortcut: ShortcutItem = {
+        ...shortcuts[recordingKey],
         key: e.key,
         ctrlKey: hasCtrl || undefined,
         shiftKey: hasShift || undefined,
         altKey: hasAlt || undefined,
         description: shortcuts[recordingKey].description,
+        category: shortcuts[recordingKey].category || DEFAULT_SHORTCUTS[recordingKey]?.category || 'general',
         label,
       }
 
@@ -196,15 +210,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     })
   }
 
-  const filteredShortcuts = (Object.keys(shortcuts) as Array<keyof ShortcutsMap>).filter((k) => {
-    const item = shortcuts[k]
-    const matchesQuery =
-      !shortcutSearch.trim() ||
-      item.description.toLowerCase().includes(shortcutSearch.toLowerCase()) ||
-      item.label.toLowerCase().includes(shortcutSearch.toLowerCase()) ||
-      k.toLowerCase().includes(shortcutSearch.toLowerCase())
-    return matchesQuery
-  })
+  const filteredShortcuts = filterShortcutKeys(shortcuts, shortcutCategory, shortcutSearch)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -827,7 +833,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
             {/* 5. CUSTOMIZATIONS TAB (Shortcuts Manager) */}
             {activeTab === 'customizations' && (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-zinc-100">Keyboard Shortcuts & Customizations</h3>
@@ -837,7 +843,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   </div>
                   <button
                     onClick={() => setIsResetConfirmOpen(true)}
-                    className="px-2.5 py-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded-lg hover:bg-zinc-800 transition-colors"
+                    className="px-2.5 py-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
                   >
                     Reset All
                   </button>
@@ -848,42 +854,111 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-500" />
                   <input
                     type="text"
-                    placeholder="Search shortcuts..."
+                    placeholder={isZh ? '搜索快捷键 (Search shortcuts...)' : 'Search shortcuts...'}
                     value={shortcutSearch}
                     onChange={(e) => setShortcutSearch(e.target.value)}
                     className="w-full bg-[#161820] border border-[#272a32] text-xs text-zinc-200 pl-8 pr-3 py-2 rounded-xl focus:outline-none focus:border-zinc-500"
                   />
                 </div>
 
-                {/* Shortcuts List */}
-                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                  {filteredShortcuts.map((key) => {
-                    const item = shortcuts[key]
-                    const isRecording = recordingKey === key
-
+                {/* Category Filter Tabs (All / Map / Dialogue / Tabs / General) */}
+                <div
+                  className="flex flex-wrap items-center gap-1.5 bg-[#14171f] p-1.5 rounded-xl border border-[#232733]"
+                  role="tablist"
+                  aria-label="Shortcut Categories"
+                >
+                  {SHORTCUT_CATEGORIES.map((cat) => {
+                    const count = filterShortcutKeys(shortcuts, cat.id, shortcutSearch).length
+                    const isActive = shortcutCategory === cat.id
                     return (
-                      <div
-                        key={key}
-                        className="flex items-center justify-between p-3 rounded-xl border border-[#21242b] bg-[#151820] hover:border-zinc-700 transition-colors"
+                      <button
+                        key={cat.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        data-shortcut-category={cat.id}
+                        onClick={() => setShortcutCategory(cat.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                          isActive
+                            ? cat.id === 'map'
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                              : 'bg-[#282d3d] text-white border border-zinc-600/60 shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c202b] border border-transparent'
+                        }`}
                       >
-                        <div>
-                          <div className="text-xs font-medium text-zinc-200">{item.description}</div>
-                          <div className="text-[10px] text-zinc-500 font-mono">{key}</div>
-                        </div>
-
-                        <button
-                          onClick={() => setRecordingKey(isRecording ? null : key)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer ${
-                            isRecording
-                              ? 'bg-orange-600 text-white animate-pulse border border-orange-400'
-                              : 'bg-[#20232d] text-zinc-300 border border-zinc-700 hover:bg-[#2b2f3d]'
+                        <span>{isZh ? cat.labelZh : cat.labelEn}</span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                            isActive
+                              ? cat.id === 'map'
+                                ? 'bg-cyan-500/30 text-cyan-200'
+                                : 'bg-zinc-700/80 text-zinc-200'
+                              : 'bg-zinc-800/80 text-zinc-500'
                           }`}
                         >
-                          {isRecording ? 'Press keys...' : item.label}
-                        </button>
-                      </div>
+                          {count}
+                        </span>
+                      </button>
                     )
                   })}
+                </div>
+
+                {/* Shortcuts List */}
+                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                  {filteredShortcuts.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-zinc-500 border border-dashed border-[#232733] rounded-xl">
+                      {isZh ? '该分类下暂无匹配的快捷键' : 'No matching shortcuts in this category'}
+                    </div>
+                  ) : (
+                    filteredShortcuts.map((key) => {
+                      const item = shortcuts[key]
+                      const isRecording = recordingKey === key
+                      const itemCat: ShortcutCategory =
+                        item.category || DEFAULT_SHORTCUTS[key]?.category || 'general'
+                      const badgeStyles: Record<ShortcutCategory, string> = {
+                        map: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+                        dialogue: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                        workspace: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                        general: 'bg-zinc-500/15 text-zinc-400 border-zinc-600/30',
+                      }
+                      const badgeLabels: Record<ShortcutCategory, string> = {
+                        map: isZh ? 'Map 地图' : 'Map',
+                        dialogue: isZh ? 'Dialogue 对话' : 'Dialogue',
+                        workspace: isZh ? 'Tabs 标签' : 'Tabs',
+                        general: isZh ? 'General 通用' : 'General',
+                      }
+
+                      return (
+                        <div
+                          key={key}
+                          className="flex items-center justify-between p-3 rounded-xl border border-[#21242b] bg-[#151820] hover:border-zinc-700 transition-colors"
+                        >
+                          <div className="min-w-0 pr-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-medium text-zinc-200">{item.description}</span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${badgeStyles[itemCat]}`}
+                              >
+                                {badgeLabels[itemCat]}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{key}</div>
+                          </div>
+
+                          <button
+                            onClick={() => setRecordingKey(isRecording ? null : key)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer shrink-0 ${
+                              isRecording
+                                ? 'bg-orange-600 text-white animate-pulse border border-orange-400'
+                                : 'bg-[#20232d] text-zinc-300 border border-zinc-700 hover:bg-[#2b2f3d]'
+                            }`}
+                          >
+                            {isRecording ? 'Press keys...' : item.label}
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
               </div>
             )}

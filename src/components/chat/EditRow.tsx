@@ -1,5 +1,6 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, XCircle } from 'lucide-react'
 import { FileTypeIcon } from '../common/FileTypeIcon'
+import { DelayedTooltip } from '../common/DelayedTooltip'
 import type { EditItem } from '../../utils/worked-summary'
 import { useDiffDrawer, editItemToDiffPayload } from '../diff/DiffDrawerContext'
 import { tr } from '../../utils/i18n'
@@ -54,6 +55,17 @@ export function EditRow({ item, messageId }: EditRowProps) {
           <span className="px-1.5 py-0.2 rounded bg-blue-950/70 border border-blue-800/60 text-blue-400">
             new
           </span>
+        )}
+        {item.toolStatus === 'error' && (
+          <DelayedTooltip
+            content={item.error || 'File edit failed'}
+            variant="error"
+            placement="top-end"
+          >
+            <span className="flex items-center text-rose-400">
+              <XCircle className="w-3.5 h-3.5" />
+            </span>
+          </DelayedTooltip>
         )}
         <ChevronRight className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-200 transition-colors shrink-0" />
       </div>

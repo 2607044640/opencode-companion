@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { skillScan, resolveSkillWorkspace } from './skill-discovery.mjs'
 
 const PROJECTS_ROOT = process.env.PROJECTS_ROOT || '/workspace/projects/'
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rs|go|md|css|html|vue|svelte|json)$/i
@@ -133,7 +134,7 @@ function sendJson(res, status, body) {
 function sendOptions(res) {
   res.writeHead(204, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   })
   res.end()
@@ -322,9 +323,127 @@ function runExternalRollback(actions) {
   return { ok: true, applied }
 }
 
+export const ROUTING_SSOT_PATHS = [
+  'C:\\ObsidianNote\\.opencode\\opencode-routing.json',
+  'C:/ObsidianNote/.opencode/opencode-routing.json',
+  '/home/developer/.config/opencode/opencode-routing.json',
+  '/home/developer/projects/ObsidianNote/.opencode/opencode-routing.json',
+]
+
+export const MODEL_PROFILE_PATHS = [
+  'C:\\AICore\\skills\\OpenCodeDataControl\\scripts\\data\\model_profiles.json',
+  'C:/AICore/skills/OpenCodeDataControl/scripts/data/model_profiles.json',
+  '/mnt/c/AICore/skills/OpenCodeDataControl/scripts/data/model_profiles.json',
+  '/home/developer/projects/AICore/skills/OpenCodeDataControl/scripts/data/model_profiles.json',
+]
+
+export function resolveModelProfiles(customPath = null) {
+  const candidatePaths = customPath ? [customPath] : MODEL_PROFILE_PATHS
+  let targetPath = null
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      targetPath = p
+      break
+    }
+  }
+
+  if (!targetPath) {
+    return { ok: false, error: 'model profiles not found' }
+  }
+
+  try {
+    const content = fs.readFileSync(targetPath, 'utf8')
+    const data = JSON.parse(content)
+    return {
+      ok: true,
+      path: targetPath,
+      version: data.version || 1,
+      default_model_id: data.default_model_id || 'unknown',
+      aliases: data.aliases || {},
+      profiles: data.profiles || {},
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export function resolveRoutingConfig(customPath = null) {
+  const candidatePaths = customPath ? [customPath] : ROUTING_SSOT_PATHS
+  let targetPath = null
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      targetPath = p
+      break
+    }
+  }
+
+  if (!targetPath) {
+    return { ok: false, error: 'routing config not found' }
+  }
+
+  try {
+    const content = fs.readFileSync(targetPath, 'utf8')
+    const data = JSON.parse(content)
+
+    let target = data.selectedActiveTarget || null
+    if (!target && data.subagents?.executor?.targetId) {
+      target = data.subagents.executor.targetId
+    }
+    if (!target && data.subagents?.planner?.targetId) {
+      target = data.subagents.planner.targetId
+    }
+    if (!target && Array.isArray(data.activeStandaloneModelIds) && data.activeStandaloneModelIds.length > 0) {
+      target = data.activeStandaloneModelIds[0]
+    }
+    if (!target && Array.isArray(data.standaloneModels)) {
+      const primary = data.standaloneModels.find((m) => m && m.enabled && m.tags?.includes('primary'))
+      if (primary) target = primary.id
+    }
+
+    let seniorModel = null
+    if (target && typeof target === 'string' && target.includes('/')) {
+      const [providerID, ...rest] = target.split('/')
+      const modelID = rest.join('/')
+      let name = `${modelID}`
+      if (Array.isArray(data.standaloneModels)) {
+        const found = data.standaloneModels.find((m) => m && m.id === target)
+        if (found?.name) name = found.name
+      }
+      seniorModel = {
+        providerID,
+        modelID,
+        name,
+      }
+    }
+
+    const modelProfiles = resolveModelProfiles()
+
+    return {
+      ok: true,
+      path: targetPath,
+      selectedActiveTarget: target,
+      seniorModel,
+      activeStandaloneModelIds: data.activeStandaloneModelIds || [],
+      subagents: data.subagents || {},
+      modelProfiles: modelProfiles.ok ? modelProfiles : undefined,
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 export async function handleHostApi(req, res) {
-  const url = (req.url || '').split('?')[0]
-  if (url !== '/api/git-checkpoint' && url !== '/api/external-file-rollback') {
+  const rawUrl = req.url || ''
+  const queryAt = rawUrl.indexOf('?')
+  const url = queryAt >= 0 ? rawUrl.slice(0, queryAt) : rawUrl
+  const query = new URLSearchParams(queryAt >= 0 ? rawUrl.slice(queryAt + 1) : '')
+  if (
+    url !== '/api/git-checkpoint' &&
+    url !== '/api/external-file-rollback' &&
+    url !== '/api/routing-config' &&
+    url !== '/api/skills' &&
+    url !== '/api/model-profiles'
+  ) {
     return false
   }
 
@@ -332,6 +451,38 @@ export async function handleHostApi(req, res) {
     sendOptions(res)
     return true
   }
+
+  if (url === '/api/routing-config') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const result = resolveRoutingConfig()
+    sendJson(res, result.ok ? 200 : 404, result)
+    return true
+  }
+
+  if (url === '/api/model-profiles') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const result = resolveModelProfiles()
+    sendJson(res, result.ok ? 200 : 404, result)
+    return true
+  }
+
+  if (url === '/api/skills') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const workspaceDir = resolveSkillWorkspace(query.get('directory') || '')
+    const skills = skillScan.list({ workspaceDir: workspaceDir || undefined })
+    sendJson(res, 200, { ok: true, skills })
+    return true
+  }
+
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'method not allowed' })
     return true

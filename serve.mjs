@@ -1,4 +1,5 @@
 import http from 'node:http'
+import https from 'node:https'
 import net from 'node:net'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -25,7 +26,115 @@ const MIME_TYPES = {
 const server = http.createServer((req, res) => {
   let reqPath = req.url.split('?')[0]
 
-  if (reqPath === '/api/git-checkpoint' || reqPath === '/api/external-file-rollback') {
+  // Same-origin reverse proxy to OpenCode daemon (127.0.0.1:5001)
+  if (reqPath === '/opencode-proxy' || reqPath.startsWith('/opencode-proxy/')) {
+    const targetPath = req.url.replace(/^\/opencode-proxy/, '') || '/'
+    const isSse = reqPath === '/opencode-proxy/global/event' || (req.headers['accept'] && req.headers['accept'].includes('text/event-stream'))
+    const start = Date.now()
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      })
+      res.end()
+      return
+    }
+
+    const proxyHeaders = { ...req.headers, host: '127.0.0.1:5001' }
+    delete proxyHeaders['connection']
+    delete proxyHeaders['accept-encoding']
+
+    const proxyReq = http.request(
+      {
+        host: '127.0.0.1',
+        port: 5001,
+        path: targetPath,
+        method: req.method,
+        headers: proxyHeaders,
+        timeout: isSse ? 0 : 10000,
+      },
+      (upstreamRes) => {
+        upstreamRes.on('error', () => {
+          if (!res.writableEnded) res.destroy()
+        })
+
+        const responseHeaders = {
+          ...upstreamRes.headers,
+          'Access-Control-Allow-Origin': '*',
+        }
+
+        if (isSse) {
+          delete responseHeaders['content-length']
+          delete responseHeaders['transfer-encoding']
+          delete responseHeaders['content-encoding']
+          responseHeaders['Content-Type'] = 'text/event-stream'
+          responseHeaders['Cache-Control'] = 'no-cache, no-transform'
+          responseHeaders['Connection'] = 'keep-alive'
+          responseHeaders['X-Accel-Buffering'] = 'no'
+          res.writeHead(upstreamRes.statusCode || 200, responseHeaders)
+          if (typeof res.flushHeaders === 'function') res.flushHeaders()
+
+          upstreamRes.pipe(res)
+          console.log(`[opencode-proxy] [SSE] Connected to ${targetPath} (${Date.now() - start}ms)`)
+
+          res.on('close', () => {
+            console.log(`[opencode-proxy] [SSE] Client disconnected from ${targetPath}`)
+            if (!upstreamRes.destroyed) upstreamRes.destroy()
+            kill()
+          })
+          return
+        }
+
+        res.writeHead(upstreamRes.statusCode || 200, responseHeaders)
+        upstreamRes.pipe(res)
+        upstreamRes.on('end', () => {
+          console.log(`[opencode-proxy] ${req.method} ${targetPath} -> ${upstreamRes.statusCode} (${Date.now() - start}ms)`)
+        })
+        res.on('close', () => {
+          if (!upstreamRes.destroyed) upstreamRes.destroy()
+          kill()
+        })
+      }
+    )
+
+    const kill = () => {
+      if (!proxyReq.destroyed) proxyReq.destroy()
+    }
+    req.on('aborted', kill)
+    res.on('close', kill)
+
+    proxyReq.on('error', (err) => {
+      console.error(`[opencode-proxy] ${req.method} ${targetPath}:`, err.message)
+      if (!res.headersSent) {
+        res.writeHead(502, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(JSON.stringify({ ok: false, error: err.message }))
+      } else if (!res.writableEnded) {
+        res.destroy()
+      }
+    })
+
+    proxyReq.on('timeout', () => {
+      console.warn(`[opencode-proxy] Timeout forwarding ${req.method} ${targetPath}`)
+      proxyReq.destroy(new Error('Upstream timeout'))
+    })
+
+    req.pipe(proxyReq)
+    return
+  }
+
+  if (
+    reqPath === '/api/git-checkpoint' ||
+    reqPath === '/api/external-file-rollback' ||
+    reqPath === '/api/routing-config' ||
+    reqPath === '/api/skills' ||
+    reqPath === '/api/model-profiles'
+  ) {
+    req.url = req.url || reqPath
     void handleHostApi(req, res).then((handled) => {
       if (handled) return
       if (!res.headersSent) {
@@ -36,6 +145,66 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: false, error: `unknown api route: ${reqPath}` }))
       }
     })
+    return
+  }
+
+  // Physical attachment materializer endpoint (writes base64 data to /home/workdir/attachments & workspace)
+  if (reqPath === '/api/materialize-attachment' && req.method === 'POST') {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      try {
+        const { filename, mime, dataUrl } = JSON.parse(body || '{}')
+        if (!dataUrl || !filename) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+          res.end(JSON.stringify({ ok: false, error: 'filename and dataUrl required' }))
+          return
+        }
+        const base64Data = dataUrl.replace(/^data:[^;]+;base64,/, '')
+        const buffer = Buffer.from(base64Data, 'base64')
+        const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_') || 'image.png'
+
+        // 1. Write to /home/workdir/attachments/<filename> (for xAI/Grok native reading habit)
+        const workdir = '/home/workdir/attachments'
+        try {
+          if (!fs.existsSync(workdir)) {
+            fs.mkdirSync(workdir, { recursive: true })
+          }
+          fs.writeFileSync(path.join(workdir, safeName), buffer)
+          fs.writeFileSync(path.join(workdir, 'image.png'), buffer)
+        } catch (e) {
+          console.warn('[serve.mjs] Could not write to /home/workdir/attachments:', e.message)
+        }
+
+        // 2. Also write to projects/APISpace/attachments/<filename>
+        const projectDir = '/home/developer/projects/APISpace/attachments'
+        try {
+          if (!fs.existsSync(projectDir)) {
+            fs.mkdirSync(projectDir, { recursive: true })
+          }
+          fs.writeFileSync(path.join(projectDir, safeName), buffer)
+          fs.writeFileSync(path.join(projectDir, 'image.png'), buffer)
+        } catch (e) {
+          console.warn('[serve.mjs] Could not write to APISpace/attachments:', e.message)
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+        res.end(JSON.stringify({ ok: true, savedWorkdir: path.join(workdir, safeName) }))
+      } catch (err) {
+        console.error('[serve.mjs] Error in materialize-attachment:', err)
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+        res.end(JSON.stringify({ ok: false, error: err.message }))
+      }
+    })
+    return
+  }
+  if (reqPath === '/api/materialize-attachment' && req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    })
+    res.end()
     return
   }
 
@@ -125,6 +294,110 @@ const server = http.createServer((req, res) => {
     return
   }
 
+function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
+  return new Promise((resolve, reject) => {
+    let aborted = false
+    let activeSocket = null
+    let activeReq = null
+    let activeConnectReq = null
+
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+    }
+
+    const onAbort = () => {
+      aborted = true
+      if (activeSocket) {
+        try { activeSocket.destroy() } catch {}
+      }
+      if (activeReq) {
+        try { activeReq.destroy() } catch {}
+      }
+      if (activeConnectReq) {
+        try { activeConnectReq.destroy() } catch {}
+      }
+      reject(new Error('Request aborted'))
+    }
+
+    if (signal) {
+      if (signal.aborted) return reject(new Error('Request aborted'))
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    try {
+      const target = new URL(targetUrl)
+      const proxy = new URL(proxyUrl)
+
+      const isHttps = target.protocol === 'https:'
+      const port = target.port || (isHttps ? 443 : 80)
+      const proxyPort = proxy.port ? parseInt(proxy.port, 10) : (proxy.protocol === 'https:' ? 443 : 80)
+
+      const connectReq = http.request({
+        host: proxy.hostname,
+        port: proxyPort,
+        method: 'CONNECT',
+        path: `${target.hostname}:${port}`,
+      })
+      activeConnectReq = connectReq
+
+      connectReq.on('connect', (res, socket) => {
+        activeSocket = socket
+        if (aborted) {
+          socket.destroy()
+          cleanup()
+          return
+        }
+        if (res.statusCode !== 200) {
+          socket.destroy()
+          cleanup()
+          return reject(new Error(`Proxy CONNECT failed: ${res.statusCode}`))
+        }
+
+        const transport = isHttps ? https : http
+        const agent = isHttps ? new https.Agent({ socket }) : new http.Agent({ socket })
+        const req = transport.request({
+          host: target.hostname,
+          port,
+          path: target.pathname + target.search,
+          method: 'GET',
+          headers: {
+            ...headers,
+            host: target.hostname,
+          },
+          agent,
+        }, (response) => {
+          const chunks = []
+          response.on('data', chunk => chunks.push(chunk))
+          response.on('end', () => {
+            cleanup()
+            const buffer = Buffer.concat(chunks)
+            resolve({
+              status: response.statusCode,
+              text: async () => buffer.toString('utf-8'),
+            })
+          })
+        })
+        activeReq = req
+
+        req.on('error', (err) => {
+          cleanup()
+          reject(err)
+        })
+        req.end()
+      })
+
+      connectReq.on('error', (err) => {
+        cleanup()
+        reject(err)
+      })
+      connectReq.end()
+    } catch (err) {
+      cleanup()
+      reject(err)
+    }
+  })
+}
+
   if (reqPath === '/api/proxy/relay-quota') {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -158,7 +431,39 @@ const server = http.createServer((req, res) => {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-      fetch(target, { method: 'GET', headers, signal: controller.signal })
+      const getCandidateProxies = () => {
+        const envProxies = [
+          process.env.HTTPS_PROXY,
+          process.env.ALL_PROXY,
+          process.env.HTTP_PROXY,
+        ].filter(Boolean)
+
+        const isLinux = process.platform === 'linux'
+        const defaults = isLinux
+          ? ['http://127.0.0.1:3128', 'http://127.0.0.1:56995', 'http://127.0.0.1:7890']
+          : ['http://127.0.0.1:56995', 'http://127.0.0.1:3128', 'http://127.0.0.1:7890']
+
+        return [...new Set([...envProxies, ...defaults])]
+      }
+
+      const tryFetch = async () => {
+        try {
+          return await fetch(target, { method: 'GET', headers, signal: controller.signal })
+        } catch (directErr) {
+          const proxies = getCandidateProxies()
+          let lastErr = directErr
+          for (const proxyUrl of proxies) {
+            try {
+              return await fetchViaProxy(target, headers, proxyUrl, controller.signal)
+            } catch (proxyErr) {
+              lastErr = proxyErr
+            }
+          }
+          throw lastErr
+        }
+      }
+
+      tryFetch()
         .then(async (upstreamRes) => {
           clearTimeout(timeoutId)
           const text = await upstreamRes.text()
@@ -219,8 +524,8 @@ const server = http.createServer((req, res) => {
           seenUrls.add(cleanBase)
 
           let id = `relay_${c.id}`
-          if (cleanBase.includes('tokenshop.homes')) id = 'relay_tokenshop'
-          else if (cleanBase.includes('xn--fiq104an1x80s.com') || cleanBase.includes('ai6666.shop')) id = 'relay_wending'
+          if (cleanBase.includes('tokenshop.homes')) continue
+          if (cleanBase.includes('xn--fiq104an1x80s.com') || cleanBase.includes('ai6666.shop')) id = 'relay_wending'
           else if (cleanBase.includes('llmfree.work')) id = 'relay_llmfree'
           else if (cleanBase.includes('gguuai.com')) id = 'relay_gguu'
           else if (cleanBase.includes('aimoniker.top')) id = 'relay_moniker'
@@ -251,8 +556,32 @@ const server = http.createServer((req, res) => {
           })
         }
 
+        // Guaranteed Fallback presets when Gateway channels are offline or isolated across WSL
+        if (presets.length === 0) {
+          presets.push(
+            {
+              id: 'relay_llmfree',
+              name: 'LLMFree-Grok (grok-4.7)',
+              baseUrl: 'https://llmfree.work',
+              redeemUrl: 'https://llmfree.work/redeem',
+              currency: 'USD',
+              quotaRate: 500000,
+              cnyRate: 7.2,
+            },
+            {
+              id: 'relay_wending',
+              name: '稳定中转-Gemini',
+              baseUrl: 'https://xn--fiq104an1x80s.com',
+              redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
+              currency: 'USD',
+              quotaRate: 500000,
+              cnyRate: 7.2,
+            }
+          )
+        }
+
         res.writeHead(200, {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Access-Control-Allow-Origin': '*',
         })
         res.end(JSON.stringify({ ok: true, presets }))
@@ -351,9 +680,11 @@ const server = http.createServer((req, res) => {
       res.end('Internal Server Error')
       return
     }
+    const isHtml = ext === '.html' || filePath.endsWith('index.html')
     res.writeHead(200, {
       'Content-Type': contentType,
       'Access-Control-Allow-Origin': '*',
+      ...(isHtml ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' } : {}),
     })
     res.end(content)
   })
@@ -361,32 +692,4 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`OpenCode Companion server running on port ${PORT}`)
-  startWslPortForwarder()
 })
-
-function startWslPortForwarder() {
-  try {
-    const rawIp = execSync('wsl.exe -d opencode-jail hostname -I', { encoding: 'utf8', timeout: 5000 })
-    const wslIp = rawIp.trim().split(/\s+/)[0]
-    if (!wslIp) return
-
-    const forwarder = net.createServer((clientSocket) => {
-      const serverSocket = net.connect(5001, wslIp)
-      clientSocket.pipe(serverSocket).pipe(clientSocket)
-      clientSocket.on('error', () => serverSocket.destroy())
-      serverSocket.on('error', () => clientSocket.destroy())
-    })
-
-    forwarder.on('error', (err) => {
-      if (err.code !== 'EADDRINUSE') {
-        console.warn('[WSL Forwarder] Port 5001 forwarder notice:', err.message)
-      }
-    })
-
-    forwarder.listen(5001, '127.0.0.1', () => {
-      console.log(`[WSL Forwarder] Forwarding Windows 127.0.0.1:5001 -> WSL ${wslIp}:5001`)
-    })
-  } catch (err) {
-    console.warn('[WSL Forwarder] Could not resolve WSL IP:', err.message)
-  }
-}

@@ -4,6 +4,7 @@ import { MapCanvas, type MatchedSessionCard } from "./canvas/MapApp"
 import { Search, X, Maximize2, RefreshCw, Wand2, Home, Network } from "lucide-react"
 import type { Project } from "../../types/opencode"
 import { isBlueprintReservedKey } from "./canvas/blueprint-hotkeys"
+import { useI18n } from "../../utils/i18n"
 
 export interface FloatingMapModalProps {
   readonly isOpen: boolean
@@ -74,6 +75,7 @@ function FloatingMapContent({
   readonly targetSessionId?: string | null
 }) {
   const { fitView, setCenter } = useReactFlow()
+  const { isZh } = useI18n()
   const [searchQuery, setSearchQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
   const [matchedSessions, setMatchedSessions] = useState<readonly MatchedSessionCard[]>([])
@@ -197,9 +199,9 @@ function FloatingMapContent({
     if (e.key === "Enter") {
       e.preventDefault()
       if (matchedSessions.length > 0 && matchedSessions[safeActiveIndex]) {
-        const targetSessionId = matchedSessions[safeActiveIndex].sessionId
-        onSelectSession(targetSessionId)
-        onClose()
+        const target = matchedSessions[safeActiveIndex]
+        centerOnCard(target)
+        searchInputRef.current?.blur()
       }
       return
     }
@@ -277,9 +279,8 @@ function FloatingMapContent({
       if (e.key === "Enter") {
         e.preventDefault()
         if (matchedSessions.length > 0 && matchedSessions[safeActiveIndex]) {
-          const targetSessionId = matchedSessions[safeActiveIndex].sessionId
-          onSelectSession(targetSessionId)
-          onClose()
+          const target = matchedSessions[safeActiveIndex]
+          centerOnCard(target)
         }
         return
       }
@@ -374,7 +375,11 @@ function FloatingMapContent({
             onKeyDown={handleSearchKeyDown}
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
-            placeholder="搜索会话 (按 ↑↓ 选择, Enter 打开, Esc 退出)..."
+            placeholder={
+              isZh
+                ? "搜索会话 (按 ↑↓ 选择, Enter 定位, 双击卡片打开)..."
+                : "Search sessions (↑↓ to select, Enter to locate, double-click card to open)..."
+            }
             className="w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-orange-500/80 transition-colors placeholder:text-zinc-500"
           />
           {searchQuery && (
@@ -401,7 +406,7 @@ function FloatingMapContent({
               onChange={(e) => {
                 const val = e.target.value
                 if (val === "__create_new__") {
-                  const name = window.prompt("请输入新蓝图名称：", "")
+                  const name = window.prompt(isZh ? "请输入新蓝图名称：" : "Enter new blueprint name:", "")
                   if (name && name.trim()) {
                     setSelectedDirectoryOverride(name.trim())
                   }
@@ -411,21 +416,21 @@ function FloatingMapContent({
                 setActiveIndex(0)
               }}
               className="bg-transparent text-xs text-zinc-300 focus:outline-none cursor-pointer max-w-[160px] truncate"
-              title="切换蓝图"
+              title={isZh ? "切换蓝图" : "Switch blueprint"}
             >
               <option value="all" className="bg-[#16181e] text-zinc-300">
-                主蓝图 (全部对话)
+                {isZh ? "主蓝图 (全部对话)" : "Main Blueprint (All Sessions)"}
               </option>
               {projects.map((p) => {
                 const label = p.name || p.worktree.split("/").filter(Boolean).pop() || p.worktree
                 return (
                   <option key={p.id} value={p.worktree} className="bg-[#16181e] text-zinc-300">
-                    项目: {label}
+                    {isZh ? `项目: ${label}` : `Project: ${label}`}
                   </option>
                 )
               })}
               <option value="__create_new__" className="bg-[#16181e] text-sky-400 font-medium">
-                + 新建独立蓝图...
+                {isZh ? "+ 新建独立蓝图..." : "+ New Independent Blueprint..."}
               </option>
             </select>
           </div>
@@ -434,27 +439,27 @@ function FloatingMapContent({
           <button
             onClick={handleAutoLayout}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[#272a31] bg-[#16181e] text-zinc-300 hover:text-zinc-100 hover:bg-[#1c1f26] transition-colors"
-            title="自动整理蓝图 (Dagre Auto-Layout)"
+            title={isZh ? "自动整理蓝图" : "Auto-Layout Blueprint"}
           >
             <Wand2 className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden sm:inline">整理蓝图</span>
+            <span className="hidden sm:inline">{isZh ? "整理蓝图" : "Auto-Layout"}</span>
           </button>
 
           {/* Home button (H key) */}
           <button
             onClick={handleHome}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[#272a31] bg-[#16181e] text-zinc-300 hover:text-zinc-100 hover:bg-[#1c1f26] transition-colors"
-            title="回到全部对话 (H)"
+            title={isZh ? "回到对话 (H)" : "Return to Sessions (H)"}
           >
             <Home className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">回到对话 (H)</span>
+            <span className="hidden sm:inline">{isZh ? "回到对话 (H)" : "Sessions (H)"}</span>
           </button>
 
           {/* Fit-View button */}
           <button
             onClick={handleFitView}
             className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26] rounded-md border border-[#272a31] transition-colors"
-            title="适应画布 (Fit View)"
+            title={isZh ? "适应画布" : "Fit View"}
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
@@ -467,17 +472,25 @@ function FloatingMapContent({
                 ? "bg-orange-950/40 text-orange-400 border-orange-800/60"
                 : "bg-[#16181e] text-zinc-400 border-[#272a31] hover:text-zinc-200"
             }`}
-            title={autoSyncEnabled ? "自动同步：已开启" : "自动同步：已关闭"}
+            title={
+              autoSyncEnabled
+                ? (isZh ? "自动同步：已开启" : "Auto-Sync: Enabled")
+                : (isZh ? "自动同步：已关闭" : "Auto-Sync: Disabled")
+            }
           >
             <RefreshCw className={`w-3 h-3 ${autoSyncEnabled ? "text-orange-400" : "text-zinc-500"}`} />
-            <span className="hidden sm:inline">自动同步 {autoSyncEnabled ? "开" : "关"}</span>
+            <span className="hidden sm:inline">
+              {isZh
+                ? `自动同步 ${autoSyncEnabled ? "开" : "关"}`
+                : `Auto-Sync ${autoSyncEnabled ? "On" : "Off"}`}
+            </span>
           </button>
 
           {/* Close button */}
           <button
             onClick={onClose}
             className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-[#1c1f26] rounded-md border border-[#272a31] transition-colors"
-            title="关闭 (Esc)"
+            title={isZh ? "关闭 (Esc)" : "Close (Esc)"}
           >
             <X className="w-4 h-4" />
           </button>

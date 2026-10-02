@@ -5,6 +5,7 @@ import { useI18n } from '../../utils/i18n'
 import {
   computeDialogueTicks,
   computeViewportThumb,
+  calculateDragScrollTop,
   type DialogueTick,
   type DialogueElementInfo,
 } from './quick-jump'
@@ -34,7 +35,10 @@ export function TimelineQuickJump({
 
   const [ticks, setTicks] = useState<DialogueTick[]>([])
   const [thumb, setThumb] = useState<{ topPct: number; heightPct: number }>({ topPct: 0, heightPct: 100 })
+  const [isDragging, setIsDragging] = useState(false)
+  const trackRef = useRef<HTMLDivElement | null>(null)
   const rafRef = useRef<number | null>(null)
+  const isDraggingRef = useRef(false)
 
   const { isPressing: isUpPressing, handlers: upHandlers } = useLongPress({
     onClick: onJumpToRecentUser,
@@ -48,18 +52,26 @@ export function TimelineQuickJump({
     thresholdMs: 1000,
   })
 
-  // Synchronize ticks and thumb position relative to container
-  const updateMetrics = useCallback(() => {
+  // Fast viewport thumb update - purely mathematical, zero DOM measurement reflow
+  const updateThumb = useCallback(() => {
+    if (!containerRef.current) return
+    const { scrollHeight, scrollTop, clientHeight } = containerRef.current
+    const computedThumb = computeViewportThumb({ scrollHeight, scrollTop, clientHeight })
+    setThumb(computedThumb)
+  }, [containerRef])
+
+  // Full tick measurement - measures dialogue offsets when DOM structure or window size changes
+  const updateTicks = useCallback(() => {
     if (!containerRef.current) return
     const container = containerRef.current
     const { scrollHeight, scrollTop, clientHeight } = container
+    if (scrollHeight <= 0) return
 
     const containerRect = container.getBoundingClientRect()
     const userEls = container.querySelectorAll<HTMLElement>('[data-message-role="user"]')
 
     const userElements: DialogueElementInfo[] = Array.from(userEls).map((el) => {
       const r = el.getBoundingClientRect()
-      // Compensate for scroller nesting so measurement is true absolute scroll offset
       const offsetTop = r.top - containerRect.top + scrollTop
       return {
         offsetTop,
@@ -72,11 +84,29 @@ export function TimelineQuickJump({
       { scrollHeight, scrollTop, clientHeight },
       userElements
     )
-    const computedThumb = computeViewportThumb({ scrollHeight, scrollTop, clientHeight })
-
     setTicks(computedTicks)
-    setThumb(computedThumb)
-  }, [containerRef])
+    updateThumb()
+  }, [containerRef, updateThumb])
+
+  // Scroll tick updater - updates thumb and active highlight without forced reflow
+  const updateMetrics = useCallback(() => {
+    updateThumb()
+
+    // Lightweight active tick highlight update using cached tick offsets
+    setTicks((prev) => {
+      if (prev.length === 0 || !containerRef.current) return prev
+      const { scrollTop, clientHeight } = containerRef.current
+      let changed = false
+      const next = prev.map((tick) => {
+        const isActive =
+          tick.offsetTop >= scrollTop - 60 &&
+          tick.offsetTop <= scrollTop + clientHeight - 40
+        if (isActive !== tick.isActive) changed = true
+        return isActive === tick.isActive ? tick : { ...tick, isActive }
+      })
+      return changed ? next : prev
+    })
+  }, [containerRef, updateThumb])
 
   const scheduleUpdate = useCallback(() => {
     if (rafRef.current !== null) return
@@ -90,10 +120,13 @@ export function TimelineQuickJump({
     const container = containerRef.current
     if (!container) return
 
-    scheduleUpdate()
+    // Immediately calculate initial ticks and thumb
+    updateTicks()
+
     container.addEventListener('scroll', scheduleUpdate, { passive: true })
 
     const resizeObserver = new ResizeObserver(() => {
+      updateTicks()
       scheduleUpdate()
     })
     resizeObserver.observe(container)
@@ -103,20 +136,62 @@ export function TimelineQuickJump({
       resizeObserver.disconnect()
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
+        rafRef.current = null // Fixed: must reset to null on unmount/re-bind!
       }
     }
-  }, [containerRef, messagesCount, scheduleUpdate])
+  }, [containerRef, messagesCount, scheduleUpdate, updateTicks])
 
-  // Handle clicking on the background track to scroll proportionally
-  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!containerRef.current) return
-    const track = e.currentTarget
+  // Drag & click handling on track rail with Pointer Capture
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!containerRef.current || !trackRef.current) return
+    if (e.button !== 0) return // Left click only
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    const track = trackRef.current
+    try {
+      track.setPointerCapture(e.pointerId)
+    } catch {}
+
+    isDraggingRef.current = true
+    setIsDragging(true)
+
     const rect = track.getBoundingClientRect()
-    const clickY = e.clientY - rect.top
-    const ratio = Math.max(0, Math.min(1, clickY / rect.height))
-    const container = containerRef.current
-    const targetScroll = ratio * (container.scrollHeight - container.clientHeight)
-    container.scrollTo({ top: targetScroll, behavior: 'smooth' })
+    const targetScroll = calculateDragScrollTop(
+      e.clientY - rect.top,
+      rect.height,
+      containerRef.current.scrollHeight,
+      containerRef.current.clientHeight
+    )
+    containerRef.current.scrollTop = targetScroll
+    updateThumb()
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || !containerRef.current || !trackRef.current) return
+    e.preventDefault()
+    e.stopPropagation()
+
+    const track = trackRef.current
+    const rect = track.getBoundingClientRect()
+    const targetScroll = calculateDragScrollTop(
+      e.clientY - rect.top,
+      rect.height,
+      containerRef.current.scrollHeight,
+      containerRef.current.clientHeight
+    )
+    containerRef.current.scrollTop = targetScroll
+    updateThumb()
+  }
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!trackRef.current) return
+    try {
+      trackRef.current.releasePointerCapture(e.pointerId)
+    } catch {}
+    isDraggingRef.current = false
+    setIsDragging(false)
   }
 
   return (
@@ -136,7 +211,7 @@ export function TimelineQuickJump({
           className={`w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-pointer transition-all shrink-0 outline-none ${
             isUpPressing
               ? 'scale-90 bg-orange-950/90 text-orange-400 ring-1 ring-orange-500/70'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80 active:scale-90'
           }`}
           title={t.settings?.quickJumpUpTooltip || '上一条对话 (长按 1 秒跳转到顶部)'}
           aria-label="向上快捷跳转"
@@ -144,11 +219,17 @@ export function TimelineQuickJump({
           <ChevronUp className="w-3 h-3 shrink-0" />
         </button>
 
-        {/* Middle Track Rail */}
+        {/* Middle Track Rail with Pointer Dragging & Direct Jump */}
         <div
-          onClick={handleTrackClick}
-          className="relative flex-1 w-full my-1 rounded-full bg-zinc-900/60 overflow-visible cursor-pointer"
-          title="点击标尺快速滚动"
+          ref={trackRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          className={`relative flex-1 w-full my-1 rounded-full bg-zinc-900/60 overflow-visible touch-none ${
+            isDragging ? 'cursor-grabbing' : 'cursor-pointer'
+          }`}
+          title="点击或拖动标尺快速滚动"
         >
           {/* Viewport Indicator Thumb */}
           <div
@@ -156,7 +237,11 @@ export function TimelineQuickJump({
               top: `${thumb.topPct}%`,
               height: `${thumb.heightPct}%`,
             }}
-            className="absolute left-0.5 right-0.5 rounded-full bg-zinc-600/30 border border-zinc-500/30 pointer-events-none transition-all duration-75"
+            className={`absolute left-0.5 right-0.5 rounded-full border pointer-events-none transition-colors duration-75 ${
+              isDragging
+                ? 'bg-orange-500/80 border-orange-400 ring-1 ring-orange-400/80 shadow-md shadow-orange-500/40'
+                : 'bg-zinc-600/35 border-zinc-500/40 hover:bg-zinc-500/50'
+            }`}
           />
 
           {/* Dialogue Ticks ("x个小条") */}
@@ -197,7 +282,7 @@ export function TimelineQuickJump({
           className={`w-3.5 h-3.5 rounded-full flex items-center justify-center cursor-pointer transition-all shrink-0 outline-none ${
             isDownPressing
               ? 'scale-90 bg-orange-950/90 text-orange-400 ring-1 ring-orange-500/70'
-              : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80 active:scale-90'
           }`}
           title={t.settings?.quickJumpDownTooltip || '下一条对话 (长按 1 秒跳转到底部)'}
           aria-label="向下快捷跳转"

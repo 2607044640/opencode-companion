@@ -53,8 +53,23 @@ export function useSessions() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
-  const [openTabIds, setOpenTabIds] = useState<string[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get('session')
+      if (id && id !== DRAFT_SESSION_ID) {
+        api.prefetchMessages(id)
+        return id
+      }
+    } catch {}
+    return null
+  })
+  const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get('session')
+      if (id && id !== DRAFT_SESSION_ID) return [id]
+    } catch {}
+    return []
+  })
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(true)
 
@@ -106,6 +121,9 @@ export function useSessions() {
 
   const refresh = useCallback(async () => {
     try {
+      const urlSessionIdEarly = new URLSearchParams(window.location.search).get('session')
+      if (urlSessionIdEarly) api.prefetchMessages(urlSessionIdEarly)
+
       const [projList, sessList] = await Promise.all([
         api.getProjects(),
         api.getSessions(),
@@ -141,7 +159,7 @@ export function useSessions() {
         }
       }
 
-      if (nextSessions.length > 0 && !activeSessionIdRef.current) {
+      if (nextSessions.length > 0 && !activeSessionIdRef.current && !urlSessionId) {
         const validSessions = nextSessions.filter((s) => {
           const isAbandoned =
             Boolean(s.title?.startsWith('New session - ')) &&
@@ -151,6 +169,7 @@ export function useSessions() {
         })
         if (validSessions.length > 0) {
           const first = validSessions[0]
+          api.prefetchMessages(first.id)
           setActiveSessionId(first.id)
           setOpenTabIds([first.id])
           const pid = resolveCanonicalProjectId(first, projList)
@@ -225,6 +244,8 @@ export function useSessions() {
       writeSessionUrl(DRAFT_SESSION_ID)
       return
     }
+
+    if (sessionId) api.prefetchMessages(sessionId)
 
     const localPlan = planSessionActivation({
       sessionId,
@@ -411,6 +432,9 @@ export function useSessions() {
       // Exclude archived sessions from active history list
       if (archivedIds.includes(s.id)) return false
 
+      // Exclude internal child/subagent sessions spawned by daemon
+      if (s.parentID) return false
+
       // Filter out abandoned empty sessions created by previous instant new-session clicks
       const isAbandonedEmpty =
         Boolean(s.title?.startsWith('New session - ')) &&
@@ -491,10 +515,12 @@ export function useSessions() {
         id: DRAFT_SESSION_ID,
         slug: 'draft',
         projectID: selectedProjectId || 'global',
-        directory: canonicalizeDirectory(selectedProject?.worktree) || '',
+        directory: selectedProject?.worktree
+          ? canonicalizeDirectory(selectedProject.worktree) || ''
+          : '/home/developer/projects/APISpace',
         title: '新会话',
         agent: 'build',
-        model: { id: 'grok-4.6', providerID: 'obsidian' },
+        model: { id: '', providerID: '' },
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         cost: 0,
         time: { created: Date.now(), updated: Date.now() },

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Play, Sparkles, MessageSquare } from 'lucide-react'
+import { AlertTriangle, Play, Sparkles, MessageSquare, Loader2 } from 'lucide-react'
 import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
 import { MessageBubble } from './MessageBubble'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
@@ -13,6 +13,7 @@ import { usePreferences } from '../../utils/preferences'
 import { getShortcuts, createDoubleTapTracker, isEditableTarget, matchesShortcut, hasActiveOverlay } from '../../utils/shortcuts'
 import { groupTimelineMessages } from '../../utils/timeline-grouping'
 import { computeClientSideDiffs, mergeRevertDiffs } from '../../utils/client-side-diffs'
+import { isAbortError } from '../../services/api'
 import type { RevertMode, PromptAttachment } from '../../hooks/useChatStream'
 
 interface ChatTimelineProps {
@@ -31,6 +32,8 @@ interface ChatTimelineProps {
   onTargetMessageScrolled?: () => void
   isFindOpen?: boolean
   onCloseFind?: () => void
+  /** True while the active session transcript is still arriving. */
+  messagesLoading?: boolean
 }
 
 export function ChatTimeline({
@@ -49,10 +52,13 @@ export function ChatTimeline({
   onTargetMessageScrolled,
   isFindOpen,
   onCloseFind,
+  messagesLoading = false,
 }: ChatTimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isAutoScrollEnabled = useRef(true)
+  const lastTargetIndexRef = useRef<number | null>(null)
+  const lastTargetTimeRef = useRef<number>(0)
   const { prefs } = usePreferences()
 
   const [isConfirmUndoOpen, setIsConfirmUndoOpen] = useState(false)
@@ -217,22 +223,44 @@ export function ChatTimeline({
     )
 
     if (userEls.length === 0) {
-      container.scrollTo({ top: 0, behavior: 'smooth' })
+      isAutoScrollEnabled.current = false
+      if (container.scrollTop > 0) {
+        container.scrollTo({ top: 0, behavior: 'smooth' })
+      }
       return
     }
 
+    const now = Date.now()
     const containerRect = container.getBoundingClientRect()
     const rects = userEls.map((el, index) => {
       const r = el.getBoundingClientRect()
       return { index, top: r.top, bottom: r.bottom }
     })
 
-    const targetIdx = findJumpTargetIndex(containerRect.top, rects)
+    let targetIdx = findJumpTargetIndex(containerRect.top, rects)
+
+    // Monotonically step back if rapid clicks occurred during smooth-scroll animation
+    if (
+      lastTargetIndexRef.current !== null &&
+      now - lastTargetTimeRef.current < 750 &&
+      lastTargetIndexRef.current > 0
+    ) {
+      targetIdx = lastTargetIndexRef.current - 1
+    }
+
     if (targetIdx === null) {
       isAutoScrollEnabled.current = false
-      container.scrollTo({ top: 0, behavior: 'smooth' })
+      if (container.scrollTop > 30) {
+        container.scrollTo({ top: 0, behavior: 'smooth' })
+      } else {
+        container.scrollBy({ top: -Math.min(250, container.clientHeight * 0.4), behavior: 'smooth' })
+      }
+      lastTargetIndexRef.current = null
       return
     }
+
+    lastTargetIndexRef.current = targetIdx
+    lastTargetTimeRef.current = now
 
     const targetEl = userEls[targetIdx]
     if (targetEl) {
@@ -261,19 +289,39 @@ export function ChatTimeline({
       return
     }
 
+    const now = Date.now()
     const containerRect = container.getBoundingClientRect()
     const rects = userEls.map((el, index) => {
       const r = el.getBoundingClientRect()
       return { index, top: r.top, bottom: r.bottom }
     })
 
-    const targetIdx = findNextJumpTargetIndex(containerRect.top, rects)
+    let targetIdx = findNextJumpTargetIndex(containerRect.top, rects)
+
+    // Monotonically step forward if rapid clicks occurred during smooth-scroll animation
+    if (
+      lastTargetIndexRef.current !== null &&
+      now - lastTargetTimeRef.current < 750 &&
+      lastTargetIndexRef.current < userEls.length - 1
+    ) {
+      targetIdx = lastTargetIndexRef.current + 1
+    }
+
     if (targetIdx === null) {
-      // Reached past the last user message, scroll to bottom of chat
-      isAutoScrollEnabled.current = true
-      scrollToBottom('smooth')
+      // Reached past the last user message: scroll through remaining response content or snap to bottom
+      const remainingScroll = container.scrollHeight - container.scrollTop - container.clientHeight
+      if (remainingScroll > 40) {
+        container.scrollBy({ top: Math.min(300, remainingScroll), behavior: 'smooth' })
+      } else {
+        isAutoScrollEnabled.current = true
+        scrollToBottom('smooth')
+      }
+      lastTargetIndexRef.current = null
       return
     }
+
+    lastTargetIndexRef.current = targetIdx
+    lastTargetTimeRef.current = now
 
     const targetEl = userEls[targetIdx]
     if (targetEl) {
@@ -291,11 +339,15 @@ export function ChatTimeline({
   }, [scrollElementIntoContainer, scrollToBottom])
 
   const handleScrollToTop = useCallback(() => {
+    lastTargetIndexRef.current = 0
+    lastTargetTimeRef.current = Date.now()
     isAutoScrollEnabled.current = false
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
   }, [])
 
   const handleScrollToAbsoluteBottom = useCallback(() => {
+    lastTargetIndexRef.current = null
+    lastTargetTimeRef.current = Date.now()
     isAutoScrollEnabled.current = true
     scrollToBottom('smooth')
   }, [scrollToBottom])
@@ -308,6 +360,8 @@ export function ChatTimeline({
     )
     const targetEl = userEls[userIndex]
     if (targetEl) {
+      lastTargetIndexRef.current = userIndex
+      lastTargetTimeRef.current = Date.now()
       isAutoScrollEnabled.current = false
       scrollElementIntoContainer(targetEl, 'start', 'smooth')
 
@@ -476,11 +530,61 @@ export function ChatTimeline({
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className={`flex-1 overflow-y-auto no-scrollbar transition-colors duration-300 px-4 sm:px-6 lg:px-8 py-4 ${
+        className={`relative flex-1 overflow-y-auto no-scrollbar transition-colors duration-300 px-4 sm:px-6 lg:px-8 py-4 ${
           isZenMode ? 'bg-[#090a0c] sm:py-8' : ''
         }`}
       >
-      {visibleItems.length === 0 ? (
+      {visibleItems.length === 0 &&
+      !error &&
+      (messagesLoading ||
+        Boolean(
+          activeSession &&
+            activeSession.id !== '__draft__' &&
+            ((activeSession.tokens?.input || 0) > 0 ||
+              (activeSession.tokens?.output || 0) > 0 ||
+              (activeSession.summary?.files || 0) > 0)
+        )) ? (
+        <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
+          {/* Centered Icon with Spinning Ring Animation (转圈动画) */}
+          <div className="relative w-16 h-16 flex items-center justify-center mb-4">
+            <div className="absolute inset-0 rounded-full border-2 border-orange-500/20 border-t-orange-400 border-r-purple-400 animate-spin" />
+            <div
+              className="absolute inset-1.5 rounded-full border border-purple-500/15 border-b-orange-300/70 animate-spin"
+              style={{ animationDirection: 'reverse', animationDuration: '1.6s' }}
+            />
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-orange-600/20 to-purple-600/20 border border-zinc-800/90 flex items-center justify-center text-orange-400 shadow-inner">
+              <MessageSquare className="w-5 h-5 animate-pulse" />
+            </div>
+          </div>
+
+          <h2 className="text-lg font-semibold text-zinc-200 mb-1">OpenCode Companion</h2>
+          <p className="text-xs text-zinc-400 max-w-sm mb-4">
+            {activeSession?.title
+              ? `正在加载「${activeSession.title}」的对话记录…`
+              : '正在同步 WSL2 守护进程工作区与对话数据…'}
+          </p>
+
+          {/* Three Floating / Bouncing Dots Animation (三个点上下浮动等待) */}
+          <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-[#14161a] border border-[#24272c] shadow-sm">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400 shrink-0" />
+            <span className="text-xs text-zinc-300 font-medium">正在加载对话</span>
+            <span className="inline-flex items-center gap-1 ml-0.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce"
+                style={{ animationDelay: '0ms', animationDuration: '0.9s' }}
+              />
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce"
+                style={{ animationDelay: '160ms', animationDuration: '0.9s' }}
+              />
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce"
+                style={{ animationDelay: '320ms', animationDuration: '0.9s' }}
+              />
+            </span>
+          </div>
+        </div>
+      ) : visibleItems.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-600/20 to-purple-600/20 border border-zinc-800 flex items-center justify-center mb-4 text-orange-400 shadow-inner">
             <MessageSquare className="w-6 h-6" />
@@ -550,7 +654,7 @@ export function ChatTimeline({
           })}
 
           {/* Error / Retry Banner (Exact Replicate of Image 1) */}
-          {(sessionStatus.type === 'retry' || Boolean(error)) && (
+          {(sessionStatus.type === 'retry' || (Boolean(error) && !isAbortError(error))) && (
             <div className="max-w-4xl mx-auto my-4 px-4">
               <div className="relative overflow-hidden rounded-lg bg-[#1a1315] border border-rose-900/40 p-3.5 flex items-center justify-between gap-4 shadow-md">
                 {/* Red Left Accent Indicator (from Image 1) */}

@@ -12,25 +12,35 @@ import {
   Check,
   Sliders,
   FileUp,
+  Loader2,
 } from 'lucide-react'
-import type { AgentInfo, ProviderInfo, Session, CommandItem, Project, TodoItem } from '../../types/opencode'
+import type { AgentInfo, ProviderInfo, Session, CommandItem, SkillItem, Project, TodoItem } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
 import { api, resolveAgentName } from '../../services/api'
 import { PromptPopover, type PopoverItem } from './PromptPopover'
 import { ProjectDropdown } from './ProjectDropdown'
 import { TodoButton } from './TodoButton'
 import { getShortcuts, matchesShortcut, isIMEActive, type ShortcutsMap } from '../../utils/shortcuts'
-import { isCuratedModel, isModelVisible } from '../../utils/model-filter'
+import { isCuratedModel, isModelVisible, resolveSeniorModel } from '../../utils/model-filter'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n } from '../../utils/i18n'
 import { ManageModelsModal } from '../models/ManageModelsModal'
 import { categorizeDroppedFiles, formatFileMentions, hasFilePayload } from './drag-drop'
+import { ImageLightboxModal, type LightboxImage } from './ImageLightboxModal'
+import { QueuedMessagesList } from './QueuedMessagesList'
+import type { QueuedMessage, QueuedPromptOptions } from '../../utils/message-queue'
+import { applySlashCommand, detectSlashTrigger } from './slash-trigger'
 
 export interface DraftInjection {
   text: string
   attachments?: PromptAttachment[]
   timestamp: number
   focus?: boolean
+}
+
+export interface PromptDraft {
+  text: string
+  options?: QueuedPromptOptions
 }
 
 interface PromptInputProps {
@@ -45,6 +55,12 @@ interface PromptInputProps {
   ) => void
   onAbort: () => void
   isBusy: boolean
+  queuedMessages?: QueuedMessage[]
+  onEnqueue?: (draft: PromptDraft) => void
+  onSendQueuedNow?: (id: string) => void
+  onEditQueued?: (id: string) => void
+  onDeleteQueued?: (id: string) => void
+  queueEditRequest?: (DraftInjection & { agent?: string; model?: { providerID: string; modelID: string } }) | null
   placeholder?: string
   isZenMode?: boolean
   draftInjection?: DraftInjection | null
@@ -61,6 +77,12 @@ export function PromptInput({
   onSend,
   onAbort,
   isBusy,
+  queuedMessages,
+  onEnqueue,
+  onSendQueuedNow,
+  onEditQueued,
+  onDeleteQueued,
+  queueEditRequest,
   placeholder = 'Ask anything, @ to mention, / for actions',
   isZenMode,
   draftInjection,
@@ -78,12 +100,14 @@ export function PromptInput({
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [commands, setCommands] = useState<CommandItem[]>([])
+  const [skills, setSkills] = useState<SkillItem[]>([])
   const [selectedAgent, setSelectedAgent] = useState<string>('build')
   const [selectedModel, setSelectedModel] = useState<{ providerID: string; modelID: string; name?: string }>({
-    providerID: 'obsidian',
-    modelID: 'grok-4.6',
-    name: 'Grok 4.6 (Paid)',
+    providerID: '',
+    modelID: '',
+    name: '',
   })
+  const seniorDefaultModelRef = useRef<{ providerID: string; modelID: string; name?: string } | null>(null)
   const [showAgentMenu, setShowAgentMenu] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [modelSearchQuery, setModelSearchQuery] = useState('')
@@ -91,6 +115,11 @@ export function PromptInput({
 
   // Multimodal image attachments (M4) & Drag-and-Drop
   const [attachments, setAttachments] = useState<PromptAttachment[]>([])
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+  const [processingImageCount, setProcessingImageCount] = useState<number>(0)
+  const isProcessingImage = processingImageCount > 0
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -139,6 +168,26 @@ export function PromptInput({
       textareaRef.current.setSelectionRange(len, len)
     }
   }, [draftInjection])
+
+  const lastQueueEditTimestamp = useRef<number>(0)
+  useEffect(() => {
+    if (!queueEditRequest || queueEditRequest.timestamp === lastQueueEditTimestamp.current) return
+    lastQueueEditTimestamp.current = queueEditRequest.timestamp
+    setText(queueEditRequest.text || '')
+    setAttachments(queueEditRequest.attachments || [])
+    if (queueEditRequest.agent) setSelectedAgent(queueEditRequest.agent)
+    if (queueEditRequest.model?.providerID && queueEditRequest.model.modelID) {
+      setSelectedModel({
+        providerID: queueEditRequest.model.providerID,
+        modelID: queueEditRequest.model.modelID,
+      })
+    }
+    if (textareaRef.current) {
+      textareaRef.current.focus()
+      const len = (queueEditRequest.text || '').length
+      textareaRef.current.setSelectionRange(len, len)
+    }
+  }, [queueEditRequest])
 
   useEffect(() => {
     const handleShortcutsUpdate = (e: Event) => {
@@ -192,6 +241,8 @@ export function PromptInput({
             modelID: mod,
           })
         }
+      } else if (seniorDefaultModelRef.current) {
+        setSelectedModel(seniorDefaultModelRef.current)
       }
     }
   }, [activeSession, agents])
@@ -200,11 +251,12 @@ export function PromptInput({
   useEffect(() => {
     async function loadMeta() {
       try {
-        const [agentList, providerList, commandList, daemonConfig] = await Promise.all([
+        const [agentList, providerList, commandList, daemonConfig, routingConfig] = await Promise.all([
           api.getAgents(),
           api.getProviders(),
           api.getCommands(),
           api.getConfig(),
+          api.getRoutingConfig(),
         ])
 
         // Filter selectable agents (Prometheus S1 + Refinement):
@@ -265,28 +317,28 @@ export function PromptInput({
           setSelectedAgent(defaultAgentName)
         }
 
-        // Curated model list
+        // Curated model list with display names
         const curated = providerList.flatMap((p) =>
           Object.entries(p.models || {})
             .filter(([mKey, modelObj]) => isCuratedModel(p.id, mKey, (modelObj as any)?.name))
-            .map(([mKey]) => ({ providerID: p.id, modelID: mKey }))
+            .map(([mKey, modelObj]) => ({
+              providerID: p.id,
+              modelID: mKey,
+              name: (modelObj as any)?.name || (modelObj as any)?.displayName || mKey,
+            }))
         )
 
-        // Initialize default model from daemon config (e.g. "obsidian/grok-4.6") or first curated model
-        let chosenModel: { providerID: string; modelID: string } | null = null
-        if (daemonConfig.model && typeof daemonConfig.model === 'string' && daemonConfig.model.includes('/')) {
-          const [cfgProv, cfgMod] = daemonConfig.model.split('/')
-          if (cfgProv && cfgMod && isCuratedModel(cfgProv, cfgMod)) {
-            chosenModel = { providerID: cfgProv, modelID: cfgMod }
+        // Dynamically resolve Senior Model from SSOT JSON table (with daemon & priority fallbacks)
+        const seniorResolved = resolveSeniorModel({
+          routingConfig,
+          daemonConfig,
+          curatedModels: curated,
+        })
+        if (seniorResolved) {
+          seniorDefaultModelRef.current = seniorResolved
+          if (!activeSessionRef.current?.model?.id) {
+            setSelectedModel(seniorResolved)
           }
-        }
-        if (!chosenModel && curated.length > 0) {
-          const grok = curated.find((m) => m.modelID.includes('grok-4.6'))
-          const flash = curated.find((m) => m.modelID.includes('gemini-3.8-flash'))
-          chosenModel = grok || flash || curated[0]
-        }
-        if (chosenModel) {
-          setSelectedModel(chosenModel)
         }
       } catch (err) {
         console.warn('Could not load agents/providers/config:', err)
@@ -294,6 +346,17 @@ export function PromptInput({
     }
     loadMeta()
   }, [])
+
+  // Skills are scanned from SKILL.md on the companion server. Reload when the session workspace changes.
+  useEffect(() => {
+    let cancelled = false
+    api.getSkills(activeSession?.directory).then((found) => {
+      if (!cancelled) setSkills(found)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSession?.directory])
 
   // Debounced file search when @ query is active (M6)
   useEffect(() => {
@@ -375,13 +438,16 @@ export function PromptInput({
   // Compute matching popover items
   const popoverItems = useMemo((): PopoverItem[] => {
     if (popoverMode === 'commands') {
-      return commands
-        .filter(
-          (c) =>
-            c.name.toLowerCase().includes(popoverQuery) ||
-            (c.description && c.description.toLowerCase().includes(popoverQuery))
-        )
+      const matches = (name: string, description?: string) =>
+        name.toLowerCase().includes(popoverQuery) ||
+        (description ? description.toLowerCase().includes(popoverQuery) : false)
+      const commandItems: PopoverItem[] = commands
+        .filter((c) => matches(c.name, c.description))
         .map((c) => ({ type: 'command', item: c }))
+      const skillItems: PopoverItem[] = skills
+        .filter((s) => matches(s.name, s.description))
+        .map((s) => ({ type: 'skill', item: s }))
+      return [...commandItems, ...skillItems]
     }
 
     if (popoverMode === 'context') {
@@ -402,7 +468,7 @@ export function PromptInput({
     }
 
     return []
-  }, [popoverMode, popoverQuery, commands, agents, matchingFiles])
+  }, [popoverMode, popoverQuery, commands, skills, agents, matchingFiles])
 
   // Derive safe selectedIndex without triggering cascading setState in effect
   const safeSelectedIndex =
@@ -420,6 +486,7 @@ export function PromptInput({
 
   // Clipboard Image Paste Handler (M4)
   const processImageFile = (file: File) => {
+    setProcessingImageCount((prev) => prev + 1)
     const reader = new FileReader()
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string
@@ -434,6 +501,11 @@ export function PromptInput({
           },
         ])
       }
+      setProcessingImageCount((prev) => Math.max(0, prev - 1))
+    }
+    reader.onerror = (err) => {
+      console.error('FileReader error reading image attachment:', err)
+      setProcessingImageCount((prev) => Math.max(0, prev - 1))
     }
     reader.readAsDataURL(file)
   }
@@ -533,19 +605,20 @@ export function PromptInput({
   const handleSelectPopoverItem = (entry: PopoverItem) => {
     const cursor = textareaRef.current?.selectionStart ?? text.length
 
-    if (entry.type === 'command') {
-      const afterSlash = text.startsWith('/') ? text.slice(1) : text
-      const spaceIdx = afterSlash.indexOf(' ')
-      const rest = spaceIdx !== -1 ? afterSlash.slice(spaceIdx).trimStart() : ''
-      const newText = rest ? `/${entry.item.name} ${rest}` : `/${entry.item.name} `
-      setText(newText)
+    if (entry.type === 'command' || entry.type === 'skill') {
+      const applied = applySlashCommand(text, cursor, entry.item.name)
+      if (!applied) {
+        setPopoverOpen(false)
+        setPopoverMode(null)
+        return
+      }
+      setText(applied.text)
       setPopoverOpen(false)
       setPopoverMode(null)
       setTimeout(() => {
         if (textareaRef.current) {
           textareaRef.current.focus()
-          const pos = `/${entry.item.name} `.length
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = pos
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = applied.cursor
         }
       }, 10)
       return
@@ -599,16 +672,14 @@ export function PromptInput({
     setText(val)
     const cursor = e.target.selectionStart ?? val.length
 
-    // Check for slash command at start of prompt
-    if (val.startsWith('/')) {
-      const beforeCursor = val.slice(1, cursor)
-      if (!beforeCursor.includes(' ') && !beforeCursor.includes('\n')) {
-        setPopoverMode('commands')
-        setPopoverQuery(beforeCursor.trim().toLowerCase())
-        setPopoverSelectedIndex(0)
-        setPopoverOpen(true)
-        return
-      }
+    // Slash menu: start of field, or `/` after whitespace. A `/` inside a word stays text.
+    const slash = detectSlashTrigger(val, cursor)
+    if (slash) {
+      setPopoverMode('commands')
+      setPopoverQuery(slash.query.trim().toLowerCase())
+      setPopoverSelectedIndex(0)
+      setPopoverOpen(true)
+      return
     }
 
     // Check for context mention (@)
@@ -676,20 +747,7 @@ export function PromptInput({
     }
   }
 
-  const handleSend = () => {
-    if (isBusy) {
-      onAbort()
-      return
-    }
-
-    if (!text.trim() && attachments.length === 0) return
-
-    onSend(text, {
-      agent: selectedAgent,
-      model: selectedModel,
-      attachments,
-    })
-
+  const clearComposer = () => {
     setText('')
     setAttachments([])
     setPopoverOpen(false)
@@ -697,6 +755,41 @@ export function PromptInput({
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
+  }
+
+  const handleSend = () => {
+    if (isProcessingImage) {
+      return
+    }
+
+    if (!text.trim() && attachments.length === 0) {
+      return
+    }
+
+    const draft: PromptDraft = {
+      text,
+      options: {
+        agent: selectedAgent,
+        model: selectedModel,
+        attachments,
+      },
+    }
+
+    // While the model is working, Enter queues instead of aborting.
+    // The red stop button remains the only abort control.
+    if (isBusy && onEnqueue) {
+      onEnqueue(draft)
+      clearComposer()
+      return
+    }
+
+    if (isBusy) {
+      onAbort()
+      return
+    }
+
+    onSend(draft.text, draft.options)
+    clearComposer()
   }
 
   return (
@@ -713,6 +806,15 @@ export function PromptInput({
             }`
       }
     >
+      {queuedMessages && queuedMessages.length > 0 && onSendQueuedNow && onEditQueued && onDeleteQueued && (
+        <QueuedMessagesList
+          items={queuedMessages}
+          onSendNow={onSendQueuedNow}
+          onEdit={onEditQueued}
+          onDelete={onDeleteQueued}
+        />
+      )}
+
       {/* Project Selector Pill directly above prompt input (Image 2) */}
       {!isZenMode && (
         <div className="flex items-center justify-between mb-1.5 px-0">
@@ -769,16 +871,29 @@ export function PromptInput({
         {/* Thumbnail Preview Bar for Uploaded / Pasted Images (M4) */}
         {attachments.length > 0 && (
           <div className="flex items-center gap-2 px-3 pt-2.5 pb-1 overflow-x-auto no-scrollbar border-b border-zinc-800/60">
-            {attachments.map((att) => (
+            {attachments.map((att, idx) => (
               <div
                 key={att.id}
-                className="relative group shrink-0 w-16 h-16 rounded-lg border border-[#2e333d] bg-[#1a1d24] overflow-hidden shadow-sm"
+                className="relative group shrink-0 w-16 h-16 rounded-xl border border-[#2e333d] bg-[#1a1d24] overflow-hidden shadow-sm hover:border-purple-500/80 transition-all cursor-pointer"
+                onClick={() => {
+                  setLightboxImages(attachments.map((a) => ({ id: a.id, url: a.url, filename: a.name })))
+                  setLightboxIndex(idx)
+                  setIsLightboxOpen(true)
+                }}
               >
-                <img src={att.url} alt={att.name || 'image'} className="w-full h-full object-cover" />
+                <img
+                  src={att.url}
+                  alt={att.name || 'image'}
+                  className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
+                  title={att.name || '点击查看大图'}
+                />
                 <button
                   type="button"
-                  onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== att.id))}
-                  className="absolute top-1 right-1 p-0.5 rounded-full bg-black/80 hover:bg-rose-600 text-white transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setAttachments((prev) => prev.filter((a) => a.id !== att.id))
+                  }}
+                  className="absolute top-1 right-1 p-0.5 rounded-full bg-black/80 hover:bg-rose-600 text-white transition-colors cursor-pointer"
                   title="Remove image"
                 >
                   <X className="w-3 h-3" />
@@ -1003,27 +1118,44 @@ export function PromptInput({
           {/* Right Action Button (Send / Stop) */}
           <div className="flex items-center gap-2">
             {isBusy ? (
-              <button
-                type="button"
-                onClick={onAbort}
-                className="w-7 h-7 rounded-md bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center transition-colors shadow"
-                title="Stop generation"
-              >
-                <Square className="w-3 h-3 fill-current" />
-              </button>
+              <>
+                {(text.trim() || attachments.length > 0) && (
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={isProcessingImage}
+                    className="w-7 h-7 rounded-md bg-orange-600 hover:bg-orange-500 text-white flex items-center justify-center transition-all shadow cursor-pointer active:scale-95"
+                    title={isZh ? '加入队列 (Enter)' : 'Queue message (Enter)'}
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onAbort}
+                  className="w-7 h-7 rounded-md bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center transition-colors shadow"
+                  title="Stop generation"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                </button>
+              </>
             ) : (
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={!text.trim() && attachments.length === 0}
+                disabled={(!text.trim() && attachments.length === 0) || isProcessingImage}
                 className={`w-7 h-7 rounded-md flex items-center justify-center transition-all shadow ${
-                  text.trim() || attachments.length > 0
+                  (text.trim() || attachments.length > 0) && !isProcessingImage
                     ? 'bg-orange-600 hover:bg-orange-500 text-white cursor-pointer active:scale-95'
                     : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                 }`}
-                title="Send message (Enter)"
+                title={isProcessingImage ? 'Processing image...' : 'Send message (Enter)'}
               >
-                <Send className="w-3.5 h-3.5" />
+                {isProcessingImage ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
               </button>
             )}
           </div>
@@ -1036,6 +1168,16 @@ export function PromptInput({
         onClose={() => setIsManageModelsOpen(false)}
         providers={providers}
       />
+
+      {/* Floating Image Lightbox Modal */}
+      {isLightboxOpen && (
+        <ImageLightboxModal
+          isOpen={isLightboxOpen}
+          onClose={() => setIsLightboxOpen(false)}
+          images={lightboxImages}
+          initialIndex={lightboxIndex}
+        />
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -21,7 +21,7 @@ import {
   FileCode,
 } from 'lucide-react'
 import type { Message, TextPart, ReasoningPart, ToolPart, FilePart, MessagePart } from '../../types/opencode'
-import { extractRelayErrorMessage } from '../../services/api'
+import { extractRelayErrorMessage, isAbortError } from '../../services/api'
 import { ToolCard } from './ToolCard'
 import { ToolBatchCard } from './ToolBatchCard'
 import { ReasoningCard } from './ReasoningCard'
@@ -31,6 +31,7 @@ import { usePreferences } from '../../utils/preferences'
 import { useI18n, tr } from '../../utils/i18n'
 import { evaluatePromptCollapsing } from './quick-jump'
 import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
+import { ImageLightboxModal, ImageThumbnailRow, type LightboxImage } from './ImageLightboxModal'
 
 interface MessageBubbleProps {
   message: Message
@@ -115,20 +116,6 @@ function getAgentBadge(agent?: string) {
     initial: (agent?.charAt(0) || 'B').toUpperCase(),
     label: agent || 'build',
     accent: 'border-l-orange-500',
-  }
-}
-
-function openImagePreview(url: string) {
-  if (url.startsWith('data:')) {
-    const newTab = window.open()
-    if (newTab) {
-      newTab.document.write(
-        `<!DOCTYPE html><html><head><title>Image Preview</title><style>body{margin:0;background:#0d0f12;display:flex;align-items:center;justify-content:center;min-height:100vh;}img{max-width:98vw;max-height:98vh;object-fit:contain;border-radius:4px;}</style></head><body><img src="${url}" /></body></html>`
-      )
-      newTab.document.close()
-    }
-  } else {
-    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -417,6 +404,15 @@ function UserMessageBubble({
   )
 
   const [isExpanded, setIsExpanded] = useState(!defaultCollapsed)
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+
+  const handleOpenLightbox = useCallback((images: LightboxImage[], index: number) => {
+    setLightboxImages(images)
+    setLightboxIndex(index)
+    setIsLightboxOpen(true)
+  }, [])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(fullText)
@@ -509,30 +505,19 @@ function UserMessageBubble({
           </div>
         </div>
 
-        {/* Attached Images */}
-        {message.parts
-          .filter((p) => p.type === 'file')
-          .map((part) => {
-            const filePart = part as FilePart
-            return (
-              <div
-                key={filePart.id}
-                className="my-2 rounded-lg overflow-hidden border border-zinc-700 bg-zinc-950 max-w-sm"
-              >
-                <img
-                  src={filePart.url}
-                  alt={filePart.filename || 'Attached image'}
-                  className="w-full max-h-72 object-contain cursor-pointer hover:opacity-95 transition-opacity"
-                  onClick={() => openImagePreview(filePart.url)}
-                />
-                {filePart.filename && (
-                  <div className="px-2 py-1 text-[10px] text-zinc-400 bg-zinc-900 border-t border-zinc-800 truncate">
-                    {filePart.filename}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+        {/* Attached Images (Square Thumbnails in a Row - matching Image 2) */}
+        {(() => {
+          const fileParts = message.parts
+            .filter((p) => p.type === 'file')
+            .map((p) => p as FilePart)
+          if (fileParts.length === 0) return null
+          return (
+            <ImageThumbnailRow
+              images={fileParts}
+              onOpenLightbox={(idx) => handleOpenLightbox(fileParts, idx)}
+            />
+          )
+        })()}
 
         {/* Prompt Text with Auto-Collapse */}
         {fullText && (
@@ -636,6 +621,16 @@ function UserMessageBubble({
           <div className="h-px bg-amber-500/30 flex-1" />
         </div>
       )}
+
+      {/* Lightbox Preview Modal (Image 3) */}
+      {isLightboxOpen && (
+        <ImageLightboxModal
+          isOpen={isLightboxOpen}
+          onClose={() => setIsLightboxOpen(false)}
+          images={lightboxImages}
+          initialIndex={lightboxIndex}
+        />
+      )}
     </div>
   )
 }
@@ -656,6 +651,15 @@ export function MessageBubble({
   const { openTurn: openDiffTurn } = useDiffDrawer()
   const [copied, setCopied] = useState(false)
   const [isReportExpanded, setIsReportExpanded] = useState(true)
+  const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
+  const [lightboxIndex, setLightboxIndex] = useState(0)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+
+  const handleOpenLightbox = useCallback((images: LightboxImage[], index: number) => {
+    setLightboxImages(images)
+    setLightboxIndex(index)
+    setIsLightboxOpen(true)
+  }, [])
   const isUser = message.info.role === 'user'
 
   const turn = useMemo(
@@ -707,7 +711,13 @@ export function MessageBubble({
   }
 
   const tokens = message.info.tokens
-  const errorMessage = message.info.error ? extractRelayErrorMessage(message.info.error) : null
+  const isAborted =
+    message.info.finish === 'abort' ||
+    isAbortError(message.info.error)
+  const errorMessage =
+    !isAborted && message.info.error
+      ? extractRelayErrorMessage(message.info.error)
+      : null
   const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
   const hasEdits = editGroups.length > 0
 
@@ -860,25 +870,13 @@ export function MessageBubble({
               {/* Top Antigravity-Style Collapsible Tool Calling & Thinking Bar */}
               <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} />
 
-              {/* Assistant Attached Images */}
-              {turn.fileParts.map((filePart) => (
-                <div
-                  key={filePart.id}
-                  className="my-2 rounded-lg overflow-hidden border border-zinc-700 bg-zinc-950 max-w-sm"
-                >
-                  <img
-                    src={filePart.url}
-                    alt={filePart.filename || 'Assistant image'}
-                    className="w-full max-h-72 object-contain cursor-pointer hover:opacity-95 transition-opacity"
-                    onClick={() => openImagePreview(filePart.url)}
-                  />
-                  {filePart.filename && (
-                    <div className="px-2 py-1 text-[10px] text-zinc-400 bg-zinc-900 border-t border-zinc-800 truncate">
-                      {filePart.filename}
-                    </div>
-                  )}
-                </div>
-              ))}
+              {/* Assistant Attached Images (Square Thumbnails in a Row - matching Image 2) */}
+              {turn.fileParts.length > 0 && (
+                <ImageThumbnailRow
+                  images={turn.fileParts}
+                  onOpenLightbox={(idx) => handleOpenLightbox(turn.fileParts, idx)}
+                />
+              )}
 
               {/* Main Response Markdown Surface (Directly underneath the collapsed tools bar) */}
               {turn.answerParts.length > 0 && (
@@ -1051,25 +1049,19 @@ export function MessageBubble({
               }
 
               if (part.type === 'file') {
-                const filePart = part as FilePart
-                return (
-                  <div
-                    key={filePart.id}
-                    className="my-2 rounded-lg overflow-hidden border border-zinc-700 bg-zinc-950 max-w-sm"
-                  >
-                    <img
-                      src={filePart.url}
-                      alt={filePart.filename || 'Assistant image'}
-                      className="w-full max-h-72 object-contain cursor-pointer hover:opacity-95 transition-opacity"
-                      onClick={() => openImagePreview(filePart.url)}
+                const assistantFiles = message.parts
+                  .filter((p) => p.type === 'file')
+                  .map((p) => p as FilePart)
+                if (part === assistantFiles[0]) {
+                  return (
+                    <ImageThumbnailRow
+                      key="assistant_files_row"
+                      images={assistantFiles}
+                      onOpenLightbox={(idx) => handleOpenLightbox(assistantFiles, idx)}
                     />
-                    {filePart.filename && (
-                      <div className="px-2 py-1 text-[10px] text-zinc-400 bg-zinc-900 border-t border-zinc-800 truncate">
-                        {filePart.filename}
-                      </div>
-                    )}
-                  </div>
-                )
+                  )
+                }
+                return null
               }
 
               if (part.type === 'text') {
@@ -1153,6 +1145,16 @@ export function MessageBubble({
           )}
         </div>
       </div>
+
+      {/* Lightbox Preview Modal (Image 3) */}
+      {isLightboxOpen && (
+        <ImageLightboxModal
+          isOpen={isLightboxOpen}
+          onClose={() => setIsLightboxOpen(false)}
+          images={lightboxImages}
+          initialIndex={lightboxIndex}
+        />
+      )}
     </div>
   )
 }

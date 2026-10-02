@@ -116,3 +116,85 @@
 .find-match-pulse {
   animation: userPromptPulse 1.6s ease-out;
 }
+
+/* In-Page Find (Ctrl+F) Highlights via CSS Custom Highlight API */
+::highlight(find-match) {
+  background-color: rgba(234, 179, 8, 0.45);
+  color: #fef08a;
+  text-decoration: underline 1.5px solid rgba(234, 179, 8, 0.7);
+}
+
+::highlight(find-match-active) {
+  background-color: #f97316;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  text-decoration: underline 2.5px solid #ffffff;
+}
+
+/* Active Match Focus Frame & Badge Overlay */
+.find-active-match-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 30;
+  border-radius: 4px;
+  background-color: rgba(249, 115, 22, 0.28);
+  box-shadow: 0 0 0 2px #f97316, 0 0 16px rgba(249, 115, 22, 0.65);
+  animation: findMatchBoxPulse 2s ease-in-out infinite;
+  transition: top 0.12s ease-out, left 0.12s ease-out, width 0.12s ease-out, height 0.12s ease-out;
+}
+
+@keyframes findMatchBoxPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px #f97316, 0 0 12px rgba(249, 115, 22, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 3px #fb923c, 0 0 22px rgba(249, 115, 22, 0.95);
+  }
+}
+
+.find-active-match-badge {
+  position: absolute;
+  left: 50%;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background-color: #ea580c;
+  color: #ffffff;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.find-active-match-badge.badge-above {
+  bottom: 100%;
+  transform: translateX(-50%) translateY(-5px);
+}
+
+.find-active-match-badge.badge-above::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 4px;
+  border-style: solid;
+  border-color: #ea580c transparent transparent transparent;
+}
+
+.find-active-match-badge.badge-below {
+  top: 100%;
+  transform: translateX(-50%) translateY(5px);
+}
+
+.find-active-match-badge.badge-below::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 4px;
+  border-style: solid;
+  border-color: transparent transparent #ea580c transparent;
+}

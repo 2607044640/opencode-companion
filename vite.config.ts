@@ -11,7 +11,13 @@ function hostWorkspaceApi(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = (req.url || '').split('?')[0]
-        if (url !== '/api/git-checkpoint' && url !== '/api/external-file-rollback') {
+        if (
+          url !== '/api/git-checkpoint' &&
+          url !== '/api/external-file-rollback' &&
+          url !== '/api/routing-config' &&
+          url !== '/api/skills' &&
+          url !== '/api/model-profiles'
+        ) {
           next()
           return
         }

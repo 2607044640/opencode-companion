@@ -10,8 +10,8 @@ Read `README.md` first. Load exactly one module file for the surface you are cha
 | :--- | :--- |
 | Session lifecycle, draft, pin, unread, revert, archive, export | `docs/modules/session-management.md` |
 | Dialogue map, laser, lazy connect, pin-break, undo | `docs/modules/dialogue-blueprint.md` |
-| SSE, deltas, thinking, worked summary, diffs | `docs/modules/streaming-chat.md` |
-| Prompt textarea, `/` `@`, attachments | `docs/modules/prompt-controller.md` |
+| SSE, deltas, thinking, worked summary, diffs, prompt parts | `docs/modules/streaming-chat.md` |
+| Prompt textarea, `/` `@`, attachments, multi-image lock | `docs/modules/prompt-controller.md` |
 | Sidebar, tabs, Ctrl+K / Ctrl+F, zen, shortcuts | `docs/modules/layout-modes.md` |
 | Models, relay hub, billing, ingress token | `docs/modules/relay-gateway.md` |
 | Preference toggles / feature visibility (no plugin registry) | `docs/modules/plugin-system.md` |

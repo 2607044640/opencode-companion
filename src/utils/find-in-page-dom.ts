@@ -85,7 +85,7 @@ export function locateTextMatchInElement(
     }
 
     const parent = current.parentElement
-    if (parent?.closest('.sr-only, script, style')) {
+    if (parent?.closest('.sr-only, script, style, .find-active-match-overlay')) {
       current = walker.nextNode()
       continue
     }
@@ -165,17 +165,153 @@ export function computeMatchScrollTop(
   )
 }
 
+export interface ScrollMatchResult {
+  hostEl: HTMLElement
+  rect: DOMRect | null
+  range: Range | null
+}
+
 export function scrollContainerToMatch(
   container: HTMLElement,
   messageEl: HTMLElement,
   query: string,
   matchIndexInMessage: number,
   options: FindOptions = {}
-): HTMLElement {
+): ScrollMatchResult {
   const located = locateTextMatchInElement(messageEl, query, matchIndexInMessage, options)
   container.scrollTo({
     top: computeMatchScrollTop(container, located?.rect ?? null, messageEl),
     behavior: 'smooth',
   })
-  return located?.highlightEl ?? messageEl
+  return {
+    hostEl: located?.highlightEl ?? messageEl,
+    rect: located?.rect ?? null,
+    range: located?.range ?? null,
+  }
+}
+
+export interface ActiveMatchOverlayRect {
+  top: number
+  left: number
+  width: number
+  height: number
+}
+
+export function computeOverlayRect(
+  container: HTMLElement,
+  matchRect: DOMRect
+): ActiveMatchOverlayRect {
+  const containerRect = container.getBoundingClientRect()
+  return {
+    top: matchRect.top - containerRect.top + container.scrollTop,
+    left: matchRect.left - containerRect.left + container.scrollLeft,
+    width: Math.max(matchRect.width, 6),
+    height: Math.max(matchRect.height, 16),
+  }
+}
+
+export function collectAllMatchRanges(
+  container: HTMLElement,
+  query: string,
+  options: FindOptions = {}
+): Range[] {
+  if (typeof document === 'undefined') return []
+  const regex = compileFindQuery(query, options)
+  if (!regex) return []
+
+  const ranges: Range[] = []
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+  let current = walker.nextNode()
+
+  while (current) {
+    if (!(current instanceof Text)) {
+      current = walker.nextNode()
+      continue
+    }
+
+    const parent = current.parentElement
+    if (
+      parent?.closest(
+        '.sr-only, script, style, [role="search"], .find-in-page-bar, .find-active-match-overlay'
+      )
+    ) {
+      current = walker.nextNode()
+      continue
+    }
+
+    const value = current.data
+    regex.lastIndex = 0
+    let match = regex.exec(value)
+    while (match) {
+      if (match[0].length === 0) {
+        regex.lastIndex++
+        match = regex.exec(value)
+        continue
+      }
+
+      try {
+        const range = document.createRange()
+        range.setStart(current, match.index)
+        range.setEnd(current, match.index + match[0].length)
+        ranges.push(range)
+      } catch {
+        // Range boundary safety
+      }
+
+      if (match.index === regex.lastIndex) regex.lastIndex++
+      match = regex.exec(value)
+    }
+
+    current = walker.nextNode()
+  }
+
+  return ranges
+}
+
+export function updateCSSHighlights(
+  allRanges: Range[],
+  activeRange: Range | null = null
+): void {
+  if (typeof window === 'undefined') return
+  const win = window as any
+  const css = win.CSS
+  const HighlightCtor = win.Highlight
+
+  if (!css || typeof css.highlights === 'undefined' || typeof HighlightCtor !== 'function') {
+    return
+  }
+
+  try {
+    if (allRanges.length > 0) {
+      const allHighlight = new HighlightCtor(...allRanges)
+      allHighlight.priority = 1
+      css.highlights.set('find-match', allHighlight)
+    } else {
+      css.highlights.delete('find-match')
+    }
+
+    if (activeRange) {
+      const activeHighlight = new HighlightCtor(activeRange)
+      activeHighlight.priority = 2
+      css.highlights.set('find-match-active', activeHighlight)
+    } else {
+      css.highlights.delete('find-match-active')
+    }
+  } catch (err) {
+    console.error('Failed to update CSS highlights:', err)
+  }
+}
+
+export function clearCSSHighlights(): void {
+  if (typeof window === 'undefined') return
+  const win = window as any
+  const css = win.CSS
+  if (!css || typeof css.highlights === 'undefined') return
+
+  try {
+    css.highlights.delete('find-match')
+    css.highlights.delete('find-match-active')
+  } catch {
+    // ignore
+  }
 }

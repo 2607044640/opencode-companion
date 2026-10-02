@@ -15,6 +15,8 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import type { ToolPart } from '../../types/opencode'
+import { SubagentToolCard, isSubagentTool } from './SubagentToolCard'
+import { WebSearchToolCard, isWebSearchTool } from './WebSearchToolCard'
 
 interface ToolCardProps {
   part: ToolPart
@@ -22,6 +24,13 @@ interface ToolCardProps {
 }
 
 export function ToolCard({ part, isLive }: ToolCardProps) {
+  if (isSubagentTool(part)) {
+    return <SubagentToolCard part={part} isLive={isLive} />
+  }
+  if (isWebSearchTool(part)) {
+    return <WebSearchToolCard part={part} isLive={isLive} />
+  }
+
   const [isExpanded, setIsExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedSection, setCopiedSection] = useState<'input' | 'output' | null>(null)

@@ -2,6 +2,23 @@
 
 export type ShortcutKind = 'combo' | 'double-press'
 
+export type ShortcutCategory = 'map' | 'dialogue' | 'workspace' | 'general'
+export type ShortcutFilterCategory = 'all' | ShortcutCategory
+
+export interface ShortcutCategoryMeta {
+  id: ShortcutFilterCategory
+  labelZh: string
+  labelEn: string
+}
+
+export const SHORTCUT_CATEGORIES: ShortcutCategoryMeta[] = [
+  { id: 'all', labelZh: '全部 (All)', labelEn: 'All' },
+  { id: 'map', labelZh: '地图 (Map)', labelEn: 'Map' },
+  { id: 'dialogue', labelZh: '对话 (Dialogue)', labelEn: 'Dialogue' },
+  { id: 'workspace', labelZh: '标签与会话 (Tabs)', labelEn: 'Tabs' },
+  { id: 'general', labelZh: '通用 (General)', labelEn: 'General' },
+]
+
 export interface ShortcutItem {
   key: string
   ctrlKey?: boolean
@@ -10,7 +27,7 @@ export interface ShortcutItem {
   altKey?: boolean
   description: string
   label: string
-  category?: 'general' | 'map'
+  category?: ShortcutCategory
   kind?: ShortcutKind
   tapCount?: number
   intervalMs?: number
@@ -55,19 +72,19 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     key: 'ArrowUp',
     description: '向上浏览对话 (Jump to Previous Dialogue)',
     label: '↑',
-    category: 'general',
+    category: 'dialogue',
   },
   nextDialogue: {
     key: 'ArrowDown',
     description: '向下浏览对话 (Jump to Next Dialogue)',
     label: '↓',
-    category: 'general',
+    category: 'dialogue',
   },
   jumpToTop: {
     key: 'ArrowUp',
     description: '快速按两下 ↑ 跳转至最顶部 (Double-Tap to Top)',
     label: '双击 ↑',
-    category: 'general',
+    category: 'dialogue',
     kind: 'double-press',
     tapCount: 2,
     intervalMs: 350,
@@ -76,7 +93,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     key: 'ArrowDown',
     description: '快速按两下 ↓ 跳转至最底部 (Double-Tap to Bottom)',
     label: '双击 ↓',
-    category: 'general',
+    category: 'dialogue',
     kind: 'double-press',
     tapCount: 2,
     intervalMs: 350,
@@ -93,14 +110,14 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     ctrlKey: true,
     description: '新建当前工程会话 (New Session)',
     label: 'Ctrl + N',
-    category: 'general',
+    category: 'workspace',
   },
   nextTab: {
     key: 'Tab',
     ctrlKey: true,
     description: '切换至下一个会话标签 (Next Tab)',
     label: 'Ctrl + Tab',
-    category: 'general',
+    category: 'workspace',
   },
   prevTab: {
     key: 'Tab',
@@ -108,14 +125,14 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     shiftKey: true,
     description: '切换至上一个会话标签 (Previous Tab)',
     label: 'Ctrl + Shift + Tab',
-    category: 'general',
+    category: 'workspace',
   },
   closeActiveTab: {
     key: 'w',
     ctrlKey: true,
     description: '关闭当前会话标签 (Close Tab)',
     label: 'Ctrl + W',
-    category: 'general',
+    category: 'workspace',
   },
   reopenClosedTab: {
     key: 't',
@@ -123,48 +140,48 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     shiftKey: true,
     description: '重新打开刚刚关闭的标签 (Reopen Closed Tab)',
     label: 'Ctrl + Shift + T',
-    category: 'general',
+    category: 'workspace',
   },
   focusSearch: {
     key: 'k',
     ctrlKey: true,
     description: '搜索对话会话 (Search Sessions)',
     label: 'Ctrl + K',
-    category: 'general',
+    category: 'workspace',
   },
   findInPage: {
     key: 'f',
     ctrlKey: true,
     description: '在当前对话中查找 (Find in Page)',
     label: 'Ctrl + F',
-    category: 'general',
+    category: 'dialogue',
   },
   sendMessage: {
     key: 'Enter',
     description: '发送提示词 (Send Message)',
     label: 'Enter',
-    category: 'general',
+    category: 'dialogue',
   },
   newLine: {
     key: 'Enter',
     shiftKey: true,
     description: '输入框换行 (Insert Newline)',
     label: 'Shift + Enter',
-    category: 'general',
+    category: 'dialogue',
   },
   toggleMap: {
     key: 'm',
     ctrlKey: true,
     description: '在蓝图地图中定位当前会话 (Open & Locate in Map)',
     label: 'Ctrl + M',
-    category: 'general',
+    category: 'map',
   },
   addSessionToMap: {
     key: 'm',
     altKey: true,
     description: '放入蓝图地图 (不打开地图) (Add to Map)',
     label: 'Alt + M',
-    category: 'general',
+    category: 'map',
   },
   openSettings: {
     key: ',',
@@ -221,6 +238,27 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
   },
 }
 
+export function filterShortcutKeys(
+  shortcuts: ShortcutsMap,
+  category: ShortcutFilterCategory = 'all',
+  searchQuery = ''
+): Array<keyof ShortcutsMap> {
+  const q = searchQuery.trim().toLowerCase()
+  return (Object.keys(shortcuts) as Array<keyof ShortcutsMap>).filter((k) => {
+    const item = shortcuts[k]
+    const itemCategory: ShortcutCategory = item.category || DEFAULT_SHORTCUTS[k]?.category || 'general'
+    if (category !== 'all' && itemCategory !== category) {
+      return false
+    }
+    if (!q) return true
+    return (
+      item.description.toLowerCase().includes(q) ||
+      item.label.toLowerCase().includes(q) ||
+      k.toLowerCase().includes(q)
+    )
+  })
+}
+
 const STORAGE_KEY = 'opencode_companion_shortcuts'
 
 export function getShortcuts(): ShortcutsMap {
@@ -230,10 +268,16 @@ export function getShortcuts(): ShortcutsMap {
       if (raw) {
         const parsed = JSON.parse(raw)
         const merged: ShortcutsMap = { ...DEFAULT_SHORTCUTS, ...parsed }
-        // Ensure all required default shortcuts exist and have valid keys
+        // Ensure all required default shortcuts exist, have valid keys, and preserve canonical category
         for (const k of Object.keys(DEFAULT_SHORTCUTS) as (keyof ShortcutsMap)[]) {
           if (!merged[k] || !merged[k].key) {
             merged[k] = DEFAULT_SHORTCUTS[k]
+          } else {
+            merged[k] = {
+              ...DEFAULT_SHORTCUTS[k],
+              ...merged[k],
+              category: DEFAULT_SHORTCUTS[k].category,
+            }
           }
         }
         return merged

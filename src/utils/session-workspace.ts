@@ -106,13 +106,14 @@ export function resolveCanonicalProjectId(
  *   - "ObsidianDev"  -> "OD"
  *   - "APISpace"     -> "AS"
  *   - "AISpace"      -> "AI"
- *   - "NullSpace"    -> "NS"
+ *   - "AICore"       -> "AC"
  *   - "my-cool-app"  -> "MC"
  */
 export function getProjectAbbreviation(name?: string): string {
   if (!name || !name.trim()) return '--'
 
   const cleanName = name.replace(/\\/g, '/').split('/').filter(Boolean).pop() || name.trim()
+  if (cleanName.toLowerCase() === 'aicore') return 'AC'
 
   // 1. Replace delimiters (hyphens, underscores, dots, whitespace) with space
   let formatted = cleanName.replace(/[-_.\s]+/g, ' ').trim()

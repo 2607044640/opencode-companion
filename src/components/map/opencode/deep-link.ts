@@ -1,9 +1,9 @@
-import { OPENCODE_BASE_URL } from "./client"
+import { DAEMON_LOOPBACK_URL } from "../../../services/api"
 
 function unpaddedStdB64(value: string): string {
   return btoa(value).replace(/=+$/u, "")
 }
 
 export function sessionUrl(sessionId: string): string {
-  return `${OPENCODE_BASE_URL}/server/${unpaddedStdB64(OPENCODE_BASE_URL)}/session/${sessionId}`
+  return `${DAEMON_LOOPBACK_URL}/server/${unpaddedStdB64(DAEMON_LOOPBACK_URL)}/session/${sessionId}`
 }

@@ -31,6 +31,7 @@ export function MapOverlays(props: {
   readonly setBlueprintMenu?: Dispatch<SetStateAction<BlueprintMenuState | undefined>>
   readonly onAutoLayout?: () => void
   readonly onSelectSession?: (sessionId: string) => void
+  readonly onLocateCard?: (cardId: string, position?: { readonly x: number; readonly y: number }) => void
 }) {
   return (
     <>
@@ -100,6 +101,7 @@ export function MapOverlays(props: {
           setToast={props.setToast}
           onClose={() => props.setBlueprintMenu?.(undefined)}
           onSelectSession={props.onSelectSession}
+          onLocateCard={props.onLocateCard}
         />
       ) : null}
     </>

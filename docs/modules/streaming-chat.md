@@ -9,7 +9,8 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | Component | Responsible For | MUST NOT Contain |
 | :--- | :--- | :--- |
 | `src/services/sse.ts` | Single `EventSource` to `/global/event`, reconnect 2s→10s, typed `on*` helpers | React state, REST prompt POST |
-| `src/hooks/useChatStream.ts` | History load, optimistic send, delta/part merge, status, error fuse, revert/unrevert | Textarea, map, shortcut registry |
+| `src/hooks/useChatStream.ts` | History load, optimistic send, delta/part merge, status, error fuse, revert/unrevert | Textarea, map, shortcut registry, part-array assembly |
+| `src/utils/prompt-parts.ts` | `buildPromptParts`, `buildOptimisticMessage`, `reconcileHistoryWithOptimistic` | FileReader, HTTP |
 | `src/components/chat/ChatTimeline.tsx` | Scroll, 502/error banner, find-in-page host, revert confirm diffs | `sendPrompt` HTTP |
 | `MessageBubble.tsx` | Per-message agent badge, model pill, `react-markdown` + `remark-gfm` + `rehype-highlight` | Prompt target dropdown (next-send, not author) |
 | `src/utils/worked-summary.ts` | `classifyTool`, `partitionAssistantTurn`, `<think>` split, duration labels, diff line counts | HTTP |
@@ -26,13 +27,16 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 - Normalize once at the API/SSE boundary (`normalizeMessageInfo`, `normalizeMessagePart`). Components must not sprinkle `x?.y || ''` as a substitute. (Why chosen over per-widget defaults: daemon omits `model` / `tokens` / `name` across roles.)
 - Error fuse: `session.error` immediately sets status `idle` and `error`. Do not wait for a later `session.status`. (Why chosen over waiting for idle: a hung `busy` spinner traps the abort button.)
 - Optimistic user id `usr_<ts>` is swapped for the real id on `message.updated` (`pendingOptimisticIdRef`). (Why chosen over appending a second bubble: without the swap, the user message duplicates.)
+- Wire parts and the optimistic bubble share `src/utils/prompt-parts.ts`. `useChatStream.sendPrompt` calls `buildOptimisticMessage` then `buildPromptParts`; `api.sendPrompt` calls `buildPromptParts` again (file URLs deduped). Do not assemble `{ type: 'file' }` inline. (Why chosen over two builders: the first send and `__draft__` promotion dropped images when only one path knew about attachments.)
+- `loadSessionData` sets messages via `reconcileHistoryWithOptimistic(history, prev)`. Empty history while a local timeline exists keeps `prev`. A user row in history that lacks file parts inherits file parts from the previous optimistic user message. (Why chosen over replacing state with GET: the daemon often returns text before file parts exist, which wiped the thumbnail.)
+- Data-URL file parts trigger `api.materializeAttachment` → `POST /api/materialize-attachment` (`serve.mjs`) without awaiting it before `prompt_async`. Failure is a console warning. (Why chosen over blocking send: disk mirrors are for native file reads, not the daemon contract.)
 - Unchanged hunk context is folded (`collapseUnchangedLines`: pad 3, minCollapse 4). The fold control is `+N more lines` (expand remaining) plus `+10` head/tail when `count > 10`. `prefs.floatingDiffView !== false` (default on) renders a centered `min(88vw, 1100px)` × `min(86vh, 900px)` dialog; turning the setting off restores the right `w-[min(48vw,720px)]` drawer. (Why chosen over dumping full context: long ctx blocks bury the actual add/del lines.)
 
 ## Numbered Data Flow
 
-1. Session change: if id is `__draft__`, load no messages and subscribe to nothing. Else `GET /session/{id}/message` + `GET /session/{id}/todo` → normalized arrays.
+1. Session change: if id is `__draft__`, load no messages and subscribe to nothing. Else `GET /session/{id}/message` + `GET /session/{id}/todo`. History is merged with `reconcileHistoryWithOptimistic`, not assigned raw. A draft→real switch that this hook itself started (`transitioningSessionIdRef`) still loads history but does not clear the optimistic row first.
 2. Subscribe: `message.part.delta`, `message.part.updated`, `message.updated`, `session.status`, `session.error`, `session.idle`, `todo.updated`. Ignore events whose `sessionID` ≠ active id. One `EventSource` only (`sseManager`).
-3. Send: append optimistic user message + file/text parts (`isOptimistic: true`), set `busy`, `POST /session/{id}/prompt_async` with `{ parts, agent?, model? }` (204).
+3. Send: `buildOptimisticMessage` (file parts then trimmed text, `isOptimistic: true`, id `usr_<ts>`), set `busy`, `buildPromptParts`, `api.sendPrompt` → `POST /session/{id}/prompt_async` with `{ parts, agent?, model? }` (204). Image-only (no text) is sent. Each data-URL file part also fires `POST /api/materialize-attachment` (non-blocking).
 4. `message.part.delta`: locate `messageID`/`partID`; append `delta` onto `text` or `reasoning`; create placeholder part/message if missing.
 5. `message.part.updated`: replace by id, or replace the first optimistic part of the same type.
 6. `message.updated`: merge `info` (tokens, finish, agent). If role is user and pending optimistic id is set, rewrite that bubble's id and part `messageID`s in place.
@@ -47,12 +51,16 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | `sseManager.connect` | `() => void` | Opens `EventSource(http://127.0.0.1:5001/global/event)` |
 | `sseManager.on` | `(type, cb) => unsubscribe` | In-memory listener set |
 | `sseManager.onPartDelta` | `(cb: (SSEEventMessagePartDelta) => void)` | type `message.part.delta` |
-| `useChatStream.sendPrompt` | `(text, { agent?, model?, attachments? }) => Promise<void>` | Optimistic row; `api.sendPrompt`; `busy` |
+| `useChatStream.sendPrompt` | `(text, { agent?, model?, attachments? }, targetSessionId?) => Promise<void>` | Optimistic row via `buildOptimisticMessage`; `api.sendPrompt`; `busy` |
+| `buildPromptParts` | `(input: string \| MessagePartInput[], attachments?) => MessagePartInput[]` | Pure. File parts `{ type, mime, filename, url }` then text. |
+| `buildOptimisticMessage` | `({ sessionId, text, attachments?, agent?, model? }) => Message` | Pure. `usr_<ts>` + `isOptimistic` parts |
+| `reconcileHistoryWithOptimistic` | `(history, prev) => Message[]` | Pure. Keeps `prev` when history is empty; copies missing file parts onto history user rows |
+| `api.materializeAttachment` | `({ filename?, mime?, dataUrl }) => Promise<void>` | `POST /api/materialize-attachment`; swallows errors |
 | `useChatStream.abort` | `() => Promise<void>` | `POST /abort`; status idle |
 | `useChatStream.retry` | `() => Promise<void>` | Replays last user parts |
 | `useChatStream.revertToMessage` | `(messageId, { mode?: RevertMode, partID? }) => Promise<{ok, error?, session?}>` | Reloads history |
 | `api.getMessages` | `(sessionID) => Promise<Message[]>` | `GET /session/{id}/message` |
-| `api.sendPrompt` | `(id, string \| MessagePartInput[], { agent?, model? })` | Optional `switchSessionAgent` then `POST /prompt_async` |
+| `api.sendPrompt` | `(id, string \| MessagePartInput[], { agent?, model?, attachments? })` | `buildPromptParts`; optional `switchSessionAgent`; non-blocking materialize; `POST /prompt_async` |
 | `classifyTool` | `(tool: string) => 'explore' \| 'edit' \| 'command' \| 'other'` | Pure |
 | `partitionAssistantTurn` | `(parts, info?, now?) => WorkedTurn` | Pure |
 | `formatWorkedLabel` | `(ms, isLive) => string` | Pure |
@@ -88,6 +96,7 @@ User vs assistant author fields differ: user has `model: { providerID, modelID }
 - Error fuse on `session.error` is mandatory. A `busy` lock after a backend fault is a defect.
 - Historical agent/model badges read `info.agent` / `info.mode` / normalized `modelID`. Never substitute the bottom PromptInput selection.
 - Optimistic user-message swap (`pendingOptimisticIdRef`) stays. Removing it reintroduces duplicate bubbles.
+- File parts on send and on history reload go through `prompt-parts.ts`. Do not POST a text-only body when attachments exist, and do not replace history with a GET that drops in-flight file parts.
 - `remark-gfm` tables and `rehype-highlight` fences stay on assistant markdown.
 - Diff hunk context folding (`+N more lines` / `+10`) and the floating-vs-drawer pref stay. Do not dump full unchanged context by default.
 <!-- END USER-SPECIFIED -->

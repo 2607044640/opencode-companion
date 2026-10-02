@@ -301,6 +301,26 @@ export function MapCanvas(props: MapAppProps) {
     [band, client, executeAutoLayout, flow.screenToFlowPosition, newCardId, persistMap, recordUserMutation, saveMap, view, setBlueprintMenu],
   )
 
+  const handleLocateCard = useCallback(
+    (cardId: string, position?: { readonly x: number; readonly y: number }) => {
+      if (position) {
+        flow.setCenter(position.x + 130, position.y + 48, { duration: 300 })
+      } else if (view.kind === "ready") {
+        const card = view.map.cards[cardId]
+        if (card) {
+          flow.setCenter(card.position.x + 130, card.position.y + 48, { duration: 300 })
+        }
+      }
+      setFlowNodes((prev) =>
+        prev.map((n) => ({
+          ...n,
+          selected: n.id === cardId,
+        })),
+      )
+    },
+    [flow, setFlowNodes, view],
+  )
+
   return (
     <MapFlow
       nodes={flowNodes}
@@ -328,6 +348,7 @@ export function MapCanvas(props: MapAppProps) {
         setHotkeyMenu,
         setBlueprintMenu,
         onSelectSession,
+        onLocateCard: handleLocateCard,
       }}
     />
   )

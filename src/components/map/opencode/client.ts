@@ -1,7 +1,9 @@
 import { createOpencodeClient as createSdkClient } from "@opencode-ai/sdk/v2/client"
 import type { Project, Session, SessionStatus } from "@opencode-ai/sdk/v2/client"
 
-export const OPENCODE_BASE_URL = "http://127.0.0.1:5001" as const
+import { resolveDaemonBaseUrl } from "../../../services/api"
+
+export const OPENCODE_BASE_URL = resolveDaemonBaseUrl()
 export const UNREACHABLE_BANNER = "OpenCode not reachable at 127.0.0.1:5001" as const
 
 export class OpenCodeUnreachableError extends Error {

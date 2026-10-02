@@ -84,18 +84,8 @@ export function SessionCard(props: NodeProps<SessionFlowNode>) {
     if (target?.closest(".react-flow__handle")) {
       return
     }
-    if (pointerDownPos.current) {
-      const dx = Math.abs(event.clientX - pointerDownPos.current.x)
-      const dy = Math.abs(event.clientY - pointerDownPos.current.y)
-      if (dx > 5 || dy > 5) {
-        // Dragging operation - do not open
-        return
-      }
-    }
-    if (sessionId === undefined || onOpen === undefined) {
-      return
-    }
-    onOpen(sessionId)
+    // Single click should NOT enter the conversation.
+    // React Flow natively handles node selection on single click.
   }
 
   return (
@@ -161,8 +151,17 @@ export function SessionCard(props: NodeProps<SessionFlowNode>) {
         <div
           className="session-card__title"
           data-testid="session-card-title"
-          onDoubleClick={startEdit}
-          title="双击重命名标题"
+          onDoubleClick={(event) => {
+            if (event.altKey) {
+              startEdit(event)
+              return
+            }
+            if (sessionId !== undefined && onOpen !== undefined) {
+              event.stopPropagation()
+              onOpen(sessionId)
+            }
+          }}
+          title="双击进入对话 (Alt+双击重命名)"
         >
           {props.data.searchQuery ? (
             <HighlightedText text={props.data.title} query={props.data.searchQuery} />

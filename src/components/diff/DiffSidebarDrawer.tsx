@@ -42,17 +42,23 @@ export function DiffSidebarDrawer() {
 
   const isTurnMode = mode === 'turn' && turnPayload !== null
   const turnFiles = turnPayload?.files ?? []
+  const uniqueFileCount = turnFiles.length
+  const totalDiffs = turnFiles.reduce((sum, file) => sum + (file.mergedEditCount ?? 1), 0)
+
+  const getItemKey = (f: any, idx: number) =>
+    f.partId ? `${f.partId}_${f.filePath || f.fileName}` : `${f.filePath || f.fileName}_${idx}`
+
   const allCollapsed =
-    turnFiles.length > 0 && turnFiles.every((f) => collapsedFiles[f.filePath] === true)
+    turnFiles.length > 0 && turnFiles.every((f, idx) => collapsedFiles[getItemKey(f, idx)] === true)
 
   const toggleAll = () => {
     if (allCollapsed) {
       setCollapsedFiles({})
     } else {
       const next: Record<string, boolean> = {}
-      for (const f of turnFiles) {
-        next[f.filePath] = true
-      }
+      turnFiles.forEach((f, idx) => {
+        next[getItemKey(f, idx)] = true
+      })
       setCollapsedFiles(next)
     }
   }
@@ -73,7 +79,9 @@ export function DiffSidebarDrawer() {
           </span>
         )}
         <span className="px-2 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-800/60 text-emerald-400 font-mono text-[10px] font-medium">
-          {turnFiles.length} {turnFiles.length === 1 ? 'file' : 'files'}
+          {totalDiffs > uniqueFileCount
+            ? `${totalDiffs} ${totalDiffs === 1 ? 'diff' : 'diffs'} (${uniqueFileCount} ${uniqueFileCount === 1 ? 'file' : 'files'})`
+            : `${uniqueFileCount} ${uniqueFileCount === 1 ? 'file' : 'files'}`}
         </span>
       </div>
 
@@ -168,10 +176,11 @@ export function DiffSidebarDrawer() {
   const body = isTurnMode ? (
     <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 bg-[#090a0c] min-w-0 space-y-3">
       {turnFiles.map((file, idx) => {
-        const isCollapsed = collapsedFiles[file.filePath] === true
+        const itemKey = getItemKey(file, idx)
+        const isCollapsed = collapsedFiles[itemKey] === true
         return (
           <div
-            key={`turn_file_${file.filePath}_${idx}`}
+            key={itemKey}
             className="rounded-lg border border-[#232730] bg-[#0e1014] overflow-hidden shadow-sm"
           >
             {/* Accordion File Header (Antigravity Style: File Icon, Name, Dir, +/- Badge, Chevron) */}
@@ -179,7 +188,7 @@ export function DiffSidebarDrawer() {
               onClick={() =>
                 setCollapsedFiles((prev) => ({
                   ...prev,
-                  [file.filePath]: !isCollapsed,
+                  [itemKey]: !isCollapsed,
                 }))
               }
               className="flex items-center justify-between px-3 py-2 bg-[#14171d] hover:bg-[#191d24] cursor-pointer select-none transition-colors border-b border-transparent"
@@ -189,6 +198,11 @@ export function DiffSidebarDrawer() {
                 <span className="font-semibold text-xs text-zinc-100 font-mono truncate">
                   {file.fileName}
                 </span>
+                {file.mergedEditCount && file.mergedEditCount > 1 && (
+                  <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-[10px] font-mono text-zinc-400 shrink-0">
+                    {file.mergedEditCount} edits
+                  </span>
+                )}
                 <span
                   className="text-[11px] font-mono text-zinc-500 truncate"
                   title={file.filePath}
@@ -237,7 +251,11 @@ export function DiffSidebarDrawer() {
     <div className="px-3 py-1.5 border-t border-[#1f2228] bg-[#0f1115] text-[10px] text-zinc-500 flex items-center justify-between select-none">
       <span>按 Esc 或点击右上角关闭</span>
       <span className="font-mono text-zinc-600">
-        {isTurnMode ? `${turnFiles.length} FILES MODIFIED` : payload?.tool?.toUpperCase()}
+        {isTurnMode
+          ? totalDiffs > uniqueFileCount
+            ? `${totalDiffs} DIFFS MODIFIED (${uniqueFileCount} ${uniqueFileCount === 1 ? 'FILE' : 'FILES'})`
+            : `${uniqueFileCount} ${uniqueFileCount === 1 ? 'FILE' : 'FILES'} MODIFIED`
+          : payload?.tool?.toUpperCase()}
       </span>
     </div>
   )

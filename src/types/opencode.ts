@@ -63,6 +63,7 @@ export interface Session {
   slug: string
   projectID: string
   directory: string
+  parentID?: string
   title: string
   agent: string
   model: SessionModel
@@ -203,6 +204,10 @@ export interface AgentInfo {
   mode?: string
   native?: boolean
   hidden?: boolean
+  model?: {
+    providerID?: string
+    modelID?: string
+  }
 }
 
 export interface ProviderModelInfo {
@@ -215,6 +220,33 @@ export interface ProviderInfo {
   id: string
   name: string
   models: Record<string, ProviderModelInfo>
+}
+
+export interface SeniorModelConfig {
+  providerID: string
+  modelID: string
+  name?: string
+}
+
+export interface RoutingConfigResponse {
+  ok: boolean
+  path?: string
+  selectedActiveTarget?: string
+  seniorModel?: SeniorModelConfig
+  activeStandaloneModelIds?: string[]
+  subagents?: Record<string, any>
+  modelProfiles?: ModelProfilesResponse
+  error?: string
+}
+
+export interface ModelProfilesResponse {
+  ok: boolean
+  path?: string
+  version?: number
+  default_model_id?: string
+  aliases?: Record<string, string>
+  profiles?: Record<string, any>
+  error?: string
 }
 
 export type SessionStatusType = 'idle' | 'busy' | 'retry'
@@ -293,6 +325,19 @@ export interface FilePartInput {
 
 export type MessagePartInput = TextPartInput | FilePartInput
 
+export interface PromptAttachment {
+  id?: string
+  name?: string
+  mime: string
+  url: string
+}
+
+export interface SendPromptOptions {
+  agent?: string
+  model?: { providerID: string; modelID: string }
+  attachments?: PromptAttachment[]
+}
+
 // Daemon configuration
 export interface DaemonConfig {
   default_agent?: string
@@ -305,6 +350,13 @@ export interface CommandItem {
   name: string
   description?: string
   [key: string]: any
+}
+
+/** A skill package discovered from SKILL.md. Name is never hardcoded in the UI. */
+export interface SkillItem {
+  name: string
+  description?: string
+  source?: string
 }
 
 // Snapshot diff for message revert preview

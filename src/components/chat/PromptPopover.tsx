@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { Terminal, Bot, FileText, Sparkles } from 'lucide-react'
-import type { CommandItem, AgentInfo } from '../../types/opencode'
+import type { CommandItem, AgentInfo, SkillItem } from '../../types/opencode'
 
 export type PopoverItem =
   | { type: 'command'; item: CommandItem }
+  | { type: 'skill'; item: SkillItem }
   | { type: 'agent'; item: AgentInfo }
   | { type: 'file'; item: string }
 
@@ -46,7 +47,7 @@ export function PromptPopover({
         {mode === 'commands' ? (
           <>
             <Terminal className="w-3 h-3 text-orange-400" />
-            <span>Commands</span>
+            <span>{items.some((entry) => entry.type === 'skill') ? 'Commands & Skills' : 'Commands'}</span>
           </>
         ) : (
           <>
@@ -143,6 +144,38 @@ export function PromptPopover({
                   <span className="font-mono text-zinc-200 truncate">{entry.item}</span>
                 </div>
                 <span className="text-[10px] font-mono text-zinc-600 shrink-0">File</span>
+              </button>
+            )
+          }
+
+          if (entry.type === 'skill') {
+            return (
+              <button
+                key={`skill_${entry.item.name}_${index}`}
+                type="button"
+                data-selected={isSelected}
+                onMouseEnter={() => onHoverIndex(index)}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onSelect(entry)
+                }}
+                onClick={() => onSelect(entry)}
+                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
+                  isSelected
+                    ? 'bg-cyan-600/20 text-cyan-100 border-l-2 border-cyan-400 font-medium'
+                    : 'text-zinc-300 hover:bg-[#1c2028]'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#1b2430] border border-cyan-700/50 text-cyan-300 font-mono text-[11px] font-semibold leading-none">
+                    <span className="text-cyan-500/90">&lt;&gt;</span>
+                    <span className="truncate max-w-[140px]">{entry.item.name}</span>
+                  </span>
+                  {entry.item.description && (
+                    <span className="text-[11px] text-zinc-500 truncate">{entry.item.description}</span>
+                  )}
+                </div>
+                <span className="text-[10px] font-mono text-zinc-600 shrink-0">Skill</span>
               </button>
             )
           }

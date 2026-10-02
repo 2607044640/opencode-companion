@@ -22,6 +22,7 @@ export type BootstrapReady = {
   readonly titles: SessionTitles
   readonly running: SessionRunning
   readonly updated: SessionUpdated
+  readonly sessions?: readonly ListedSession[]
 }
 
 export type BootstrapUnreachable = {
@@ -132,6 +133,7 @@ export async function bootstrapMap(input: BootstrapMapInput): Promise<BootstrapR
       titles: titlesFromSessions(sessions),
       running: runningFromStatus(status),
       updated: updatedFromSessions(sessions),
+      sessions,
     }
   } catch (error) {
     if (error instanceof OpenCodeUnreachableError) {

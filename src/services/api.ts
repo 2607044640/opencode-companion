@@ -13,12 +13,28 @@ import type {
   MessagePartInput,
   DaemonConfig,
   CommandItem,
+  SkillItem,
   SnapshotFileDiff,
   RevertSessionOptions,
+  RoutingConfigResponse,
+  ModelProfilesResponse,
+  SendPromptOptions,
 } from '../types/opencode'
+import { buildPromptParts } from '../utils/prompt-parts'
 
-// Base URL: strictly 127.0.0.1:5001 loopback
-export const BASE_URL = 'http://127.0.0.1:5001'
+export const DAEMON_LOOPBACK_URL = 'http://127.0.0.1:5001'
+
+// Base URL: resolves dynamically to same-origin /opencode-proxy when served on companion port 5173, fallback to loopback
+export function resolveDaemonBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location) {
+    if (window.location.port === '5173') {
+      return `${window.location.origin}/opencode-proxy`
+    }
+  }
+  return DAEMON_LOOPBACK_URL
+}
+
+export const BASE_URL = resolveDaemonBaseUrl()
 
 // --- Defensive Normalization Layer (Schema-Safety Boundary) ---
 // Adopts extra="allow" + safe default fallbacks to prevent React TypeError crashes
@@ -55,31 +71,31 @@ export interface CanonicalProjectMeta {
 export const CANONICAL_PROJECTS: readonly CanonicalProjectMeta[] = [
   {
     name: 'APISpace',
-    defaultWorktree: '/workspace/projects/APISpace',
+    defaultWorktree: '/home/developer/projects/APISpace',
     defaultColor: 'blue',
     fallbackId: '53aa51360d45a83713b344d0fec6eb07e226c45b',
   },
   {
     name: 'ObsidianDev',
-    defaultWorktree: '/workspace/projects/ObsidianDev',
+    defaultWorktree: '/home/developer/projects/ObsidianDev',
     defaultColor: 'magenta',
     fallbackId: 'e2502d34ac60eb75b1dc17feed238fddebf26c12',
   },
   {
     name: 'ObsidianNote',
-    defaultWorktree: '/workspace/projects/ObsidianNote',
+    defaultWorktree: '/home/developer/projects/ObsidianNote',
     defaultColor: 'purple',
     fallbackId: '28409f34b07f22051233c7be93e4dffc8034e88e',
   },
   {
     name: 'AISpace',
-    defaultWorktree: '/workspace/projects/AISpace',
+    defaultWorktree: '/home/developer/projects/AISpace',
     defaultColor: 'cyan',
     fallbackId: 'af780317cdbe4ad0e34fd43acd12b34ac3093bed',
   },
   {
-    name: 'NullSpace',
-    defaultWorktree: '/workspace/projects/NullSpace',
+    name: 'AICore',
+    defaultWorktree: '/home/developer/projects/AICore',
     defaultColor: 'amber',
     fallbackId: '568bc3678fd5edb9259a1ba82dd71bfac38a8c54',
   },
@@ -99,36 +115,46 @@ export function matchCanonicalWorkspace(worktree?: string, name?: string): Canon
   return null
 }
 
+const JAIL_PROJECT_ROOTS: Readonly<Record<string, string>> = {
+  apispace: '/home/developer/projects/APISpace',
+  obsidiannote: '/home/developer/projects/ObsidianNote',
+  obsidiandev: '/home/developer/projects/ObsidianDev',
+  aicore: '/home/developer/projects/AICore',
+  aispace: '/home/developer/projects/AISpace',
+}
+
+const WINDOWS_PROJECT_ROOTS: Readonly<Record<string, string>> = {
+  'c:/apispace': JAIL_PROJECT_ROOTS.apispace,
+  'c:/obsidiannote': JAIL_PROJECT_ROOTS.obsidiannote,
+  'c:/obsidiandev': JAIL_PROJECT_ROOTS.obsidiandev,
+  'c:/aicore': JAIL_PROJECT_ROOTS.aicore,
+  'c:/godot/aispace': JAIL_PROJECT_ROOTS.aispace,
+}
+
 export function canonicalizeDirectory(dir?: string): string | undefined {
   if (!dir) return undefined
   const normalized = dir.replace(/\\/g, '/').replace(/\/+$/, '').trim()
   if (!normalized || normalized === '/') return undefined
 
-  // If already starts with Linux root / (e.g. /workspace/projects/...)
-  if (normalized.startsWith('/') && !normalized.includes(':')) {
-    return normalized
+  const lower = normalized.toLowerCase()
+  if (Object.prototype.hasOwnProperty.call(JAIL_PROJECT_ROOTS, lower)) {
+    return JAIL_PROJECT_ROOTS[lower]
+  }
+  if (Object.values(JAIL_PROJECT_ROOTS).some((root) => root.toLowerCase() === lower)) {
+    return Object.values(JAIL_PROJECT_ROOTS).find((root) => root.toLowerCase() === lower)
+  }
+  if (Object.prototype.hasOwnProperty.call(WINDOWS_PROJECT_ROOTS, lower)) {
+    return WINDOWS_PROJECT_ROOTS[lower]
   }
 
-  // If already a canonical Linux project path, return it directly
-  for (const meta of CANONICAL_PROJECTS) {
-    if (normalized === meta.defaultWorktree) {
-      return meta.defaultWorktree
-    }
+  const legacy = normalized.match(/^\/workspace\/projects\/(APISpace|ObsidianNote|ObsidianDev|AICore|AISpace)$/i)
+  if (legacy) {
+    return JAIL_PROJECT_ROOTS[legacy[1].toLowerCase()]
   }
 
-  // If Windows drive path (e.g. C:/... or D:\...)
-  const winMatch = normalized.match(/^[a-zA-Z]:(?:\/[^/]+)*\/([^/]+)$/)
-  if (winMatch) {
-    const endMatch = matchCanonicalWorkspace(undefined, winMatch[1])
-    if (endMatch) return endMatch.defaultWorktree
-  }
-
-  const matched = matchCanonicalWorkspace(normalized)
-  if (matched) {
-    return matched.defaultWorktree
-  }
-
-  return normalized
+  throw new Error(
+    `directory must be one of the 5 project roots (APISpace, ObsidianNote, ObsidianDev, AICore, AISpace); got ${dir}`,
+  )
 }
 
 export function resolveAgentName(agentName?: string): string | undefined {
@@ -246,6 +272,7 @@ export function normalizeSession(raw: any): Session {
     id: String(raw.id || ''),
     slug: String(raw.slug || raw.id || ''),
     projectID: String(raw.projectID || raw.project_id || 'global'),
+    parentID: raw.parentID ? String(raw.parentID) : undefined,
     directory: String(
       raw.directory ||
       raw.location?.directory ||
@@ -291,6 +318,34 @@ export function normalizeSession(raw: any): Session {
           diff: raw.revert.diff ? String(raw.revert.diff) : undefined,
         }
       : undefined,
+  }
+}
+
+/** A message.updated frame often arrives before tokens are filled. Do not let that zero wipe a real count. */
+export function mergeMessageInfo(prev: MessageInfo, next: MessageInfo): MessageInfo {
+  const prevSum =
+    (prev.tokens?.input || 0) +
+    (prev.tokens?.output || 0) +
+    (prev.tokens?.reasoning || 0) +
+    (prev.tokens?.cache?.read || 0) +
+    (prev.tokens?.cache?.write || 0)
+  const nextSum =
+    (next.tokens?.input || 0) +
+    (next.tokens?.output || 0) +
+    (next.tokens?.reasoning || 0) +
+    (next.tokens?.cache?.read || 0) +
+    (next.tokens?.cache?.write || 0)
+  return {
+    ...prev,
+    ...next,
+    tokens: nextSum > 0 || prevSum === 0 ? next.tokens : prev.tokens,
+    cost: next.cost || prev.cost,
+    finish: next.finish || prev.finish,
+    error: next.error || prev.error,
+    time: {
+      created: next.time?.created || prev.time.created,
+      completed: next.time?.completed || prev.time.completed,
+    },
   }
 }
 
@@ -348,11 +403,51 @@ export function normalizeMessageInfo(raw: any): MessageInfo {
   }
 }
 
+export function isAbortError(err: any): boolean {
+  if (!err) return false
+  if (typeof err === 'string') {
+    const s = err.trim().toLowerCase()
+    return (
+      s === 'aborted' ||
+      s === 'abort' ||
+      s === 'user abort' ||
+      s === 'user aborted' ||
+      s.includes('aborted by user') ||
+      s === 'the operation was aborted'
+    )
+  }
+  const name = String(err.name || '').toLowerCase()
+  const msg = String(err.message || '').trim().toLowerCase()
+  const dataMsg = String(err.data?.message || err.data?.error || '').trim().toLowerCase()
+  if (
+    name === 'aborterror' ||
+    name === 'messageabortederror' ||
+    name === 'useraborterror'
+  ) {
+    return true
+  }
+  if (
+    msg === 'aborted' ||
+    msg === 'abort' ||
+    msg === 'user abort' ||
+    msg === 'user aborted' ||
+    msg.includes('aborted by user') ||
+    msg === 'the operation was aborted'
+  ) {
+    return true
+  }
+  if (dataMsg === 'aborted' || dataMsg === 'abort') {
+    return true
+  }
+  return false
+}
+
 /**
  * Robustly extract human-readable error details from LLM relay / upstream gateways
  */
 export function extractRelayErrorMessage(err: any): string {
   if (!err) return ''
+  if (isAbortError(err)) return ''
   if (typeof err === 'string') return err
 
   const data = err.data || err
@@ -523,6 +618,22 @@ export function setAuthToken(token: string): void {
   }
 }
 
+const MESSAGE_CACHE_MS = 20_000
+
+interface MessageCacheEntry {
+  at: number
+  promise: Promise<Message[]>
+  value?: Message[]
+}
+
+const messageCache = new Map<string, MessageCacheEntry>()
+
+async function fetchNormalizedMessages(sessionID: string): Promise<Message[]> {
+  const raw = await request<any[]>(`/session/${sessionID}/message`)
+  if (!Array.isArray(raw)) return []
+  return raw.map(normalizeMessage)
+}
+
 class ApiError extends Error {
   status: number
 
@@ -583,7 +694,69 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+let cachedRoutingConfig: RoutingConfigResponse | null = null
+let cachedModelProfiles: ModelProfilesResponse | null = null
+let cachedAgents: AgentInfo[] | null = null
+
+export function getCachedRoutingConfig(): RoutingConfigResponse | null {
+  return cachedRoutingConfig
+}
+
+export function getCachedModelProfiles(): ModelProfilesResponse | null {
+  return cachedModelProfiles
+}
+
+export function getCachedAgents(): AgentInfo[] | null {
+  return cachedAgents
+}
+
 export const api = {
+  /**
+   * Fetch live model context limits and profiles from Companion host server
+   * Reads from C:\AICore\skills\OpenCodeDataControl\scripts\data\model_profiles.json
+   */
+  async getModelProfiles(): Promise<ModelProfilesResponse | null> {
+    try {
+      const res = await fetch('/api/model-profiles', {
+        headers: { Accept: 'application/json' },
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+      if (data && data.ok) {
+        cachedModelProfiles = data as ModelProfilesResponse
+        return cachedModelProfiles
+      }
+      return null
+    } catch (err) {
+      console.warn('Failed to load model profiles:', err)
+      return null
+    }
+  },
+
+  /**
+   * Fetch live routing configuration & senior model from Companion host server
+   */
+  async getRoutingConfig(): Promise<RoutingConfigResponse | null> {
+    try {
+      const res = await fetch('/api/routing-config', {
+        headers: { Accept: 'application/json' },
+      })
+      if (!res.ok) return null
+      const data = await res.json()
+      if (data && data.ok) {
+        cachedRoutingConfig = data as RoutingConfigResponse
+        if (data.modelProfiles && data.modelProfiles.ok) {
+          cachedModelProfiles = data.modelProfiles
+        }
+        return cachedRoutingConfig
+      }
+      return null
+    } catch (err) {
+      console.warn('Failed to load routing config:', err)
+      return null
+    }
+  },
+
   /**
    * Fetch daemon configuration (e.g. default_agent, models)
    */
@@ -836,12 +1009,43 @@ export const api = {
   },
 
   /**
-   * Get all messages for a session with defensive normalization
+   * Get all messages for a session with defensive normalization.
+   * Repeat callers within a short window share one in-flight request so
+   * startup can overlap the session list with the active transcript.
    */
-  async getMessages(sessionID: string): Promise<Message[]> {
-    const raw = await request<any[]>(`/session/${sessionID}/message`)
-    if (!Array.isArray(raw)) return []
-    return raw.map(normalizeMessage)
+  async getMessages(sessionID: string, opts?: { fresh?: boolean }): Promise<Message[]> {
+    const now = Date.now()
+    const hit = messageCache.get(sessionID)
+    if (!opts?.fresh && hit && now - hit.at < MESSAGE_CACHE_MS) {
+      return hit.promise
+    }
+    const promise = fetchNormalizedMessages(sessionID)
+    const entry: MessageCacheEntry = { at: now, promise }
+    messageCache.set(sessionID, entry)
+    promise.then(
+      (value) => {
+        entry.value = value
+      },
+      () => {
+        if (messageCache.get(sessionID)?.promise === promise) {
+          messageCache.delete(sessionID)
+        }
+      }
+    )
+    return promise
+  },
+
+  /** Resolved transcript, if a recent fetch already finished. */
+  peekMessages(sessionID: string): Message[] | null {
+    const hit = messageCache.get(sessionID)
+    if (!hit || Date.now() - hit.at >= MESSAGE_CACHE_MS) return null
+    return hit.value ?? null
+  },
+
+  /** Start a transcript fetch without waiting. Safe to call before the session list returns. */
+  prefetchMessages(sessionID: string): void {
+    if (!sessionID) return
+    void this.getMessages(sessionID).catch(() => {})
   },
 
   /**
@@ -860,14 +1064,9 @@ export const api = {
   async sendPrompt(
     sessionID: string,
     input: string | MessagePartInput[],
-    options?: {
-      agent?: string
-      model?: { providerID: string; modelID: string }
-    }
+    options?: SendPromptOptions
   ): Promise<void> {
-    const parts: MessagePartInput[] = typeof input === 'string'
-      ? [{ type: 'text', text: input }]
-      : input
+    const parts = buildPromptParts(input, options?.attachments)
 
     const resolvedAgent = resolveAgentName(options?.agent)
 
@@ -876,21 +1075,51 @@ export const api = {
       await this.switchSessionAgent(sessionID, resolvedAgent).catch(() => {})
     }
 
-    console.log('[API] 🚀 Dispatching prompt_async ->', {
-      sessionID,
-      agent: resolvedAgent,
-      model: options?.model,
-      partsCount: parts.length,
-    })
+    const modelPayload = options?.model
+      ? {
+          providerID: options.model.providerID,
+          modelID: (options.model as any).modelID || (options.model as any).id,
+        }
+      : undefined
+
+    // Fire background physical disk materialization for all file parts
+    for (const p of parts) {
+      if (p.type === 'file' && (p as any).url && (p as any).url.startsWith('data:')) {
+        void this.materializeAttachment({
+          filename: (p as any).filename || 'image.png',
+          mime: (p as any).mime || 'image/png',
+          dataUrl: (p as any).url,
+        })
+      }
+    }
 
     await request<void>(`/session/${sessionID}/prompt_async`, {
       method: 'POST',
       body: JSON.stringify({
         parts,
         ...(resolvedAgent ? { agent: resolvedAgent } : {}),
-        ...(options?.model ? { model: options.model } : {}),
+        ...(modelPayload ? { model: modelPayload } : {}),
       }),
     })
+  },
+
+  /**
+   * Materialize an attachment to disk in the container (/home/workdir/attachments & workspace)
+   */
+  async materializeAttachment(att: { filename?: string; mime?: string; dataUrl: string }): Promise<void> {
+    try {
+      await fetch('/api/materialize-attachment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: att.filename || 'image.png',
+          mime: att.mime || 'image/png',
+          dataUrl: att.dataUrl,
+        }),
+      })
+    } catch (err) {
+      console.warn('[API] materializeAttachment non-blocking warning:', err)
+    }
   },
 
   /**
@@ -921,13 +1150,19 @@ export const api = {
     try {
       const raw = await request<any[]>('/agent')
       if (!Array.isArray(raw)) return []
-      return raw.map((a) => ({
+      const list = raw.map((a) => ({
         name: String(a.name || 'Agent'),
         description: a.description ? String(a.description) : undefined,
         mode: a.mode ? String(a.mode) : undefined,
         native: Boolean(a.native),
         hidden: Boolean(a.hidden),
+        model: a.model ? {
+          providerID: a.model.providerID ? String(a.model.providerID) : undefined,
+          modelID: a.model.modelID ? String(a.model.modelID) : undefined,
+        } : undefined,
       }))
+      cachedAgents = list
+      return list
     } catch {
       return []
     }
@@ -977,6 +1212,36 @@ export const api = {
   /**
    * Fetch available slash commands from daemon
    */
+  /**
+   * Discover skill packages from the workspace and the shared skills catalog.
+   * The companion server scans SKILL.md; this client does not know the names.
+   */
+  async getSkills(directory?: string): Promise<SkillItem[]> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 4000)
+    try {
+      const query = directory ? `?directory=${encodeURIComponent(directory)}` : ''
+      const res = await fetch(`/api/skills${query}`, {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      })
+      if (!res.ok) return []
+      const data = await res.json()
+      if (!data || !Array.isArray(data.skills)) return []
+      return data.skills
+        .map((skill: any) => ({
+          name: String(skill?.name || '').trim(),
+          description: skill?.description ? String(skill.description) : undefined,
+        }))
+        .filter((skill: SkillItem) => skill.name.length > 0)
+    } catch (err) {
+      console.warn('Failed to discover skills:', err)
+      return []
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  },
+
   async getCommands(): Promise<CommandItem[]> {
     try {
       const data = await request<any[]>('/command')
@@ -1008,16 +1273,25 @@ export const api = {
   /**
    * Health check probe with explicit timeout and fail-fast handling
    */
-  async checkHealth(timeoutMs: number = 5000): Promise<boolean> {
+  async checkHealth(timeoutMs: number = 4000): Promise<boolean> {
+    const start = Date.now()
+    const targetUrl = `${resolveDaemonBaseUrl()}/global/health`
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-      const res = await fetch(`${BASE_URL}/global/health`, {
+      const res = await fetch(targetUrl, {
         signal: controller.signal,
       })
       clearTimeout(timeoutId)
-      return res.ok
-    } catch {
+      const duration = Date.now() - start
+      if (res.ok) {
+        return true
+      }
+      console.warn(`[daemon-health] Probe returned HTTP ${res.status} in ${duration}ms [url: ${targetUrl}]`)
+      return false
+    } catch (err: any) {
+      const duration = Date.now() - start
+      console.warn(`[daemon-health] Probe failed in ${duration}ms (${err?.name || 'Error'}: ${err?.message || err}) [url: ${targetUrl}]`)
       return false
     }
   },

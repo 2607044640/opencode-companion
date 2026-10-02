@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { Search, GitBranch, PlusCircle, X } from "lucide-react"
+import { Search, GitBranch, PlusCircle, X, Plus } from "lucide-react"
 import type { ViewState } from "./map-interactions"
 import type { TalkMapClient } from "../opencode/client"
 import type { TalkMap } from "../schema/talk-map"
 import {
-  filterProjectSessions,
+  filterCategorizedSessions,
   executeBranchAction,
   executeNewSessionAction,
   executeConnectAction,
@@ -13,6 +13,7 @@ import {
   type BlueprintMenuState,
 } from "./blueprint-action-helpers"
 import { HighlightedText } from "./HighlightedText"
+import { useI18n } from "../../../utils/i18n"
 
 export type { BlueprintMenuState }
 
@@ -26,7 +27,10 @@ export type BlueprintActionMenuProps = {
   readonly setToast: React.Dispatch<React.SetStateAction<string | undefined>>
   readonly onClose: () => void
   readonly onSelectSession?: (sessionId: string) => void
+  readonly onLocateCard?: (cardId: string, position?: { readonly x: number; readonly y: number }) => void
 }
+
+type CategoryFilter = "all" | "existing" | "unowned"
 
 type QuickActionItem =
   | { readonly kind: "branch"; readonly title: string; readonly subtitle: string }
@@ -38,8 +42,10 @@ type MenuItem = QuickActionItem | ConnectSessionItem
 
 export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
   const { menu, view, client, newCardId, persistMap, setView, setToast, onClose, onSelectSession } = props
+  const { isZh } = useI18n()
   const [query, setQuery] = useState("")
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all")
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
 
@@ -78,13 +84,14 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
 
   const directory = view.kind === "ready" ? (view.directory ?? "all") : undefined
 
-  const matchedSessions = useMemo(() => {
+  const { existingSessions, unownedSessions } = useMemo(() => {
     if (view.kind !== "ready") {
-      return []
+      return { existingSessions: [], unownedSessions: [] }
     }
-    return filterProjectSessions({
+    return filterCategorizedSessions({
       cards: view.map.cards,
       titles: view.titles,
+      sessions: view.sessions,
       directory: directory ?? "all",
       query,
       excludeCardId: menu.fromNode?.id,
@@ -92,7 +99,20 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
     })
   }, [directory, menu.fromNode?.id, query, view])
 
+  const displayedExisting = useMemo(() => {
+    if (categoryFilter === "unowned") return []
+    return existingSessions
+  }, [categoryFilter, existingSessions])
+
+  const displayedUnowned = useMemo(() => {
+    if (categoryFilter === "existing") return []
+    return unownedSessions
+  }, [categoryFilter, unownedSessions])
+
   const quickActions: QuickActionItem[] = useMemo(() => {
+    if (categoryFilter === "unowned") {
+      return []
+    }
     const list: QuickActionItem[] = []
     const q = query.trim().toLowerCase()
     const sourceCard =
@@ -104,33 +124,37 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
       (sessionIdFromNodeData(menu.fromNode.data) !== undefined || sourceCard?.sessionId !== undefined)
 
     if (canBranch) {
-      if (!q || "新建分支会话 branch session".toLowerCase().includes(q)) {
+      if (!q || (isZh ? "新建分支会话" : "branch session").toLowerCase().includes(q) || "branch".includes(q) || "分支".includes(q)) {
         list.push({
           kind: "branch",
-          title: "新建分支会话 (Branch Session)",
-          subtitle: "派生上下文并从当前引脚连接",
+          title: isZh ? "新建分支会话" : "Branch Session",
+          subtitle: isZh ? "派生上下文并从当前引脚连接" : "Branch context and connect from current pin",
         })
       }
     }
 
-    if (!q || "新建独立会话 new session".toLowerCase().includes(q)) {
+    if (!q || (isZh ? "新建独立会话" : "new session").toLowerCase().includes(q) || "session".includes(q) || "独立".includes(q)) {
       list.push({
         kind: "new_session",
-        title: "新建独立会话 (New Session)",
-        subtitle: "在此位置创建全新的独立对话",
+        title: isZh ? "新建独立会话" : "New Session",
+        subtitle: isZh ? "在此位置创建全新的独立对话" : "Create a new independent session at this position",
       })
     }
 
     return list
-  }, [menu.fromNode, query, view])
+  }, [categoryFilter, isZh, menu.fromNode, query, view])
 
   const allItems: MenuItem[] = useMemo(() => {
-    const sessionItems: MenuItem[] = matchedSessions.map((session) => ({
+    const existingItems: MenuItem[] = displayedExisting.map((session) => ({
       kind: "connect_session",
       session,
     }))
-    return [...quickActions, ...sessionItems]
-  }, [quickActions, matchedSessions])
+    const unownedItems: MenuItem[] = displayedUnowned.map((session) => ({
+      kind: "connect_session",
+      session,
+    }))
+    return [...quickActions, ...existingItems, ...unownedItems]
+  }, [quickActions, displayedExisting, displayedUnowned])
 
   const activeIndex = selectedIndex >= allItems.length ? Math.max(0, allItems.length - 1) : selectedIndex
 
@@ -147,6 +171,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
         persistMap,
         setView,
         setToast,
+        isZh,
       })
       onClose()
       return
@@ -162,6 +187,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
         persistMap,
         setView,
         setToast,
+        isZh,
       })
       onClose()
       return
@@ -176,6 +202,9 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
         setView,
         setToast,
         onSelectSession,
+        onLocateCard: props.onLocateCard,
+        newCardId,
+        isZh,
       })
       onClose()
       return
@@ -210,13 +239,15 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
     }
   }
 
-  const menuWidth = 400
-  const menuHeight = 400
+  const menuWidth = 420
+  const menuHeight = 440
   const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1200
   const viewportHeight = typeof window !== "undefined" ? window.innerHeight : 800
 
   const left = Math.max(16, Math.min(menu.clientPoint.x, viewportWidth - menuWidth - 16))
   const top = Math.max(16, Math.min(menu.clientPoint.y, viewportHeight - menuHeight - 16))
+
+  const totalSessionCount = existingSessions.length + unownedSessions.length
 
   return (
     <div
@@ -225,7 +256,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
       data-testid="blueprint-action-menu-backdrop"
     >
       <div
-        className="absolute flex flex-col w-[400px] max-h-[420px] bg-[#14171f]/95 backdrop-blur-md border border-[#2d3342] rounded-lg shadow-2xl overflow-hidden text-zinc-200 z-51 font-sans"
+        className="absolute flex flex-col w-[420px] max-h-[460px] bg-[#14171f]/95 backdrop-blur-md border border-[#2d3342] rounded-lg shadow-2xl overflow-hidden text-zinc-200 z-51 font-sans"
         style={{ left, top }}
         onPointerDown={(e) => {
           e.stopPropagation()
@@ -235,6 +266,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
         }}
         data-testid="blueprint-action-menu"
       >
+        {/* Search Input Row */}
         <div className="flex items-center px-3 py-2 border-b border-[#272b38] gap-2 bg-[#1a1e29]/70">
           <Search className="w-4 h-4 text-zinc-400 shrink-0" />
           <input
@@ -246,7 +278,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
               setSelectedIndex(0)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="搜索操作或工程会话 (Search actions)..."
+            placeholder={isZh ? "搜索操作或会话..." : "Search actions or sessions..."}
             className="bg-transparent text-xs text-zinc-100 placeholder-zinc-500 outline-none w-full"
             data-testid="blueprint-action-search-input"
           />
@@ -254,17 +286,68 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
             type="button"
             onClick={onClose}
             className="text-zinc-500 hover:text-zinc-300 p-0.5"
-            title="关闭菜单 (Esc)"
+            title={isZh ? "关闭菜单 (Esc)" : "Close menu (Esc)"}
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
 
+        {/* Category Filter Tabs Bar (Default: All Categories) */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-[#242835] bg-[#11141c] text-[11px]">
+          <button
+            type="button"
+            onClick={() => {
+              setCategoryFilter("all")
+              setSelectedIndex(0)
+            }}
+            className={`px-2 py-0.5 rounded transition-colors font-medium ${
+              categoryFilter === "all"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-[#1a1e2a]"
+            }`}
+            data-testid="category-filter-all"
+          >
+            {isZh ? "全部分类" : "All Categories"} ({totalSessionCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCategoryFilter("existing")
+              setSelectedIndex(0)
+            }}
+            className={`px-2 py-0.5 rounded transition-colors font-medium ${
+              categoryFilter === "existing"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-[#1a1e2a]"
+            }`}
+            data-testid="category-filter-existing"
+          >
+            {isZh ? "现有会话" : "Existing Sessions"} ({existingSessions.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCategoryFilter("unowned")
+              setSelectedIndex(0)
+            }}
+            className={`px-2 py-0.5 rounded transition-colors font-medium ${
+              categoryFilter === "unowned"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-[#1a1e2a]"
+            }`}
+            data-testid="category-filter-unowned"
+          >
+            {isZh ? "未拥有对话" : "Unowned Sessions"} ({unownedSessions.length})
+          </button>
+        </div>
+
+        {/* Items List */}
         <div ref={listRef} className="overflow-y-auto flex-1 p-1.5 space-y-1">
+          {/* Quick Actions */}
           {quickActions.length > 0 && (
             <div className="mb-2">
               <div className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-2 py-1">
-                快捷动作 (Actions)
+                {isZh ? "快捷动作" : "Actions"}
               </div>
               {quickActions.map((item, idx) => {
                 const isSelected = idx === activeIndex
@@ -300,12 +383,13 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
             </div>
           )}
 
-          {matchedSessions.length > 0 && (
-            <div>
+          {/* Existing Sessions */}
+          {displayedExisting.length > 0 && (
+            <div className="mb-2">
               <div className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-2 py-1">
-                工程现有会话 (Project Sessions)
+                {isZh ? "现有会话" : "Existing Sessions"}
               </div>
-              {matchedSessions.map((session, sIdx) => {
+              {displayedExisting.map((session, sIdx) => {
                 const globalIdx = quickActions.length + sIdx
                 const isSelected = globalIdx === activeIndex
                 const projectColor =
@@ -314,7 +398,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
 
                 return (
                   <button
-                    key={session.cardId}
+                    key={session.cardId || session.sessionId || sIdx}
                     type="button"
                     className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between gap-2.5 transition-all border ${
                       isSelected
@@ -323,12 +407,12 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
                     }`}
                     onClick={() => executeItem({ kind: "connect_session", session })}
                     onMouseEnter={() => setSelectedIndex(globalIdx)}
-                    data-testid={`session-item-${session.cardId}`}
+                    data-testid={`session-item-${session.cardId || session.sessionId}`}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span
                         className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${projectColor}`}
-                        title={session.projectName ? `工程: ${session.projectName}` : undefined}
+                        title={session.projectName ? (isZh ? `工程: ${session.projectName}` : `Project: ${session.projectName}`) : undefined}
                       >
                         {projectPill}
                       </span>
@@ -348,8 +432,68 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
             </div>
           )}
 
+          {/* Unowned Sessions */}
+          {displayedUnowned.length > 0 && (
+            <div className="mb-2">
+              <div className="text-[10px] font-semibold text-emerald-500/90 uppercase tracking-wider px-2 py-1 flex items-center justify-between">
+                <span>{isZh ? "未拥有对话" : "Unowned Sessions"}</span>
+                <span className="text-[9px] lowercase font-normal text-zinc-500">
+                  {isZh ? "点击添加至地图" : "click to add to map"}
+                </span>
+              </div>
+              {displayedUnowned.map((session, uIdx) => {
+                const globalIdx = quickActions.length + displayedExisting.length + uIdx
+                const isSelected = globalIdx === activeIndex
+                const projectColor =
+                  session.projectColorClass || "bg-zinc-800/60 text-zinc-300 border-zinc-700/50"
+                const projectPill = session.projectBadge || `[${session.projectName || "APISpace"}]`
+
+                return (
+                  <button
+                    key={session.sessionId || uIdx}
+                    type="button"
+                    className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center justify-between gap-2.5 transition-all border ${
+                      isSelected
+                        ? "bg-[#16201a] border-emerald-500/60 text-white shadow-sm"
+                        : "bg-transparent border-transparent hover:bg-[#141a16] text-zinc-200"
+                    }`}
+                    onClick={() => executeItem({ kind: "connect_session", session })}
+                    onMouseEnter={() => setSelectedIndex(globalIdx)}
+                    data-testid={`unowned-session-item-${session.sessionId}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${projectColor}`}
+                        title={session.projectName ? (isZh ? `工程: ${session.projectName}` : `Project: ${session.projectName}`) : undefined}
+                      >
+                        {projectPill}
+                      </span>
+                      <span className="text-xs font-medium leading-tight truncate flex-1">
+                        <HighlightedText text={session.title} query={query} />
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono border border-emerald-800/50 bg-emerald-950/30 text-emerald-300">
+                        <Plus className="w-2.5 h-2.5" />
+                        <span>{isZh ? "添加" : "Add"}</span>
+                      </span>
+                      {isSelected && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-mono text-emerald-300 bg-emerald-950/50 border border-emerald-800/60 px-1.5 py-0.5 rounded shrink-0">
+                          <span>Enter ↵</span>
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {allItems.length === 0 && (
-            <div className="py-6 text-center text-xs text-zinc-500">无匹配的操作或会话</div>
+            <div className="py-6 text-center text-xs text-zinc-500">
+              {isZh ? "无匹配的操作或会话" : "No matching actions or sessions"}
+            </div>
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { Header } from './components/layout/Header'
 import { ChatTimeline } from './components/chat/ChatTimeline'
-import { PromptInput, type DraftInjection } from './components/chat/PromptInput'
+import { PromptInput, type DraftInjection, type PromptDraft } from './components/chat/PromptInput'
 import { SessionRevertDock } from './components/chat/SessionRevertDock'
 import { extractDraftFromMessage } from './utils/draft'
 import { SettingsModal, type SettingsTab } from './components/settings/SettingsModal'
@@ -18,7 +18,15 @@ import { api, canonicalizeDirectory } from './services/api'
 import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore } from 'lucide-react'
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
-import type { Message } from './types/opencode'
+import type { Message, PromptAttachment } from './types/opencode'
+import {
+  createQueuedMessage,
+  dequeueFirst,
+  enqueueMessage,
+  removeQueuedMessage,
+  shouldAutoDispatchQueue,
+  type QueuedMessage,
+} from './utils/message-queue'
 import { sseManager } from './services/sse'
 import {
   getUnreadSessionIds,
@@ -147,7 +155,10 @@ export default function App() {
     messages,
     sessionStatus,
     todos,
+    loading: messagesLoading,
     error,
+    turnEpoch,
+    turnEnd,
     sendPrompt,
     abort,
     retry,
@@ -158,6 +169,59 @@ export default function App() {
 
   // Programmatic draft injection into PromptInput on message revert / restore
   const [draftInjection, setDraftInjection] = useState<DraftInjection | null>(null)
+
+  // Messages typed while the model is still working. FIFO, unbounded.
+  // Keyed by session so switching tabs does not leak another chat's queue.
+  const [queueBySession, setQueueBySession] = useState<Record<string, QueuedMessage[]>>({})
+  const [queueEditRequest, setQueueEditRequest] = useState<
+    (DraftInjection & { agent?: string; model?: { providerID: string; modelID: string } }) | null
+  >(null)
+  const queueSessionKey = activeSessionId || DRAFT_SESSION_ID
+  const queuedMessages = queueBySession[queueSessionKey] || []
+  const queuedMessagesRef = useRef(queuedMessages)
+  queuedMessagesRef.current = queuedMessages
+  const dispatchingQueueRef = useRef(false)
+
+  const handleEnqueue = useCallback(
+    (draft: PromptDraft) => {
+      const item = createQueuedMessage(draft.text, draft.options)
+      setQueueBySession((prev) => ({
+        ...prev,
+        [queueSessionKey]: enqueueMessage(prev[queueSessionKey] || [], item),
+      }))
+    },
+    [queueSessionKey]
+  )
+
+  const handleDeleteQueued = useCallback(
+    (id: string) => {
+      setQueueBySession((prev) => ({
+        ...prev,
+        [queueSessionKey]: removeQueuedMessage(prev[queueSessionKey] || [], id),
+      }))
+    },
+    [queueSessionKey]
+  )
+
+  const handleEditQueued = useCallback(
+    (id: string) => {
+      const item = queuedMessagesRef.current.find((entry) => entry.id === id)
+      if (!item) return
+      setQueueBySession((prev) => ({
+        ...prev,
+        [queueSessionKey]: removeQueuedMessage(prev[queueSessionKey] || [], id),
+      }))
+      setQueueEditRequest({
+        text: item.text,
+        attachments: item.options?.attachments,
+        timestamp: Date.now(),
+        focus: true,
+        agent: item.options?.agent,
+        model: item.options?.model,
+      })
+    },
+    [queueSessionKey]
+  )
 
   // Target message jump state (e.g. from Cross-Message Search hit)
   const [targetMessageId, setTargetMessageId] = useState<string | null>(null)
@@ -530,7 +594,7 @@ export default function App() {
       options?: {
         agent?: string
         model?: { providerID: string; modelID: string }
-        attachments?: any[]
+        attachments?: PromptAttachment[]
       }
     ) => {
       // If currently in a draft session (or no active session), lazily create the session on first send!
@@ -542,9 +606,14 @@ export default function App() {
                 Boolean(p.associatedIds && p.associatedIds.includes(selectedProjectId))
             )
           : null
-        const projectDirectory = canonicalizeDirectory(selectedProject?.worktree)
+        const projectDirectory = selectedProject?.worktree
+          ? canonicalizeDirectory(selectedProject.worktree)
+          : '/home/developer/projects/APISpace'
         const sessionTitle =
           text.trim().slice(0, 40) ||
+          (options?.attachments && options.attachments.length > 0
+            ? options.attachments[0].name?.slice(0, 40) || 'Image'
+            : '') ||
           `New session - ${new Date().toLocaleString('zh-CN', { hour12: false })}`
 
         try {
@@ -560,10 +629,10 @@ export default function App() {
           // Mark human-initiated so completion triggers unread indicator
           markHumanInitiated(newSession.id)
 
-          // Dispatch prompt into the newly created session
-          await api.sendPrompt(newSession.id, text, options)
+          // Dispatch prompt into the newly created session via useChatStream
+          await sendPrompt(text, options, newSession.id)
         } catch (err) {
-          console.error('Failed to create session on first send:', err)
+          console.error('[App] Failed to create session or send prompt on first send:', err)
         }
         return
       }
@@ -581,6 +650,50 @@ export default function App() {
     },
     [activeSessionId, projects, selectedProjectId, createNewSession, sendPrompt, isArchived, unarchiveSession]
   )
+
+  const handleSendPromptRef = useRef(handleSendPrompt)
+  handleSendPromptRef.current = handleSendPrompt
+
+  const dispatchQueueHead = useCallback(
+    async (id: string, immediate = false) => {
+      if (dispatchingQueueRef.current) return
+      const current = queuedMessagesRef.current
+      const target = current.find((item) => item.id === id)
+      if (!target) return
+      dispatchingQueueRef.current = true
+      setQueueBySession((prev) => ({
+        ...prev,
+        [queueSessionKey]: removeQueuedMessage(prev[queueSessionKey] || [], id),
+      }))
+      try {
+        if (immediate) {
+          await abort({ preempt: true })
+        }
+        await handleSendPromptRef.current(target.text, target.options)
+      } finally {
+        dispatchingQueueRef.current = false
+      }
+    },
+    [queueSessionKey, abort]
+  )
+
+  const seenTurnEpochRef = useRef(0)
+  useEffect(() => {
+    if (turnEpoch === 0 || turnEpoch === seenTurnEpochRef.current) return
+    seenTurnEpochRef.current = turnEpoch
+    if (sessionStatus.type !== 'idle') return
+    if (queuedMessagesRef.current.length === 0) return
+    const assistant = [...messages].reverse().find((m) => m.info.role === 'assistant')
+    const clean = shouldAutoDispatchQueue({
+      assistantHasError: Boolean(assistant?.info.error) || turnEnd === 'error',
+      streamError: turnEnd === 'error' ? error || 'turn-error' : null,
+      userAborted: turnEnd === 'user',
+    })
+    if (!clean) return
+    const { item } = dequeueFirst(queuedMessagesRef.current)
+    if (!item) return
+    void dispatchQueueHead(item.id)
+  }, [turnEpoch, turnEnd, sessionStatus.type, error, messages, dispatchQueueHead])
 
   const isZenModeRef = useRef(isZenMode)
   useEffect(() => {
@@ -895,6 +1008,7 @@ export default function App() {
             activeSessionId={activeSessionId}
             activeSession={activeSession}
             sessionStatus={sessionStatus}
+            messages={messages}
             unreadSessionIds={unreadSessionIds}
             onSelectTab={(sessionId) => {
               markSessionRead(sessionId)
@@ -974,52 +1088,38 @@ export default function App() {
               onTargetMessageScrolled={() => setTargetMessageId(null)}
               isFindOpen={isFindOpen}
               onCloseFind={() => setIsFindOpen(false)}
+              messagesLoading={messagesLoading || sessionsLoading}
             />
 
-            {/* In Zen mode, stack SessionRevertDock and PromptInput in a floating dock to prevent collision */}
-            {isZenMode ? (
-              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 max-w-3xl w-[calc(100%-2rem)] z-40 flex flex-col gap-2 pointer-events-none">
-                <div className="pointer-events-auto">
-                  <SessionRevertDock
-                    activeSession={activeSession}
-                    messages={messages}
-                    onRestoreMessage={handleRestoreMessage}
-                    isRestoring={reverting}
-                  />
-                </div>
-                <div className="pointer-events-auto">
-                  <PromptInput
-                    activeSession={activeSession}
-                    onSend={handleSendPrompt}
-                    onAbort={abort}
-                    isBusy={sessionStatus.type === 'busy'}
-                    isZenMode={isZenMode}
-                    draftInjection={draftInjection}
-                    projects={projects}
-                    selectedProjectId={selectedProjectId}
-                    onSelectProject={setSelectedProjectId}
-                    onNewProject={async () => { await refresh() }}
-                    sessions={sessions}
-                    todos={todos}
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Native OpenCode Rolled Back Messages Dock */}
+            {/* Bottom Controls / Zen Mode Floating Dock (Preserves PromptInput instance across F11 toggles) */}
+            <div
+              className={
+                isZenMode
+                  ? 'fixed bottom-4 left-1/2 -translate-x-1/2 max-w-3xl w-[calc(100%-2rem)] z-40 flex flex-col gap-2 pointer-events-none'
+                  : 'flex flex-col shrink-0'
+              }
+            >
+              <div className={isZenMode ? 'pointer-events-auto' : ''}>
                 <SessionRevertDock
                   activeSession={activeSession}
                   messages={messages}
                   onRestoreMessage={handleRestoreMessage}
                   isRestoring={reverting}
                 />
+              </div>
 
-                {/* Bottom Prompt Controls (Image 1 & Image 2) */}
+              <div className={isZenMode ? 'pointer-events-auto' : ''}>
                 <PromptInput
                   activeSession={activeSession}
                   onSend={handleSendPrompt}
                   onAbort={abort}
-                  isBusy={sessionStatus.type === 'busy'}
+                  isBusy={sessionStatus.type === 'busy' || sessionStatus.type === 'retry'}
+                  queuedMessages={queuedMessages}
+                  onEnqueue={handleEnqueue}
+                  onSendQueuedNow={(id) => void dispatchQueueHead(id, true)}
+                  onEditQueued={handleEditQueued}
+                  onDeleteQueued={handleDeleteQueued}
+                  queueEditRequest={queueEditRequest}
                   isZenMode={isZenMode}
                   draftInjection={draftInjection}
                   projects={projects}
@@ -1029,8 +1129,8 @@ export default function App() {
                   sessions={sessions}
                   todos={todos}
                 />
-              </>
-            )}
+              </div>
+            </div>
           </main>
         )}
       </div>

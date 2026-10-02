@@ -5,24 +5,28 @@ import type {
   TextPart,
   ReasoningPart,
   FilePart,
-  MessagePartInput,
   SessionStatusPayload,
   TodoItem,
   Session,
 } from '../types/opencode'
-import { api, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage } from '../services/api'
+import { api, mergeMessageInfo, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage, isAbortError } from '../services/api'
 import { sseManager } from '../services/sse'
 import { classifyEmptyIdleFuse } from './empty-idle-fuse'
 import { maybeCommitGitCheckpoint } from '../utils/maybe-git-checkpoint'
 import { postExternalFileRollback } from '../services/host-api'
 import { executeRevertWithTimeout, withRevertTimeout, type RevertMode as EngineRevertMode } from '../utils/revert-engine'
+import {
+  buildPromptParts,
+  buildOptimisticMessage,
+  reconcileHistoryWithOptimistic,
+} from '../utils/prompt-parts'
+import { partitionAssistantTurn } from '../utils/worked-summary'
 
-export interface PromptAttachment {
-  id?: string
-  name?: string
-  mime: string
-  url: string
-}
+import type {
+  PromptAttachment,
+} from '../types/opencode'
+
+export type { PromptAttachment }
 
 export type RevertMode = EngineRevertMode
 
@@ -32,10 +36,15 @@ export function useChatStream(
   sessionDir?: string
 ) {
   const [messages, setMessages] = useState<Message[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
+  const [loading, setLoading] = useState<boolean>(() => Boolean(sessionId && sessionId !== '__draft__'))
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
   const [sessionStatus, setSessionStatus] = useState<SessionStatusPayload>({ type: 'idle' })
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [error, setError] = useState<string | null>(null)
+  /** Bumps on every transition into idle so the queue can drain even if status was already idle. */
+  const [turnEpoch, setTurnEpoch] = useState(0)
+  /** Why the latest turn ended. 'user' is Stop; 'error' pauses the queue; null is a clean finish. */
+  const [turnEnd, setTurnEnd] = useState<'clean' | 'error' | 'user' | null>(null)
 
   // Use a ref to access latest messages in SSE callbacks without stale closures
   const messagesRef = useRef<Message[]>([])
@@ -47,29 +56,69 @@ export function useChatStream(
   // real backend message when SSE fires — prevents the "sent twice" duplicate bug.
   const pendingOptimisticIdRef = useRef<string | null>(null)
   const userAbortedRef = useRef(false)
+  const transitioningSessionIdRef = useRef<string | null>(null)
+  const currentSessionIdRef = useRef<string | null>(sessionId)
+  const sessionBusyRef = useRef(false)
+
+  const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
+    if (!sessionBusyRef.current && kind === 'clean') return
+    sessionBusyRef.current = false
+    setTurnEnd(kind)
+    setTurnEpoch((n) => n + 1)
+  }, [])
 
   // Load initial messages and todos when sessionId changes
   const loadSessionData = useCallback(async (id: string) => {
-    setLoading(true)
+    const peeked = api.peekMessages(id)
+    if (peeked) {
+      setMessages((prev) => reconcileHistoryWithOptimistic(peeked, prev))
+      setLoadedSessionId(id)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     setError(null)
+    const todosPromise = api.getTodos(id)
     try {
-      const [history, initialTodos] = await Promise.all([
-        api.getMessages(id),
-        api.getTodos(id),
-      ])
-      setMessages(history)
+      const history = await api.getMessages(id)
+      if (currentSessionIdRef.current !== id) return
+      setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
+      setLoadedSessionId(id)
+      setLoading(false)
+      const initialTodos = await todosPromise
+      if (currentSessionIdRef.current !== id) return
       setTodos(initialTodos || [])
+
+      const last = history[history.length - 1]
+      if (last?.info.role === 'assistant') {
+        const probed = partitionAssistantTurn(last.parts, last.info, Date.now(), false)
+        if (probed.isLive) setSessionStatus({ type: 'busy' })
+      }
     } catch (err) {
       console.error('Failed to load session history:', err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      if (currentSessionIdRef.current === id) {
+        setLoadedSessionId(id)
+      }
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
+    currentSessionIdRef.current = sessionId
+
+    // If an in-flight prompt initiated this session switch, preserve optimistic messages and status!
+    if (transitioningSessionIdRef.current === sessionId && sessionId) {
+      transitioningSessionIdRef.current = null
+      loadSessionData(sessionId)
+      return
+    }
+
     setSessionStatus({ type: 'idle' })
     setError(null)
+    setTurnEnd(null)
+    sessionBusyRef.current = false
     userAbortedRef.current = false
 
     if (!sessionId || sessionId === '__draft__') {
@@ -84,9 +133,16 @@ export function useChatStream(
 
     // Subscribe to SSE events
     const unsubDelta = sseManager.onPartDelta((data) => {
-      if (data.sessionID !== sessionId) return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
 
       setMessages((prev) => {
+        const target = prev.find((m) => m.info.id === data.messageID)
+        const done = Boolean(target?.info.time.completed || target?.info.finish || target?.info.error)
+        if (target && !done) {
+          setSessionStatus((s) => (s.type === 'busy' ? s : { type: 'busy' }))
+        }
+
         let msgFound = false
         const next = prev.map((msg) => {
           if (msg.info.id !== data.messageID) return msg
@@ -168,13 +224,20 @@ export function useChatStream(
     })
 
     const unsubPartUpdated = sseManager.onPartUpdated((data) => {
-      if (data.sessionID !== sessionId) return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
       const cleanPart = normalizeMessagePart(data.part)
+      console.warn('[CHAT_STREAM_DEBUG] ⚡ onPartUpdated received:', {
+        partId: cleanPart.id,
+        type: cleanPart.type,
+        messageId: cleanPart.messageID,
+      })
 
       setMessages((prev) => {
         let msgFound = false
         const next = prev.map((msg) => {
-          if (msg.info.id !== cleanPart.messageID) return msg
+          const isPendingMatch = pendingOptimisticIdRef.current && msg.info.id === pendingOptimisticIdRef.current
+          if (msg.info.id !== cleanPart.messageID && !isPendingMatch) return msg
           msgFound = true
 
           let partFound = false
@@ -203,13 +266,14 @@ export function useChatStream(
         })
 
         if (!msgFound && cleanPart.messageID) {
+          const isUserPart = cleanPart.type === 'file'
           return [
             ...next,
             {
               info: normalizeMessageInfo({
                 id: cleanPart.messageID,
                 sessionID: data.sessionID,
-                role: 'assistant',
+                role: isUserPart ? 'user' : 'assistant',
                 time: { created: Date.now() },
               }),
               parts: [cleanPart],
@@ -222,7 +286,8 @@ export function useChatStream(
     })
 
     const unsubMsgUpdated = sseManager.onMessageUpdated((data) => {
-      if (data.sessionID !== sessionId) return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
       const cleanInfo = normalizeMessageInfo(data.info)
 
       setMessages((prev) => {
@@ -230,7 +295,7 @@ export function useChatStream(
         const next = prev.map((msg) => {
           if (msg.info.id !== cleanInfo.id) return msg
           found = true
-          return { ...msg, info: { ...msg.info, ...cleanInfo } }
+          return { ...msg, info: mergeMessageInfo(msg.info, cleanInfo) }
         })
 
         if (!found) {
@@ -243,7 +308,7 @@ export function useChatStream(
               msg.info.id === pendingId
                 ? {
                     ...msg,
-                    info: { ...msg.info, ...cleanInfo },
+                    info: mergeMessageInfo(msg.info, cleanInfo),
                     parts: msg.parts.map((p) => ({
                       ...p,
                       messageID: cleanInfo.id,
@@ -261,14 +326,32 @@ export function useChatStream(
     const unsubStatus = sseManager.onSessionStatus((data) => {
       if (data.sessionID !== sessionId) return
       setSessionStatus(data.status)
+      if (data.status.type === 'idle') {
+        noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
+      }
     })
 
     // SSE Error Fuse: break out of busy state immediately on backend errors
     const unsubError = sseManager.onSessionError((data) => {
       if (data.sessionID !== sessionId) return
       setSessionStatus({ type: 'idle' })
+
+      // User-initiated or backend abort is not a relay failure
+      if (userAbortedRef.current || isAbortError(data.error)) {
+        userAbortedRef.current = false
+        setError(null)
+        noteTurnEnd('user')
+        return
+      }
+
       const errorMsg = extractRelayErrorMessage(data.error) || 'Session error occurred'
+      if (isAbortError(errorMsg)) {
+        setError(null)
+        noteTurnEnd('user')
+        return
+      }
       setError(errorMsg)
+      noteTurnEnd('error')
 
       // Attach error directly to the last assistant message so it renders inside the message bubble
       setMessages((prev) => {
@@ -295,7 +378,7 @@ export function useChatStream(
     })
 
     // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
-    const unsubIdle = sseManager.onSessionIdle((data) => {
+      const unsubIdle = sseManager.onSessionIdle((data) => {
       if (data.sessionID !== sessionId) return
       setSessionStatus({ type: 'idle' })
 
@@ -305,14 +388,33 @@ export function useChatStream(
         lastMessage: lastMsg,
         userAborted: userAbortedRef.current,
       })
+      const abortedByUser = userAbortedRef.current
       userAbortedRef.current = false
       if (fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
         void maybeCommitGitCheckpoint(sessionId, currentMsgs)
       }
+      if (abortedByUser || fuse.kind === 'user_abort') {
+        noteTurnEnd('user')
+      } else if (
+        fuse.kind === 'empty_response' ||
+        fuse.kind === 'system_abort' ||
+        fuse.kind === 'repetition_loop' ||
+        Boolean(lastMsg?.info.role === 'assistant' && lastMsg.info.error)
+      ) {
+        noteTurnEnd('error')
+      } else {
+        noteTurnEnd('clean')
+      }
       if ((fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg) {
+        if (isAbortError(lastMsg.info.error) || lastMsg.info.finish === 'abort') {
+          return
+        }
         const errorMsg = lastMsg.info.error
           ? extractRelayErrorMessage(lastMsg.info.error)
           : fuse.message
+        if (isAbortError(errorMsg)) {
+          return
+        }
         setError(errorMsg)
         setMessages((prev) => {
           if (prev.length === 0) return prev
@@ -360,7 +462,7 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData])
+  }, [sessionId, loadSessionData, noteTurnEnd])
 
   const sendPrompt = useCallback(
     async (
@@ -369,102 +471,77 @@ export function useChatStream(
         agent?: string
         model?: { providerID: string; modelID: string }
         attachments?: PromptAttachment[]
-      }
+      },
+      targetSessionId?: string
     ) => {
+      const effectiveSessionId = targetSessionId || sessionId
       const hasText = Boolean(text.trim())
       const hasAttachments = Boolean(options?.attachments && options.attachments.length > 0)
-      if (!sessionId || (!hasText && !hasAttachments)) return
-
-      // Optimistically add user message to timeline
-      const userMsgId = `usr_${Date.now()}`
-      const optimisticParts: MessagePart[] = []
-
-      if (options?.attachments && options.attachments.length > 0) {
-        options.attachments.forEach((att, idx) => {
-          optimisticParts.push({
-            id: `prt_${Date.now()}_att_${idx}`,
-            sessionID: sessionId,
-            messageID: userMsgId,
-            type: 'file',
-            mime: att.mime,
-            filename: att.name,
-            url: att.url,
-            isOptimistic: true,
-          } as FilePart)
-        })
+      if (!effectiveSessionId || (!hasText && !hasAttachments)) {
+        return
       }
 
-      if (hasText) {
-        optimisticParts.push({
-          id: `prt_${Date.now()}_txt`,
-          sessionID: sessionId,
-          messageID: userMsgId,
-          type: 'text',
-          text: text.trim(),
-          isOptimistic: true,
-        } as TextPart)
+      // Mark the active session ID ref immediately so incoming SSE events are accepted without race conditions
+      currentSessionIdRef.current = effectiveSessionId
+      if (targetSessionId) {
+        transitioningSessionIdRef.current = targetSessionId
       }
 
-      const userMsg: Message = {
-        info: {
-          id: userMsgId,
-          sessionID: sessionId,
-          role: 'user',
-          time: { created: Date.now() },
-          ...(options?.agent ? { agent: options.agent } : {}),
-          ...(options?.model ? { model: options.model } : {}),
-        },
-        parts: optimisticParts,
-      }
+      // Optimistically add user message to timeline using unified builder
+      const userMsg = buildOptimisticMessage({
+        sessionId: effectiveSessionId,
+        text,
+        attachments: options?.attachments,
+        agent: options?.agent,
+        model: options?.model,
+      })
 
       setMessages((prev) => [...prev, userMsg])
-      pendingOptimisticIdRef.current = userMsgId
+      pendingOptimisticIdRef.current = userMsg.info.id
       userAbortedRef.current = false
+      sessionBusyRef.current = true
       setSessionStatus({ type: 'busy' })
       setError(null)
+      setTurnEnd(null)
 
-      const apiParts: MessagePartInput[] = []
-      if (options?.attachments && options.attachments.length > 0) {
-        options.attachments.forEach((att) => {
-          apiParts.push({
-            type: 'file',
-            mime: att.mime,
-            filename: att.name,
-            url: att.url,
-          })
-        })
-      }
-      if (hasText) {
-        apiParts.push({
-          type: 'text',
-          text: text.trim(),
-        })
-      }
+      const apiParts = buildPromptParts(text, options?.attachments)
 
       try {
-        await api.sendPrompt(sessionId, apiParts, {
+        await api.sendPrompt(effectiveSessionId, apiParts, {
           agent: options?.agent,
           model: options?.model,
+          attachments: options?.attachments,
         })
       } catch (err) {
         console.error('Failed to send prompt:', err)
         setError(err instanceof Error ? err.message : String(err))
         setSessionStatus({ type: 'idle' })
+        noteTurnEnd('error')
       }
     },
-    [sessionId]
+    [sessionId, noteTurnEnd]
   )
 
-  const abort = useCallback(async () => {
+  const abort = useCallback(async (opts?: { preempt?: boolean }) => {
     if (!sessionId) return
-    userAbortedRef.current = true
+    const running = sessionBusyRef.current
+    if (!running && opts?.preempt) return
+    if (!opts?.preempt) {
+      userAbortedRef.current = true
+    }
+    setError(null)
+    setSessionStatus({ type: 'idle' })
+    if (running && !opts?.preempt) {
+      noteTurnEnd('user')
+    } else {
+      sessionBusyRef.current = false
+    }
     try {
       await api.abortSession(sessionId)
-      setSessionStatus({ type: 'idle' })
     } catch (err) {
       console.error('Failed to abort session:', err)
     }
-  }, [sessionId])
+  }, [sessionId, noteTurnEnd])
 
   const retry = useCallback(async () => {
     setError(null)
@@ -610,10 +687,12 @@ export function useChatStream(
 
   return {
     messages,
-    loading,
+    loading: loading || Boolean(sessionId && sessionId !== '__draft__' && loadedSessionId !== sessionId),
     sessionStatus,
     todos,
     error,
+    turnEpoch,
+    turnEnd,
     sendPrompt,
     abort,
     retry,

@@ -91,6 +91,8 @@ export const TalkMapSchema = z.object({
 })
 
 export type TalkMap = z.infer<typeof TalkMapSchema>
+export type TalkMapCard = z.infer<typeof CardSchema>
+export type TalkMapEdge = z.infer<typeof EdgeSchema>
 
 export function emptyTalkMap(): TalkMap {
   return TalkMapSchema.parse({})

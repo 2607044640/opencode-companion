@@ -84,6 +84,7 @@ export type MapFlowChrome = {
   readonly setHotkeyMenu: Dispatch<SetStateAction<HotkeyMenu | undefined>>
   readonly setBlueprintMenu?: Dispatch<SetStateAction<BlueprintMenuState | undefined>>
   readonly onSelectSession?: (sessionId: string) => void
+  readonly onLocateCard?: (cardId: string, position?: { readonly x: number; readonly y: number }) => void
 }
 
 export function MapFlow(props: {
@@ -388,6 +389,7 @@ export function MapFlow(props: {
           setBlueprintMenu={chrome.setBlueprintMenu}
           onAutoLayout={handlers.onAutoLayout}
           onSelectSession={chrome.onSelectSession}
+          onLocateCard={chrome.onLocateCard}
         />
       </div>
     </div>

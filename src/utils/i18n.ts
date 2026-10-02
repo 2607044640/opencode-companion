@@ -39,6 +39,12 @@ export interface TranslationDictionary {
     tokenPrompt: string
     tokenCompletion: string
     tokenHoverTooltip: string
+    tokenActiveContext: string
+    tokenContextDesc: string
+    tokenBilledTotal: string
+    tokenBilledDesc: string
+    tokenCacheRead: string
+    tokenCacheWrite: string
     workspaceDir: string
     backendReady: string
     copyJsonTooltip: string
@@ -226,11 +232,17 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       tokensReasoning: '思考推理 Token',
       tokensCache: '缓存命中 Token',
       securityBoundary: '物理安全边界: 严格锁定至 127.0.0.1 (WSL2 零认证物理保护)',
-      tokenBreakdownTitle: 'Token 消耗明细',
+      tokenBreakdownTitle: 'Token 消耗与窗口明细',
       tokenTotal: '总计',
       tokenPrompt: '📥 输入 (Prompt)',
       tokenCompletion: '📤 输出 (Completion)',
-      tokenHoverTooltip: '悬停查看完整 Token 消耗与工作区明细',
+      tokenHoverTooltip: '悬停查看当前窗口；历史账单在下一栏，回退不减少',
+      tokenActiveContext: '当前窗口 (回退后按剩余对话计算)',
+      tokenContextDesc: '与官方桌面端相同：最近一条有效回复的输入 + 输出 + 思考 + 缓存。回退只去掉边界之后的轮次。',
+      tokenBilledTotal: '历史账单 (不随回退减少)',
+      tokenBilledDesc: 'session.tokens：含已回退轮次的 API 累计，只增不减',
+      tokenCacheRead: '⚡ 缓存读取 (Cache Read)',
+      tokenCacheWrite: '💾 缓存写入 (Cache Write)',
       workspaceDir: '工作区',
       backendReady: '后端服务就绪',
       copyJsonTooltip: '复制会话全部 JSON (单击复制 · 长按 500ms 导出)',
@@ -416,11 +428,17 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       tokensReasoning: 'Reasoning tokens',
       tokensCache: 'Cache read tokens',
       securityBoundary: 'Security Boundary: Strictly bound to 127.0.0.1 (WSL2 daemon zero-auth protected)',
-      tokenBreakdownTitle: 'Token Usage Breakdown',
+      tokenBreakdownTitle: 'Token Usage & Window Breakdown',
       tokenTotal: 'Total',
       tokenPrompt: '📥 Prompt (Input)',
       tokenCompletion: '📤 Completion (Output)',
-      tokenHoverTooltip: 'Hover to view full token & workspace details',
+      tokenHoverTooltip: 'Hover for the context window. The lifetime bill below does not shrink on revert.',
+      tokenActiveContext: 'Context window (drops turns after revert)',
+      tokenContextDesc: 'Same as the desktop app: input + output + reasoning + cache on the latest reply with tokens. Revert drops turns after the boundary.',
+      tokenBilledTotal: 'Lifetime bill (revert does not reduce this)',
+      tokenBilledDesc: 'session.tokens: API usage including reverted turns. It only grows.',
+      tokenCacheRead: '⚡ Cache Read',
+      tokenCacheWrite: '💾 Cache Write',
       workspaceDir: 'Workspace',
       backendReady: 'Backend daemon ready',
       copyJsonTooltip: 'Copy full session JSON (Click copy · Long-press export)',
@@ -606,11 +624,17 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       tokensReasoning: 'Denk- / Reasoning-Token',
       tokensCache: 'Cache-Treffertoken',
       securityBoundary: 'Physische Sicherheitsgrenze: Streng an 127.0.0.1 gebunden (WSL2)',
-      tokenBreakdownTitle: 'Token-Verbrauch Aufschlüsselung',
+      tokenBreakdownTitle: 'Token-Verbrauch & Fenster-Aufschlüsselung',
       tokenTotal: 'Gesamt',
       tokenPrompt: '📥 Eingabe (Prompt)',
       tokenCompletion: '📤 Ausgabe (Completion)',
-      tokenHoverTooltip: 'Zeigen für vollständigen Token-Verbrauch & Workspace-Details',
+      tokenHoverTooltip: 'Zeigen für das Kontextfenster. Die Rechnung darunter sinkt beim Zurücksetzen nicht.',
+      tokenActiveContext: 'Kontextfenster (fällt nach Zurücksetzen)',
+      tokenContextDesc: 'Wie die Desktop-App: Eingabe + Ausgabe + Reasoning + Cache der letzten Antwort mit Token. Zurücksetzen entfernt nur Runden nach der Grenze.',
+      tokenBilledTotal: 'Lebenslange Rechnung (sinkt nicht beim Zurücksetzen)',
+      tokenBilledDesc: 'session.tokens: API-Verbrauch inklusive zurückgesetzter Runden. Steigt nur.',
+      tokenCacheRead: '⚡ Cache-Lesen (Cache Read)',
+      tokenCacheWrite: '💾 Cache-Schreiben (Cache Write)',
       workspaceDir: 'Arbeitsbereich',
       backendReady: 'Backend-Dienst bereit',
       copyJsonTooltip: 'Sitzungs-JSON kopieren (Klick zum Kopieren · 500ms halten zum Exportieren)',

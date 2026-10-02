@@ -19,12 +19,10 @@ export function classifyTool(tool: string): Exclude<ToolKind, 'thought'> {
       'list',
       'search',
       'find',
-      'webfetch',
       'look_at',
       'view_file',
       'grep_search',
       'find_by_name',
-      'search_web',
       'cat',
       'session_read',
     ].includes(t)
@@ -37,8 +35,17 @@ export function classifyTool(tool: string): Exclude<ToolKind, 'thought'> {
       'write',
       'write_to_file',
       'replace_file_content',
+      'multi_replace_file_content',
+      'create_file',
+      'edit_file',
+      'write_file',
+      'modify_file',
+      'file_editor',
+      'str_replace_editor',
+      'apply_diff',
       'patch',
       'apply_patch',
+      'save_file',
     ].includes(t)
   ) {
     return 'edit'
@@ -49,12 +56,88 @@ export function classifyTool(tool: string): Exclude<ToolKind, 'thought'> {
   return 'other'
 }
 
+export type ExploreWarningKind = 'not_found' | 'no_match' | 'blocked' | 'warning'
+
+export function classifyExploreIssue(item: {
+  tool: string
+  kind: 'file' | 'search'
+  status: string
+  error?: string
+  output?: string
+}): { warningKind?: ExploreWarningKind; warningTooltip?: string } {
+  const lowerErr = (item.error || '').toLowerCase()
+  const lowerOut = (item.output || '').toLowerCase()
+
+  // 1. Check for blocked/permission/hook rejection
+  if (
+    lowerErr.includes('blocked') ||
+    lowerErr.includes('permission denied') ||
+    lowerErr.includes('forbidden') ||
+    lowerErr.includes('eacces') ||
+    lowerErr.includes('interceptor') ||
+    lowerErr.includes('denied') ||
+    lowerOut.includes('blocked') ||
+    lowerOut.includes('permission denied')
+  ) {
+    return {
+      warningKind: 'blocked',
+      warningTooltip: 'Action blocked or permission denied',
+    }
+  }
+
+  // 2. Search miss (grep, glob, search, find)
+  if (item.kind === 'search') {
+    const isSearchMiss =
+      item.status === 'error' ||
+      lowerErr.includes('no match') ||
+      lowerErr.includes('not found') ||
+      lowerOut.includes('no matches') ||
+      lowerOut.includes('no files found') ||
+      lowerOut.includes('0 results')
+    if (isSearchMiss) {
+      return {
+        warningKind: 'no_match',
+        warningTooltip: 'No matches found',
+      }
+    }
+  }
+
+  // 3. File not found / path miss (read, view_file, cat)
+  if (item.kind === 'file') {
+    const isNotFound =
+      item.status === 'error' ||
+      lowerErr.includes('enoent') ||
+      lowerErr.includes('no such file') ||
+      lowerErr.includes('not found')
+    if (isNotFound) {
+      return {
+        warningKind: 'not_found',
+        warningTooltip: 'File not found',
+      }
+    }
+  }
+
+  // 4. Other error in explore
+  if (item.status === 'error') {
+    return {
+      warningKind: 'warning',
+      warningTooltip: item.error ? String(item.error).slice(0, 100) : 'Exploration notice',
+    }
+  }
+
+  return {}
+}
+
 export interface ExploreItem {
   partId: string
   tool: string
   pathOrQuery: string
   kind: 'file' | 'search'
   status: 'pending' | 'running' | 'completed' | 'error'
+  error?: string
+  output?: string
+  warningKind?: ExploreWarningKind
+  warningTooltip?: string
 }
 
 export interface CommandItem {
@@ -115,6 +198,8 @@ export interface WorkedTurn {
   groups: WorkGroup[]
   totalWorkItems: number
   hasError: boolean
+  hasRealError: boolean
+  hasWarnings: boolean
 }
 
 /**
@@ -125,7 +210,8 @@ export function formatWorkedLabel(
   ms: number,
   isLive: boolean,
   finish?: string,
-  isAborted?: boolean
+  isAborted?: boolean,
+  phase?: 'thinking' | 'working'
 ): string {
   const sec = Math.max(0, Math.round(ms / 1000))
   let body = ''
@@ -137,7 +223,7 @@ export function formatWorkedLabel(
     body = rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
   }
   if (isLive) {
-    return `Working for ${body}`
+    return phase === 'thinking' ? `Thinking for ${body}` : `Working for ${body}`
   }
   if (finish === 'abort' || isAborted) {
     return `Worked for ${body} (Aborted)`
@@ -193,29 +279,36 @@ export function extractEditItem(part: ToolPart): EditItem {
   const output = part.state?.output || ''
   const metadata = part.state?.metadata || {}
   const toolName = (part.tool || '').toLowerCase()
+  const filediff = (metadata.filediff || {}) as Record<string, any>
   const rawPath =
+    filediff.file ||
     input.filePath ||
     input.path ||
     input.TargetFile ||
+    input.target_file ||
     input.file ||
+    input.file_path ||
+    input.filename ||
     part.state?.title ||
     'modified-file'
 
   const { filePath, fileName, relativeDir } = normalizePath(rawPath)
   let status: 'added' | 'deleted' | 'modified' =
-    toolName === 'write' || toolName === 'write_to_file' ? 'added' : 'modified'
+    toolName === 'write' || toolName === 'write_to_file' || toolName === 'create_file' ? 'added' : 'modified'
 
   let unified = ''
   let source: EditItem['source'] = 'empty'
 
-  // 1. metadata or input patch / diff
+  // 1. metadata or input patch / diff / filediff
   const metaDiff =
+    filediff.patch ||
+    filediff.diff ||
     metadata.patch ||
     metadata.diff ||
     metadata.unifiedDiff ||
     input.diff ||
     input.patch
-  if (typeof metaDiff === 'string' && (metaDiff.includes('@@') || metaDiff.startsWith('---'))) {
+  if (typeof metaDiff === 'string' && (metaDiff.includes('@@') || metaDiff.startsWith('---') || metaDiff.startsWith('diff '))) {
     unified = metaDiff.trim()
     source = 'metadata'
   }
@@ -258,6 +351,8 @@ export function extractEditItem(part: ToolPart): EditItem {
   // 5. line counts
   let { additions, deletions } = countDiffLines(unified)
   if (additions === 0 && deletions === 0) {
+    if (typeof filediff.additions === 'number') additions = filediff.additions
+    if (typeof filediff.deletions === 'number') deletions = filediff.deletions
     if (typeof input.additions === 'number') additions = input.additions
     if (typeof input.deletions === 'number') deletions = input.deletions
   }
@@ -496,12 +591,24 @@ export function partitionAssistantTurn(
 
         const pathOrQuery = isSearch ? String(rawTarget) : normalizePath(String(rawTarget)).fileName
 
+        const { warningKind, warningTooltip } = classifyExploreIssue({
+          tool: tp.tool,
+          kind: isSearch ? 'search' : 'file',
+          status,
+          error: tp.state?.error,
+          output: tp.state?.output,
+        })
+
         const exploreItem: ExploreItem = {
           partId: tp.id,
           tool: tp.tool,
           pathOrQuery,
           kind: isSearch ? 'search' : 'file',
           status,
+          error: tp.state?.error,
+          output: tp.state?.output,
+          warningKind,
+          warningTooltip,
         }
 
         if (!currentExploreGroup) {
@@ -563,6 +670,12 @@ export function partitionAssistantTurn(
 
   flushCurrent()
 
+  const hasOpenReasoning = parts.some((p) => {
+    if (p.type !== 'reasoning') return false
+    const rp = p as ReasoningPart
+    return !rp.time?.end && Boolean(rp.time?.start || (rp.text || '').trim())
+  })
+
   // Check abort and completion signals
   const isAborted =
     info?.finish === 'abort' ||
@@ -582,14 +695,14 @@ export function partitionAssistantTurn(
   const created = info?.time?.created
   const completed = info?.time?.completed
 
-  // A turn is live ONLY IF:
-  // 1. It is not explicitly done (not finished, aborted, or errored, and completed time not set)
-  // 2. The session is not explicitly idle (isSessionBusy is not false)
-  // 3. Either tools are currently running/pending, OR it was created without a completion time in a busy session
+  // Live when the turn is not explicitly finished AND either:
+  // - the session is busy/unknown and this message has no completed time, or
+  // - a part is still open (reasoning without end, or a pending/running tool).
+  // Explicit idle + no open part stays not-live (orphans / crash-before-token).
   const isLive =
     !isExplicitlyDone &&
-    isSessionBusy !== false &&
-    (hasRunningTools || (Boolean(created) && !completed))
+    ((isSessionBusy !== false && (hasRunningTools || (Boolean(created) && !completed))) ||
+      ((hasOpenReasoning || hasRunningTools) && isSessionBusy === false))
 
   // Duration calculation
   let durationMs = 0
@@ -611,7 +724,6 @@ export function partitionAssistantTurn(
         const rp = p as ReasoningPart
         const t = rp.time
         if (t?.end && t.end > latestPartTime) latestPartTime = t.end
-        else if (t?.start && t.start > latestPartTime) latestPartTime = t.start
       } else if (p.type === 'text') {
         const tp = p as any
         const t = tp.time
@@ -648,15 +760,29 @@ export function partitionAssistantTurn(
       groups: [],
       totalWorkItems: 0,
       hasError: false,
+      hasRealError: false,
+      hasWarnings: false,
     }
   }
 
-  const hasError =
-    (Boolean(info?.error) && !isAborted) ||
-    parts.some(
-      (p) => p.type === 'tool' && (p as ToolPart).state?.status === 'error'
-    ) ||
-    groups.some((g) => g.kind === 'edit' && g.item.toolStatus === 'error')
+  // Differentiate true execution errors (crashes, failed commands, failed edits, other tool errors)
+  // from benign exploration warnings (file not found, 0 search matches, path miss).
+  const hasTurnError = Boolean(info?.error) && !isAborted
+  const hasCommandError = groups.some(
+    (g) => g.kind === 'command' && g.items.some((c) => c.status === 'error')
+  )
+  const hasEditError = groups.some(
+    (g) => g.kind === 'edit' && g.item.toolStatus === 'error'
+  )
+  const hasOtherError = groups.some(
+    (g) => g.kind === 'other' && g.items.some((o) => o.status === 'error')
+  )
+
+  const hasRealError = hasTurnError || hasCommandError || hasEditError || hasOtherError
+  const hasWarnings = groups.some(
+    (g) => g.kind === 'explore' && g.items.some((i) => i.status === 'error' || Boolean(i.warningKind))
+  )
+  const hasError = hasRealError
 
   let totalWorkItems = 0
   for (const g of groups) {
@@ -677,5 +803,7 @@ export function partitionAssistantTurn(
     groups,
     totalWorkItems,
     hasError,
+    hasRealError,
+    hasWarnings,
   }
 }

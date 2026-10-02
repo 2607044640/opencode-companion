@@ -2,7 +2,7 @@ import type { ListedProject } from "../opencode/client"
 
 import { CANONICAL_PROJECTS, matchCanonicalWorkspace } from "../../../services/api"
 
-export const PROJECTS_ROOT = "/workspace/projects/" as const
+export const PROJECTS_ROOT = "/home/developer/projects/" as const
 
 export function isRootWorktree(worktree: string): boolean {
   return !worktree || worktree === "/"
@@ -51,6 +51,12 @@ export function pickDefaultDirectory(
   projects: readonly ListedProject[],
 ): string | undefined {
   const selectable = selectableProjects(projects)
+  const apispace = selectable.find(
+    (project) => (project.name || "").toLowerCase() === "apispace",
+  )
+  if (apispace !== undefined && isPreferredWorktree(apispace.worktree)) {
+    return apispace.worktree
+  }
   const preferred = selectable.find((project) => isPreferredWorktree(project.worktree))
   if (preferred !== undefined) {
     return preferred.worktree

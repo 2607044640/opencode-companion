@@ -18,8 +18,8 @@ describe('Project Dropdown Ordering & Resolution', () => {
     },
     {
       id: 'proj_5',
-      name: 'NullSpace',
-      worktree: '/workspace/projects/NullSpace',
+      name: 'AICore',
+      worktree: '/home/developer/projects/AICore',
       time: { created: 1, updated: 1 },
     },
     {
@@ -36,8 +36,8 @@ describe('Project Dropdown Ordering & Resolution', () => {
     },
   ]
 
-  it('orders canonical projects strictly as: APISpace, ObsidianNote, ObsidianDev, NullSpace, AISpace', () => {
-    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'NullSpace', 'AISpace']
+  it('orders canonical projects strictly as: APISpace, ObsidianNote, ObsidianDev, AICore, AISpace', () => {
+    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AICore', 'AISpace']
     const canonicalList: Project[] = []
 
     for (const name of canonicalOrder) {
@@ -53,7 +53,7 @@ describe('Project Dropdown Ordering & Resolution', () => {
 
     assert.deepEqual(
       canonicalList.map((p) => p.name),
-      ['APISpace', 'ObsidianNote', 'ObsidianDev', 'NullSpace', 'AISpace']
+      ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AICore', 'AISpace']
     )
   })
 

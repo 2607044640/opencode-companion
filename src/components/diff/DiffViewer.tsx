@@ -81,22 +81,28 @@ function HunkBody({ hunkId, lines }: { hunkId: number; lines: DiffLineItem[] }) 
             className="flex items-center justify-between px-3 py-1.5 bg-[#10131a] hover:bg-[#141822] border-y border-dashed border-zinc-800 transition-colors select-none"
           >
             <div className="w-12 shrink-0" />
-            <button
-              type="button"
-              onClick={() =>
-                setRevealed((prev) => ({
-                  ...prev,
-                  [row.id]: { head: lines.length, tail: 0 },
-                }))
-              }
-              className="px-3 py-1 rounded-full text-[11px] font-mono font-medium text-zinc-400 hover:text-zinc-100 bg-[#161a24] hover:bg-[#1e2330] border border-zinc-700/60 shadow-sm cursor-pointer transition-all"
-              title="展开全部剩余未修改行 (Expand remaining unchanged lines)"
-            >
-              +{row.count} more lines
-            </button>
+            {row.expandable === false ? (
+              <span className="px-3 py-1 rounded-full text-[11px] font-mono font-medium text-zinc-400 bg-[#161a24] border border-zinc-700/60 shadow-sm">
+                +{row.count} more lines
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setRevealed((prev) => ({
+                    ...prev,
+                    [row.id]: { head: lines.length, tail: 0 },
+                  }))
+                }
+                className="px-3 py-1 rounded-full text-[11px] font-mono font-medium text-zinc-400 hover:text-zinc-100 bg-[#161a24] hover:bg-[#1e2330] border border-zinc-700/60 shadow-sm cursor-pointer transition-all"
+                title="展开全部剩余未修改行 (Expand remaining unchanged lines)"
+              >
+                +{row.count} more lines
+              </button>
+            )}
 
             <div className="flex flex-col gap-0.5 items-end w-12 shrink-0">
-              {row.count > 10 && (
+              {row.expandable !== false && row.count > 10 && (
                 <>
                   <button
                     type="button"

@@ -39,21 +39,14 @@ interface RelayFormData {
 
 const PRESETS = [
   {
-    label: 'TokenShop 站',
-    name: 'TokenShop',
-    baseUrl: 'https://tokenshop.homes',
-    redeemUrl: 'https://tokenshop.homes/redeem',
-    currency: 'USD' as const,
-  },
-  {
-    label: '稳定中转 (Flash 3.7)',
-    name: '稳定中转 (Flash 3.7)',
+    label: '稳定中转 (Gemini)',
+    name: '稳定中转',
     baseUrl: 'https://xn--fiq104an1x80s.com',
     redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
     currency: 'USD' as const,
   },
   {
-    label: 'LLM Free (Grok 4.6)',
+    label: 'LLM Free (Grok 4.7)',
     name: 'LLM Free',
     baseUrl: 'https://llmfree.work',
     redeemUrl: 'https://llmfree.work/redeem',

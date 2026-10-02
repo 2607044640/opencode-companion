@@ -57,17 +57,17 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       const storage = createMockStorage()
       const p = addRelayProvider(
         {
-          name: 'TokenShop',
-          baseUrl: 'https://api.tokenshop.homes',
+          name: 'StationX',
+          baseUrl: 'https://api.stationx.com',
           apiKey: 'sk-test123456',
-          redeemUrl: 'https://tokenshop.homes/redeem',
+          redeemUrl: 'https://stationx.com/redeem',
           currency: 'CNY',
         },
         storage
       )
 
       assert.ok(p.id.startsWith('relay_'))
-      assert.equal(p.name, 'TokenShop')
+      assert.equal(p.name, 'StationX')
       assert.equal(p.currency, 'CNY')
       assert.equal(p.quotaRate, 500_000)
       assert.equal(p.cnyRate, 7.2)
@@ -312,8 +312,8 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
   })
 
   describe('syncRelayPresets', () => {
-    it('populates empty storage with preset stations and purges NovAI', async () => {
-      // Storage has stale NovAI entry
+    it('populates empty storage with preset stations and purges NovAI and TokenShop', async () => {
+      // Storage has stale NovAI and TokenShop entries
       const storage = createMockStorage({
         [RELAY_PROVIDERS_STORAGE_KEY]: JSON.stringify([
           {
@@ -321,6 +321,13 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             name: 'NovAI (Once)',
             baseUrl: 'https://once-cf.novai.su',
             apiKey: 'sk-old-nova',
+            currency: 'USD',
+          },
+          {
+            id: 'relay_tokenshop',
+            name: 'TokenShop',
+            baseUrl: 'https://tokenshop.homes',
+            apiKey: 'sk-old-ts',
             currency: 'USD',
           },
         ]),
@@ -333,19 +340,19 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             ok: true,
             presets: [
               {
-                id: 'relay_tokenshop',
-                name: 'TokenShop (Grok)',
-                baseUrl: 'https://tokenshop.homes',
-                apiKey: 'sk-token',
-                redeemUrl: 'https://tokenshop.homes/redeem',
+                id: 'relay_llmfree',
+                name: 'LLMFree-Grok (grok-4.7)',
+                baseUrl: 'https://llmfree.work',
+                apiKey: 'sk-llmfree',
+                redeemUrl: 'https://llmfree.work/redeem',
                 currency: 'USD',
               },
               {
-                id: 'relay_gguu',
-                name: 'GGUU (Flash 3.8)',
-                baseUrl: 'https://gguuai.com',
-                apiKey: 'sk-gguu',
-                redeemUrl: 'https://gguuai.com/redeem',
+                id: 'relay_wending',
+                name: '稳定中转-Gemini',
+                baseUrl: 'https://xn--fiq104an1x80s.com',
+                apiKey: 'sk-wending',
+                redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
                 currency: 'USD',
               },
             ],
@@ -354,11 +361,12 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       }) as typeof fetch
 
       const res = await syncRelayPresets(storage, mockFetch)
-      // Stale NovAI must be purged! Only TokenShop and GGUU remain
+      // Stale NovAI and TokenShop must be purged! Only LLMFree and 稳定中转 remain
       assert.equal(res.length, 2)
-      assert.equal(res[0].id, 'relay_tokenshop')
-      assert.equal(res[1].id, 'relay_gguu')
+      assert.equal(res[0].id, 'relay_llmfree')
+      assert.equal(res[1].id, 'relay_wending')
       assert.equal(res.some((p) => p.baseUrl.includes('novai')), false)
+      assert.equal(res.some((p) => p.baseUrl.includes('tokenshop')), false)
       assert.equal(getRelayProviders(storage).length, 2)
     })
 
@@ -366,8 +374,8 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       const storage = createMockStorage()
       addRelayProvider(
         {
-          name: 'TokenShop',
-          baseUrl: 'https://tokenshop.homes',
+          name: 'LLMFree',
+          baseUrl: 'https://llmfree.work',
           apiKey: '',
           currency: 'USD',
         },
@@ -382,18 +390,18 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             ok: true,
             presets: [
               {
-                id: 'relay_tokenshop',
-                name: 'TokenShop (Grok)',
-                baseUrl: 'https://tokenshop.homes',
+                id: 'relay_llmfree',
+                name: 'LLMFree-Grok (grok-4.7)',
+                baseUrl: 'https://llmfree.work',
                 apiKey: 'sk-updated',
-                redeemUrl: 'https://tokenshop.homes/redeem',
+                redeemUrl: 'https://llmfree.work/redeem',
                 currency: 'USD',
               },
               {
-                id: 'relay_gguu',
-                name: 'GGUU (Flash 3.8)',
-                baseUrl: 'https://gguuai.com',
-                apiKey: 'sk-gguu',
+                id: 'relay_wending',
+                name: '稳定中转-Gemini',
+                baseUrl: 'https://xn--fiq104an1x80s.com',
+                apiKey: 'sk-wending',
                 currency: 'USD',
               },
             ],
@@ -403,11 +411,11 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
 
       const res = await syncRelayPresets(storage, mockFetch)
       assert.equal(res.length, 2)
-      // Existing TokenShop had empty key, updated with preset key and name
-      const ts = res.find((p) => p.baseUrl.includes('tokenshop.homes'))
-      assert.equal(ts?.apiKey, 'sk-updated')
-      assert.equal(ts?.name, 'TokenShop (Grok)')
-      assert.equal(ts?.redeemUrl, 'https://tokenshop.homes/redeem')
+      // Existing LLMFree had empty key, updated with preset key and name
+      const p = res.find((item) => item.baseUrl.includes('llmfree.work'))
+      assert.equal(p?.apiKey, 'sk-updated')
+      assert.equal(p?.name, 'LLMFree-Grok (grok-4.7)')
+      assert.equal(p?.redeemUrl, 'https://llmfree.work/redeem')
     })
   })
 
@@ -439,11 +447,11 @@ sk-example-key-1234567890abcdef1234567890
       assert.equal(res.name, '稳定中转.com')
     })
 
-    it('parses TokenShop and local gateway urls', () => {
-      const res1 = parseRelayIntake('https://tokenshop.homes/redeem sk-example-key-abcdef1234567890')
+    it('parses generic relay and local gateway urls', () => {
+      const res1 = parseRelayIntake('https://myai.org/redeem sk-example-key-abcdef1234567890')
       assert.ok(res1)
-      assert.equal(res1.baseUrl, 'https://tokenshop.homes')
-      assert.equal(res1.name, 'TokenShop')
+      assert.equal(res1.baseUrl, 'https://myai.org')
+      assert.equal(res1.name, 'Myai')
       assert.equal(res1.apiKey, 'sk-example-key-abcdef1234567890')
 
       const res2 = parseRelayIntake('http://127.0.0.1:3000')

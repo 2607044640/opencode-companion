@@ -1,6 +1,6 @@
 {
   "name": "opencode-companion",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Web Companion for OpenCode daemon with Dialogue Map canvas, visual session search, and Zen reading mode",
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "tsx --test \"src/**/*.test.ts\" host-api.test.ts",
+    "test": "tsx --test src/**/*.test.ts host-api.test.ts skill-discovery.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

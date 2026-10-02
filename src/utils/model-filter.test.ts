@@ -1,9 +1,20 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { isCuratedModel, isModelVisible, ALLOWED_CANONICAL_MODEL_IDS } from './model-filter'
+import {
+  isCuratedModel,
+  isModelVisible,
+  ALLOWED_CANONICAL_MODEL_IDS,
+  sortModelsByPriority,
+  resolveSeniorModel,
+} from './model-filter'
 
 describe('Curated Model Filter Engine', () => {
   test('ALLOWS canonical approved models', () => {
+    // 0. grok-4.7
+    assert.equal(isCuratedModel('obsidian', 'grok-4.7'), true)
+    assert.equal(isCuratedModel('obsidian', 'grok4.7'), true)
+    assert.equal(isCuratedModel('custom', 'grok-4.7', 'Grok 4.7 (Official)'), true)
+
     // 1. grok-4.6
     assert.equal(isCuratedModel('obsidian', 'grok-4.6'), true)
     assert.equal(isCuratedModel('obsidian', 'grok4.6'), true)
@@ -73,8 +84,9 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel(undefined, undefined), false)
   })
 
-  test('canonical model IDs set contains the expected 4 IDs', () => {
-    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 4)
+  test('canonical model IDs set contains the expected 5 IDs', () => {
+    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 5)
+    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.7'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.6'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.5'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gemini-3.8-flash'))
@@ -103,5 +115,80 @@ describe('Curated Model Filter Engine', () => {
       'obsidian': false,
     }
     assert.equal(isModelVisible('obsidian', 'gemini-3.8-flash', 'Gemini 3.8 Flash', {}, providerVis), false)
+  })
+
+  test('getModelPriorityScore and sortModelsByPriority enforce Senior model hierarchy', () => {
+    const rawList = [
+      { providerID: 'obsidian', modelID: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+      { providerID: 'obsidian', modelID: 'grok-4.6', name: 'Grok 4.6 (Paid)' },
+      { providerID: 'obsidian', modelID: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+      { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7 (Paid 满血主力)' },
+      { providerID: 'custom', modelID: 'claude-3-7-sonnet', name: 'Claude 3.7 Sonnet' },
+    ]
+
+    const sorted = sortModelsByPriority(rawList)
+    assert.equal(sorted[0].modelID, 'grok-4.7')
+    assert.equal(sorted[1].modelID, 'grok-4.6')
+    assert.equal(sorted[2].modelID, 'claude-3-7-sonnet')
+    assert.equal(sorted[3].modelID, 'gemini-3.8-flash')
+    assert.equal(sorted[4].modelID, 'gemini-3.7-flash')
+  })
+
+  test('resolveSeniorModel picks senior model from routingConfig SSOT first', () => {
+    const curated = [
+      { providerID: 'obsidian', modelID: 'grok-4.6', name: 'Grok 4.6' },
+      { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7' },
+    ]
+
+    const resolved = resolveSeniorModel({
+      routingConfig: {
+        seniorModel: { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7 (Paid 满血主力)' },
+      },
+      daemonConfig: {
+        model: 'obsidian/grok-4.6',
+      },
+      curatedModels: curated,
+    })
+
+    assert.ok(resolved)
+    assert.equal(resolved.modelID, 'grok-4.7')
+    assert.equal(resolved.providerID, 'obsidian')
+  })
+
+  test('resolveSeniorModel falls back to daemon agent bindings when routingConfig is missing', () => {
+    const curated = [
+      { providerID: 'obsidian', modelID: 'gemini-3.8-flash', name: 'Flash 3.8' },
+      { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7' },
+    ]
+
+    const resolved = resolveSeniorModel({
+      routingConfig: null,
+      daemonConfig: {
+        agent: {
+          build: { model: 'obsidian/grok-4.7' },
+        },
+      },
+      curatedModels: curated,
+    })
+
+    assert.ok(resolved)
+    assert.equal(resolved.modelID, 'grok-4.7')
+  })
+
+  test('resolveSeniorModel gracefully falls back to priority ranking for general users', () => {
+    const generalUserModels = [
+      { providerID: 'anthropic', modelID: 'gemini-3.8-flash', name: 'Flash 3.8' },
+      { providerID: 'anthropic', modelID: 'grok-4.6', name: 'Grok 4.6' },
+      { providerID: 'anthropic', modelID: 'gemini-3.7-flash', name: 'Flash 3.7' },
+    ]
+
+    const resolved = resolveSeniorModel({
+      routingConfig: null,
+      daemonConfig: null,
+      curatedModels: generalUserModels,
+    })
+
+    assert.ok(resolved)
+    assert.equal(resolved.modelID, 'grok-4.6')
   })
 })

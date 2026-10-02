@@ -7,6 +7,7 @@ import {
   computeDialogueTicks,
   computeViewportThumb,
   resolveCommandCopyText,
+  calculateDragScrollTop,
   type UserMessageRect,
 } from './quick-jump'
 
@@ -164,4 +165,41 @@ describe('Command Copy Separation Logic', () => {
     assert.equal(copyText, '/bin/bash: line 1: python: command not found')
   })
 })
+
+describe('Scrollbar Drag & Track Calculation Logic', () => {
+  test('calculateDragScrollTop calculates accurate targets at top, middle, and bottom', () => {
+    const scrollHeight = 3000
+    const clientHeight = 600
+    const trackHeight = 400
+    const maxScroll = scrollHeight - clientHeight // 2400
+
+    // Top: clickY = 0 -> 0
+    assert.equal(calculateDragScrollTop(0, trackHeight, scrollHeight, clientHeight), 0)
+
+    // Middle: clickY = 200 (halfway) -> 1200
+    assert.equal(calculateDragScrollTop(200, trackHeight, scrollHeight, clientHeight), 1200)
+
+    // Bottom: clickY = 400 -> 2400
+    assert.equal(calculateDragScrollTop(400, trackHeight, scrollHeight, clientHeight), 2400)
+  })
+
+  test('calculateDragScrollTop clamps out-of-bounds drag coordinates safely', () => {
+    const scrollHeight = 2000
+    const clientHeight = 500
+    const trackHeight = 300
+    const maxScroll = scrollHeight - clientHeight // 1500
+
+    // Above track (negative Y)
+    assert.equal(calculateDragScrollTop(-50, trackHeight, scrollHeight, clientHeight), 0)
+
+    // Below track (exceeds trackHeight)
+    assert.equal(calculateDragScrollTop(450, trackHeight, scrollHeight, clientHeight), 1500)
+  })
+
+  test('calculateDragScrollTop returns 0 when content does not overflow', () => {
+    assert.equal(calculateDragScrollTop(100, 300, 400, 500), 0)
+    assert.equal(calculateDragScrollTop(100, 0, 1000, 500), 0)
+  })
+})
+
 

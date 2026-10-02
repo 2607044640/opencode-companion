@@ -31,6 +31,49 @@ export function calculateNextBackoff(
   return Math.min(delay, maxDelay)
 }
 
+export const OFFLINE_AFTER_MS = 30_000
+
+/**
+ * Pure state reducer for daemon health check probes.
+ */
+export function reduceDaemonProbe(input: {
+  prev: DaemonConnectionState
+  everConnected: boolean
+  consecutiveFailures: number
+  unhealthySince: number | null
+  healthy: boolean
+  now: number
+}): {
+  state: DaemonConnectionState
+  consecutiveFailures: number
+  unhealthySince: number | null
+  notifyLost: boolean
+  notifyRestored: boolean
+} {
+  if (input.healthy) {
+    return {
+      state: 'connected',
+      consecutiveFailures: 0,
+      unhealthySince: null,
+      notifyLost: false,
+      notifyRestored: input.prev !== 'connected',
+    }
+  }
+
+  const consecutiveFailures = input.consecutiveFailures + 1
+  const unhealthySince = input.unhealthySince ?? input.now
+  const isOffline = input.now - unhealthySince >= OFFLINE_AFTER_MS
+  const notifyLost = input.everConnected && input.prev === 'connected'
+
+  return {
+    state: isOffline ? 'offline' : 'reconnecting',
+    consecutiveFailures,
+    unhealthySince,
+    notifyLost,
+    notifyRestored: false,
+  }
+}
+
 /**
  * Determines daemon connection state from boolean health result and failure attempt counter.
  */
@@ -58,6 +101,11 @@ export function getDaemonStateTooltip(
       : 'Daemon Connected (127.0.0.1:5001)'
   }
   if (state === 'reconnecting') {
+    if (attempt === 0) {
+      return isZh
+        ? '正在连接后端服务...'
+        : 'Connecting to daemon...'
+    }
     return isZh
       ? `后端服务重连中 (第 ${attempt} 次尝试)... 点击立即重试`
       : `Reconnecting to daemon (Attempt ${attempt})... Click to retry`
@@ -90,10 +138,10 @@ export function useDaemonHeartbeat({
   onRestored,
   onLost,
 }: DaemonHeartbeatOptions = {}): DaemonHeartbeatReturn {
-  const [state, setState] = useState<DaemonConnectionState>('connected')
+  const [state, setState] = useState<DaemonConnectionState>('reconnecting')
   const [attempt, setAttempt] = useState(0)
   const [lastChecked, setLastChecked] = useState(Date.now())
-  const [lastConnected, setLastConnected] = useState<number | null>(Date.now())
+  const [lastConnected, setLastConnected] = useState<number | null>(null)
 
   const stateRef = useRef(state)
   stateRef.current = state
@@ -102,45 +150,100 @@ export function useDaemonHeartbeat({
 
   const timerRef = useRef<number | null>(null)
   const isProbingRef = useRef(false)
+  const rerunRequestedRef = useRef(false)
+  const probeSeqRef = useRef(0)
+  const hasEverConnectedRef = useRef(false)
+  const unhealthySinceRef = useRef<number | null>(null)
+  const sseDebounceTimerRef = useRef<number | null>(null)
 
   const checkHealthNow = useCallback(async (): Promise<boolean> => {
-    if (isProbingRef.current) return stateRef.current === 'connected'
+    if (isProbingRef.current) {
+      rerunRequestedRef.current = true
+      return stateRef.current === 'connected'
+    }
     isProbingRef.current = true
+    const currentSeq = ++probeSeqRef.current
 
     try {
-      const isHealthy = await api.checkHealth(4000)
-      setLastChecked(Date.now())
+      // Fast-path: If SSE is actively connected, treat as healthy
+      const isHealthy = sseManager.isConnected ? true : await api.checkHealth(4000)
+
+      // Ignore stale probe results if a new probe started
+      if (currentSeq !== probeSeqRef.current) {
+        return stateRef.current === 'connected'
+      }
+
+      const now = Date.now()
+      setLastChecked(now)
+
+      const result = reduceDaemonProbe({
+        prev: stateRef.current,
+        everConnected: hasEverConnectedRef.current,
+        consecutiveFailures: attemptRef.current,
+        unhealthySince: unhealthySinceRef.current,
+        healthy: isHealthy,
+        now,
+      })
+
+      if (result.state !== stateRef.current) {
+        console.log(`[daemon-state] Transition: ${stateRef.current} -> ${result.state} (failures: ${result.consecutiveFailures})`)
+      }
+
+      unhealthySinceRef.current = result.unhealthySince
+      setState(result.state)
+      setAttempt(result.consecutiveFailures)
 
       if (isHealthy) {
-        const wasDisconnected = stateRef.current !== 'connected'
-        setState('connected')
-        setAttempt(0)
-        setLastConnected(Date.now())
-        if (wasDisconnected) {
-          onRestored?.()
-        }
-        return true
-      } else {
-        const nextAttempt = attemptRef.current + 1
-        const nextState = determineDaemonState(false, nextAttempt)
-        if (stateRef.current === 'connected') {
-          onLost?.()
-        }
-        setState(nextState)
-        setAttempt(nextAttempt)
-        return false
+        setLastConnected(now)
+        hasEverConnectedRef.current = true
       }
-    } catch {
-      const nextAttempt = attemptRef.current + 1
-      const nextState = determineDaemonState(false, nextAttempt)
-      if (stateRef.current === 'connected') {
+
+      if (result.notifyRestored) {
+        onRestored?.()
+      }
+      if (result.notifyLost) {
         onLost?.()
       }
-      setState(nextState)
-      setAttempt(nextAttempt)
+
+      return isHealthy
+    } catch (err) {
+      if (currentSeq !== probeSeqRef.current) {
+        return stateRef.current === 'connected'
+      }
+
+      const now = Date.now()
+      setLastChecked(now)
+
+      const result = reduceDaemonProbe({
+        prev: stateRef.current,
+        everConnected: hasEverConnectedRef.current,
+        consecutiveFailures: attemptRef.current,
+        unhealthySince: unhealthySinceRef.current,
+        healthy: false,
+        now,
+      })
+
+      if (result.state !== stateRef.current) {
+        console.log(`[daemon-state] Transition: ${stateRef.current} -> ${result.state} (failures: ${result.consecutiveFailures}, err: ${err})`)
+      }
+
+      unhealthySinceRef.current = result.unhealthySince
+      setState(result.state)
+      setAttempt(result.consecutiveFailures)
+
+      if (result.notifyLost) {
+        onLost?.()
+      }
+
       return false
     } finally {
-      isProbingRef.current = false
+      if (currentSeq === probeSeqRef.current) {
+        isProbingRef.current = false
+        if (rerunRequestedRef.current) {
+          rerunRequestedRef.current = false
+          Promise.resolve().then(() => checkHealthNow())
+        }
+      }
     }
   }, [onRestored, onLost])
 
@@ -176,11 +279,21 @@ export function useDaemonHeartbeat({
     const unsubConnection = sseManager.on(
       'connection.change',
       (payload: { connected: boolean }) => {
-        if (!payload.connected && stateRef.current === 'connected') {
-          // SSE connection dropped -> trigger immediate health recheck
-          checkHealthNow()
-        } else if (payload.connected && stateRef.current !== 'connected') {
-          // SSE reconnected -> confirm via health check
+        if (!payload.connected) {
+          // SSE connection dropped -> debounced health check without immediately punishing attempt
+          if (sseDebounceTimerRef.current) {
+            clearTimeout(sseDebounceTimerRef.current)
+          }
+          sseDebounceTimerRef.current = window.setTimeout(() => {
+            sseDebounceTimerRef.current = null
+            checkHealthNow()
+          }, 1500)
+        } else if (payload.connected) {
+          // SSE connected / reconnected -> instantly restore connected status
+          if (sseDebounceTimerRef.current) {
+            clearTimeout(sseDebounceTimerRef.current)
+            sseDebounceTimerRef.current = null
+          }
           checkHealthNow()
         }
       }
@@ -191,6 +304,12 @@ export function useDaemonHeartbeat({
         clearTimeout(timerRef.current)
         timerRef.current = null
       }
+      if (sseDebounceTimerRef.current) {
+        clearTimeout(sseDebounceTimerRef.current)
+        sseDebounceTimerRef.current = null
+      }
+      isProbingRef.current = false
+      rerunRequestedRef.current = false
       unsubConnection()
     }
   }, [enabled, checkHealthNow, scheduleNextCheck])

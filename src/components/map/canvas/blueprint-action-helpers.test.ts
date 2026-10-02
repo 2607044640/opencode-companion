@@ -2,9 +2,12 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   filterProjectSessions,
+  filterCategorizedSessions,
   sessionIdFromNodeData,
   executeConnectAction,
 } from "./blueprint-action-helpers"
+import type { TalkMap } from "../schema/talk-map"
+import type { ViewState } from "./map-interactions"
 
 test("filterProjectSessions", async (t) => {
   const cards = {
@@ -93,6 +96,40 @@ test("filterProjectSessions", async (t) => {
   })
 })
 
+test("filterCategorizedSessions separates existing cards from unowned sessions", () => {
+  const cards = {
+    c1: { cardId: "c1", sessionId: "s1", directory: "/root", position: { x: 0, y: 0 }, ghost: false },
+  }
+
+  const titles = {
+    s1: "Fix authentication bug",
+    s2: "Unowned session in root",
+    s3: "Unowned session in other",
+  }
+
+  const sessions = [
+    { id: "s1", title: "Fix authentication bug", directory: "/root", timeUpdated: 100 },
+    { id: "s2", title: "Unowned session in root", directory: "/root", timeUpdated: 200 },
+    { id: "s3", title: "Unowned session in other", directory: "/other", timeUpdated: 300 },
+  ]
+
+  const categorized = filterCategorizedSessions({
+    cards,
+    titles,
+    sessions,
+    directory: "/root",
+    query: "",
+  })
+
+  assert.equal(categorized.existingSessions.length, 1)
+  assert.equal(categorized.existingSessions[0].cardId, "c1")
+  assert.equal(categorized.existingSessions[0].isUnowned, false)
+
+  assert.equal(categorized.unownedSessions.length, 1)
+  assert.equal(categorized.unownedSessions[0].sessionId, "s2")
+  assert.equal(categorized.unownedSessions[0].isUnowned, true)
+})
+
 test("sessionIdFromNodeData extracts sessionId safely", () => {
   assert.equal(sessionIdFromNodeData(null), undefined)
   assert.equal(sessionIdFromNodeData({}), undefined)
@@ -122,8 +159,9 @@ test("executeConnectAction handles self connection and session select", () => {
   assert.equal(selfResult, false)
   assert.equal(toastMsg, "无法连接自身")
 
-  // 2. Select session when fromNode is null
+  // 2. Locate card when fromNode is null (does not enter session directly)
   let selectedSessionId = ""
+  let locatedCardId = ""
   const selectResult = executeConnectAction({
     menu: {
       clientPoint: { x: 0, y: 0 },
@@ -138,8 +176,148 @@ test("executeConnectAction handles self connection and session select", () => {
     onSelectSession: (id) => {
       selectedSessionId = id
     },
+    onLocateCard: (id) => {
+      locatedCardId = id
+    },
   })
   assert.equal(selectResult, true)
-  assert.equal(selectedSessionId, "ses_target")
+  assert.equal(selectedSessionId, "", "Must not call onSelectSession")
+  assert.equal(locatedCardId, "card_2", "Must locate existing card")
+  assert.equal(toastMsg, "已在地图中定位会话")
 })
+
+test("executeConnectAction handles unowned session instantiation and wiring", () => {
+  let toastMsg = ""
+  const setToast = (msg: string) => {
+    toastMsg = msg
+  }
+
+  let persisted: TalkMap | undefined = undefined
+  const initialMap: TalkMap = {
+    version: 1,
+    cards: {
+      card_parent: {
+        cardId: "card_parent",
+        sessionId: "ses_parent",
+        position: { x: 0, y: 0 },
+        ghost: false,
+        directory: "/root",
+      },
+    },
+    edges: {},
+    boards: {
+      "/root": { cardIds: ["card_parent"], groupIds: [] },
+    },
+  }
+
+  const initialView: ViewState = {
+    kind: "ready",
+    map: initialMap,
+    directory: "/root",
+    projects: [],
+    titles: { ses_parent: "Parent Session" },
+    running: {},
+    updated: {},
+  }
+
+  let currentView: ViewState = initialView
+  const setView = (updater: any) => {
+    currentView = typeof updater === "function" ? updater(currentView) : updater
+  }
+
+  // Connect unowned session from parent node
+  const res = executeConnectAction({
+    menu: {
+      clientPoint: { x: 100, y: 100 },
+      flowPos: { x: 250, y: 150 },
+      fromNode: { id: "card_parent", data: {} },
+    },
+    view: currentView,
+    session: {
+      sessionId: "ses_unowned",
+      title: "Newly Added Unowned Session",
+      directory: "/root",
+      isUnowned: true,
+    },
+    persistMap: (m) => {
+      persisted = m
+    },
+    setView,
+    setToast,
+    newCardId: () => "card_unowned_1",
+    isZh: true,
+  })
+
+  assert.equal(res, true)
+  assert.equal(toastMsg, "已添加并连接会话")
+  assert.ok(persisted)
+  assert.ok(persisted!.cards["card_unowned_1"])
+  assert.equal(persisted!.cards["card_unowned_1"].sessionId, "ses_unowned")
+  assert.equal(persisted!.cards["card_unowned_1"].position.x, 250)
+  assert.equal(persisted!.cards["card_unowned_1"].position.y, 150)
+  assert.ok(persisted!.edges["link:card_parent:card_unowned_1"])
+
+  // Test English mode
+  let enToast = ""
+  executeConnectAction({
+    menu: {
+      clientPoint: { x: 0, y: 0 },
+      flowPos: { x: 0, y: 0 },
+      fromNode: { id: "card_parent", data: {} },
+    },
+    view: currentView,
+    session: {
+      cardId: "card_parent",
+      title: "Parent",
+      isUnowned: false,
+    },
+    persistMap: () => {},
+    setView: () => {},
+    setToast: (msg) => {
+      enToast = msg
+    },
+    isZh: false,
+  })
+  assert.equal(enToast, "Cannot connect to self")
+
+  // Test selecting existing session without fromNode (locates card, does NOT enter session)
+  let locatedCardId = ""
+  let locatedPos: any = null
+  let sessionSelected = false
+  let locateToast = ""
+
+  const locateRes = executeConnectAction({
+    menu: {
+      clientPoint: { x: 50, y: 50 },
+      flowPos: { x: 100, y: 100 },
+      fromNode: null,
+    },
+    view: currentView,
+    session: {
+      cardId: "card_parent",
+      sessionId: "ses_parent",
+      title: "Parent Session",
+      isUnowned: false,
+    },
+    persistMap: () => {},
+    setView: () => {},
+    setToast: (msg) => {
+      locateToast = msg
+    },
+    onSelectSession: () => {
+      sessionSelected = true
+    },
+    onLocateCard: (cardId, pos) => {
+      locatedCardId = cardId
+      locatedPos = pos
+    },
+    isZh: true,
+  })
+
+  assert.equal(locateRes, true)
+  assert.equal(sessionSelected, false, "Must NOT call onSelectSession to prevent prematurely entering dialogue")
+  assert.equal(locatedCardId, "card_parent")
+  assert.equal(locateToast, "已在地图中定位会话")
+})
+
 
