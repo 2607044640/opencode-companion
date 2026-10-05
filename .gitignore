@@ -48,6 +48,9 @@ gateway/logs/
 data/*.json
 !data/*.sample.json
 exports/
+.launch_throttle.lock
+*.lock
+
 
 # Python Cache
 __pycache__/

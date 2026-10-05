@@ -65,6 +65,11 @@ export function effectiveProjectsRoot(override) {
   if (override) candidates.push(override)
   if (process.env.PROJECTS_ROOT) candidates.push(process.env.PROJECTS_ROOT)
   candidates.push('/home/developer/projects')
+  if (process.platform === 'win32') {
+    candidates.push('C:\\AICore')
+    candidates.push('C:\\APISpace')
+    candidates.push('C:\\')
+  }
   for (const candidate of candidates) {
     try {
       if (fs.statSync(candidate).isDirectory()) return path.resolve(candidate)
@@ -85,6 +90,11 @@ export function resolveSkillRoots({ projectsRoot, workspaceDir } = {}) {
   }
   for (const candidate of sharedSkillRootCandidates(projectsRoot || effectiveProjectsRoot())) {
     pushUnique(roots, seen, candidate)
+  }
+  if (process.platform === 'win32' && !projectsRoot) {
+    pushUnique(roots, seen, 'C:\\AICore\\skills')
+    pushUnique(roots, seen, 'C:\\APISpace\\.agents\\skills')
+    pushUnique(roots, seen, 'C:\\APISpace\\skills')
   }
   return roots
 }
@@ -113,49 +123,80 @@ export function summarizeDescription(description) {
 }
 
 export function parseSkillFrontmatter(text) {
-  const src = String(text || '').replace(/^\uFEFF/, '')
-  if (!src.startsWith('---')) return {}
-  const end = src.indexOf('\n---', 3)
-  if (end < 0) return {}
-  const block = src.slice(src.indexOf('\n') + 1, end)
-  const lines = block.split(/\r?\n/)
-  let name
-  let description
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const nameMatch = line.match(/^name:\s*(.*)$/)
-    if (nameMatch) {
-      name = unquoteYaml(nameMatch[1])
-      continue
-    }
-    const descMatch = line.match(/^description:\s*(.*)$/)
-    if (!descMatch) continue
-    let rest = descMatch[1].trim()
-    if (rest === '>' || rest === '|' || rest === '>-' || rest === '|-') {
-      const buf = []
-      while (i + 1 < lines.length && (/^\s/.test(lines[i + 1]) || lines[i + 1].trim() === '')) {
-        i++
-        if (lines[i].trim()) buf.push(lines[i].trim())
+  const src = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+
+  let fmName
+  let fmDescription
+
+  if (src.startsWith('---')) {
+    const end = src.indexOf('\n---', 3)
+    if (end >= 0) {
+      const block = src.slice(src.indexOf('\n') + 1, end)
+      const lines = block.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const nameMatch = line.match(/^name:\s*(.*)$/)
+        if (nameMatch) {
+          fmName = unquoteYaml(nameMatch[1])
+          continue
+        }
+        const descMatch = line.match(/^description:\s*(.*)$/)
+        if (!descMatch) continue
+        let rest = descMatch[1].trim()
+        if (rest === '>' || rest === '|' || rest === '>-' || rest === '|-') {
+          const buf = []
+          while (i + 1 < lines.length && (/^\s/.test(lines[i + 1]) || lines[i + 1].trim() === '')) {
+            i++
+            if (lines[i].trim()) buf.push(lines[i].trim())
+          }
+          fmDescription = buf.join(' ')
+        } else if (
+          (rest.startsWith('"') && !rest.endsWith('"')) ||
+          (rest.startsWith("'") && !rest.endsWith("'"))
+        ) {
+          const quote = rest[0]
+          let buf = rest
+          while (i + 1 < lines.length && !buf.endsWith(quote)) {
+            i++
+            buf += ` ${lines[i].trim()}`
+          }
+          fmDescription = unquoteYaml(buf)
+        } else {
+          fmDescription = unquoteYaml(rest)
+        }
       }
-      description = buf.join(' ')
-    } else if (
-      (rest.startsWith('"') && !rest.endsWith('"')) ||
-      (rest.startsWith("'") && !rest.endsWith("'"))
-    ) {
-      const quote = rest[0]
-      let buf = rest
-      while (i + 1 < lines.length && !buf.endsWith(quote)) {
-        i++
-        buf += ` ${lines[i].trim()}`
-      }
-      description = unquoteYaml(buf)
-    } else {
-      description = unquoteYaml(rest)
     }
   }
+
+  // Fallback / augmentation for descriptions:
+  // If description is missing or generic boilerplate (e.g. "Explicit invocation only. Never auto-trigger."),
+  // auto-extract the real functional description from <original_trigger_description>, **Objective:**, or role tags.
+  let resolvedDescription = fmDescription?.trim()
+  const isGenericExplicit = !resolvedDescription || /^(explicit invocation only\b|never auto-trigger\b)/i.test(resolvedDescription)
+
+  if (isGenericExplicit) {
+    const origMatch = src.match(/<original_trigger_description>\s*["']?([\s\S]*?)["']?\s*<\/original_trigger_description>/)
+    if (origMatch && origMatch[1].trim()) {
+      resolvedDescription = origMatch[1].replace(/\s+/g, ' ').trim()
+    } else {
+      const objMatch = src.match(/\*\*Objective:\*\*\s*([^\n\r<]+)/)
+      if (objMatch && objMatch[1].trim()) {
+        resolvedDescription = objMatch[1].replace(/\s+/g, ' ').trim()
+      } else {
+        const roleMatch = src.match(/<role_and_objective>[\s\S]*?You are (?:an? )?([^.\n\r<]+)/i)
+        if (roleMatch && roleMatch[1].trim()) {
+          resolvedDescription = roleMatch[1].replace(/\s+/g, ' ').trim()
+        }
+      }
+    }
+  }
+
   return {
-    name: name?.trim() || undefined,
-    description: description?.trim() || undefined,
+    name: fmName?.trim() || undefined,
+    description: resolvedDescription?.trim() || undefined,
   }
 }
 

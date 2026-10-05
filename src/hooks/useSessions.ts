@@ -14,7 +14,11 @@ import {
   toggleArchiveSessionId,
   isSessionArchived,
 } from '../utils/archiving'
-import { planSessionActivation, resolveCanonicalProjectId } from '../utils/session-workspace'
+import {
+  planSessionActivation,
+  resolveCanonicalProjectId,
+  shouldAcceptSessionActivation,
+} from '../utils/session-workspace'
 
 export const DRAFT_SESSION_ID = '__draft__'
 
@@ -77,6 +81,7 @@ export function useSessions() {
   const projectsRef = useRef<Project[]>(projects)
   const activeSessionIdRef = useRef<string | null>(activeSessionId)
   const selectGenerationRef = useRef(0)
+  const pinnedDeepLinkRef = useRef<string | null>(activeSessionId)
 
   useEffect(() => {
     sessionsRef.current = sessions
@@ -106,6 +111,8 @@ export function useSessions() {
     (plan: ReturnType<typeof planSessionActivation>) => {
       if (!plan.session) return
       const session = plan.session
+      if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, session.id)) return
+      if (pinnedDeepLinkRef.current === session.id) pinnedDeepLinkRef.current = null
       if (plan.shouldInsert) {
         setSessions((prev) => (prev.some((s) => s.id === session.id) ? prev : [session, ...prev]))
       }
@@ -167,7 +174,7 @@ export function useSessions() {
             (!s.summary || s.summary.files === 0)
           return !isAbandoned
         })
-        if (validSessions.length > 0) {
+        if (validSessions.length > 0 && !pinnedDeepLinkRef.current) {
           const first = validSessions[0]
           api.prefetchMessages(first.id)
           setActiveSessionId(first.id)
@@ -199,10 +206,12 @@ export function useSessions() {
         setOpenTabIds((prev) => {
           const next = prev.filter((id) => id !== targetId)
           setActiveSessionId((current) => {
-            if (current === targetId) {
-              return next.length > 0 ? next[next.length - 1] : null
+            if (current !== targetId) return current
+            const fallback = next.length > 0 ? next[next.length - 1] : null
+            if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, fallback || '')) {
+              return current
             }
-            return current
+            return fallback
           })
           return next
         })
@@ -237,6 +246,7 @@ export function useSessions() {
   }, [])
 
   const selectSession = useCallback((sessionId: string) => {
+    pinnedDeepLinkRef.current = null
     const generation = ++selectGenerationRef.current
     if (sessionId === DRAFT_SESSION_ID) {
       setActiveSessionId(DRAFT_SESSION_ID)
@@ -253,7 +263,7 @@ export function useSessions() {
       fetchedSession: null,
       projects: projectsRef.current,
     })
-    if (localPlan.session) {
+    if (localPlan.session && shouldAcceptSessionActivation(pinnedDeepLinkRef.current, sessionId)) {
       applySessionActivation(localPlan)
       return
     }
@@ -272,12 +282,40 @@ export function useSessions() {
       })
       .catch((err: unknown) => {
         if (generation !== selectGenerationRef.current) return
+        if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, sessionId)) return
         console.error('Failed to fetch session for selection:', err)
+        if (pinnedDeepLinkRef.current === sessionId) pinnedDeepLinkRef.current = null
         setActiveSessionId(sessionId)
         setOpenTabIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]))
         writeSessionUrl(sessionId)
       })
   }, [applySessionActivation, writeSessionUrl])
+
+  useEffect(() => {
+    const handleSwitchSession = (e: Event) => {
+      const customEvent = e as CustomEvent<{ sessionID?: string; sessionId?: string }>
+      const sid = customEvent.detail?.sessionID || customEvent.detail?.sessionId
+      if (sid) {
+        pinnedDeepLinkRef.current = null
+        selectSession(sid)
+      }
+    }
+    const handlePopState = () => {
+      try {
+        const id = new URLSearchParams(window.location.search).get('session')
+        if (id) {
+          pinnedDeepLinkRef.current = null
+          selectSession(id)
+        }
+      } catch {}
+    }
+    window.addEventListener('switch-session', handleSwitchSession)
+    window.addEventListener('popstate', handlePopState)
+    return () => {
+      window.removeEventListener('switch-session', handleSwitchSession)
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [selectSession])
 
   const recentlyClosedRef = useRef<string[]>([])
   const [recentlyClosedTabIds, setRecentlyClosedTabIds] = useState<string[]>([])
@@ -300,11 +338,11 @@ export function useSessions() {
           setActiveSessionId(result.nextActiveId)
           try {
             const url = new URL(window.location.href)
-            if (result.nextActiveId) {
-              url.searchParams.set('session', result.nextActiveId)
-            } else {
-              url.searchParams.delete('session')
-            }
+        if (result.nextActiveId && shouldAcceptSessionActivation(pinnedDeepLinkRef.current, result.nextActiveId)) {
+          url.searchParams.set('session', result.nextActiveId)
+        } else if (!pinnedDeepLinkRef.current) {
+          url.searchParams.delete('session')
+        }
             window.history.replaceState({}, '', url.toString())
           } catch {}
         }
@@ -579,6 +617,75 @@ export function useSessions() {
     setArchivedIds(res.archivedIds)
     return res
   }, [])
+
+  // Cross-window and PWA navigation synchronization
+  useEffect(() => {
+    // 1. PWA Launch Queue (when launched or focused via PWA Link Handling)
+    if (typeof window !== 'undefined' && 'launchQueue' in window) {
+      try {
+        (window as any).launchQueue.setConsumer((launchParams: any) => {
+          if (launchParams?.targetURL) {
+            try {
+              const u = new URL(launchParams.targetURL)
+              const sid = u.searchParams.get('session')
+              if (sid) {
+                selectSession(sid)
+              }
+            } catch {}
+          }
+        })
+      } catch {}
+    }
+
+    // 2. BroadcastChannel cross-window communication
+    let bc: BroadcastChannel | null = null
+    try {
+      bc = new BroadcastChannel('opencode_session_nav')
+      bc.onmessage = (event) => {
+        if (event.data?.type === 'NAVIGATE' && event.data?.sessionId) {
+          selectSession(String(event.data.sessionId))
+        }
+      }
+    } catch {}
+
+    // 3. Fallback polling for backend active session intent
+    let lastHandledTs = Date.now()
+    const checkActiveSession = async () => {
+      try {
+        const res = await fetch('/api/active-session')
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.sessionId && data.ts > lastHandledTs) {
+            lastHandledTs = data.ts
+            selectSession(String(data.sessionId))
+          }
+        }
+      } catch {}
+    }
+    const pollTimer = setInterval(checkActiveSession, 1200)
+    window.addEventListener('focus', checkActiveSession)
+
+    // 4. If current window is opened in a normal browser tab with ?session=...
+    // automatically notify running PWA and trigger backend window activation
+    try {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+      const params = new URLSearchParams(window.location.search)
+      const targetSession = params.get('session')
+
+      if (!isStandalone && targetSession) {
+        bc?.postMessage({ type: 'NAVIGATE', sessionId: targetSession })
+        fetch(`/api/focus-app?session=${encodeURIComponent(targetSession)}`).catch(() => {})
+      }
+    } catch {}
+
+    return () => {
+      clearInterval(pollTimer)
+      window.removeEventListener('focus', checkActiveSession)
+      try {
+        bc?.close()
+      } catch {}
+    }
+  }, [selectSession])
 
   return {
     projects,

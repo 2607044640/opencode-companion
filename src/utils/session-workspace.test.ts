@@ -5,6 +5,7 @@ import {
   formatProjectPill,
   getProjectAbbreviation,
   planSessionActivation,
+  shouldAcceptSessionActivation,
   resolveCanonicalProjectId,
   resolveSessionProject,
   selectSearchCorpus,
@@ -270,5 +271,14 @@ describe('session-workspace: deep-link activation plan', () => {
     assert.equal(plan.session, null)
     assert.equal(plan.projectId, null)
     assert.equal(plan.shouldInsert, false)
+  })
+})
+
+describe('session-workspace: deep-link pin', () => {
+  it('rejects a stale session while the url session is still unresolved', () => {
+    assert.equal(shouldAcceptSessionActivation('ses_target', 'ses_history'), false)
+    assert.equal(shouldAcceptSessionActivation('ses_target', 'ses_target'), true)
+    assert.equal(shouldAcceptSessionActivation('ses_target', ''), false)
+    assert.equal(shouldAcceptSessionActivation(null, 'ses_history'), true)
   })
 })

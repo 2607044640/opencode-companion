@@ -23,7 +23,9 @@ import {
   createQueuedMessage,
   dequeueFirst,
   enqueueMessage,
+  loadPersistedQueue,
   removeQueuedMessage,
+  savePersistedQueue,
   shouldAutoDispatchQueue,
   type QueuedMessage,
 } from './utils/message-queue'
@@ -172,7 +174,13 @@ export default function App() {
 
   // Messages typed while the model is still working. FIFO, unbounded.
   // Keyed by session so switching tabs does not leak another chat's queue.
-  const [queueBySession, setQueueBySession] = useState<Record<string, QueuedMessage[]>>({})
+  const [queueBySession, setQueueBySession] = useState<Record<string, QueuedMessage[]>>(() =>
+    loadPersistedQueue(typeof window !== 'undefined' ? window.sessionStorage : undefined)
+  )
+
+  useEffect(() => {
+    savePersistedQueue(window.sessionStorage, queueBySession)
+  }, [queueBySession])
   const [queueEditRequest, setQueueEditRequest] = useState<
     (DraftInjection & { agent?: string; model?: { providerID: string; modelID: string } }) | null
   >(null)

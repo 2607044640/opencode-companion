@@ -70,6 +70,27 @@ describe('skill frontmatter', () => {
     assert.equal(fm.description, 'one two')
   })
 
+  test('handles Windows CRLF line endings without leaving trailing carriage returns', () => {
+    const text = '---\r\nname: TaskRouter\r\ndescription: "Route tasks by difficulty."\r\n---\r\n# body\r\n'
+    const fm = parseSkillFrontmatter(text)
+    assert.equal(fm.name, 'TaskRouter')
+    assert.equal(fm.description, 'Route tasks by difficulty.')
+  })
+
+  test('extracts fallback description from <original_trigger_description> when frontmatter is generic or missing', () => {
+    const text = '---\r\nname: Explicit_PromptAudit\r\ndescription: "Explicit invocation only. Never auto-trigger."\r\n---\r\n<role_and_objective>\r\n<original_trigger_description>\r\n"Audits prompt engineering techniques for obsolescence."\r\n</original_trigger_description>\r\n'
+    const fm = parseSkillFrontmatter(text)
+    assert.equal(fm.name, 'Explicit_PromptAudit')
+    assert.equal(fm.description, 'Audits prompt engineering techniques for obsolescence.')
+  })
+
+  test('extracts fallback description from **Objective:** when trigger description is absent', () => {
+    const text = '---\r\nname: Explicit_QuickDigest\r\ndescription: "Explicit invocation only. Never auto-trigger."\r\n---\r\n<role_and_objective>\r\n**Objective:** Fully distill the user questions and solutions into markdown digest.\r\n</role_and_objective>\r\n'
+    const fm = parseSkillFrontmatter(text)
+    assert.equal(fm.name, 'Explicit_QuickDigest')
+    assert.equal(fm.description, 'Fully distill the user questions and solutions into markdown digest.')
+  })
+
   test('summarizeDescription truncates a long blurb', () => {
     const long = 'a'.repeat(200)
     const out = summarizeDescription(long)

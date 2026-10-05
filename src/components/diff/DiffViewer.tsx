@@ -40,7 +40,7 @@ function DiffLineRow({ line }: { line: DiffLineItem }) {
       <div className="w-10 shrink-0 text-right pr-2 select-none text-zinc-600 bg-zinc-950/40 border-r border-zinc-800/50 text-[10px] leading-5">
         {line.newNo ?? ''}
       </div>
-      <div className={`w-5 shrink-0 text-center select-none leading-5 ${signColor}`}>{sign}</div>
+      <div className={`w-5 shrink-0 text-center select-text leading-5 ${signColor}`}>{sign}</div>
       <div className={`flex-1 min-w-0 px-1 whitespace-pre-wrap break-all overflow-hidden ${textColor}`}>
         {line.text}
       </div>

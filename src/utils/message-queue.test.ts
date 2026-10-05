@@ -4,8 +4,10 @@ import {
   createQueuedMessage,
   dequeueFirst,
   enqueueMessage,
+  loadPersistedQueue,
   queuedImageAttachments,
   removeQueuedMessage,
+  savePersistedQueue,
   shouldAutoDispatchQueue,
   type QueuedMessage,
 } from './message-queue'
@@ -85,5 +87,50 @@ describe('message queue', () => {
 
   it('returns no thumbnails when the queue item has no attachments', () => {
     assert.deepEqual(queuedImageAttachments(createQueuedMessage('text only', undefined, 1)), [])
+  })
+
+  it('round-trips the queue through session storage and keeps image urls', () => {
+    const memory = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        memory.set(key, value)
+      },
+      removeItem: (key: string) => {
+        memory.delete(key)
+      },
+    }
+    const item = createQueuedMessage(
+      'with image',
+      {
+        agent: 'build',
+        model: { providerID: 'obsidian', modelID: 'grok-4.7' },
+        attachments: [{ mime: 'image/png', url: 'data:image/png;base64,aaa', name: 'a.png' }],
+      },
+      1
+    )
+    savePersistedQueue(storage, { ses_1: [item] })
+    const loaded = loadPersistedQueue(storage)
+    assert.equal(loaded.ses_1[0].text, 'with image')
+    assert.equal(loaded.ses_1[0].options?.attachments?.[0].url, 'data:image/png;base64,aaa')
+    savePersistedQueue(storage, {})
+    assert.equal(loadPersistedQueue(storage).ses_1, undefined)
+  })
+
+  it('ignores corrupt queue storage', () => {
+    const storage = { getItem: () => '{', setItem: () => {}, removeItem: () => {} }
+    assert.deepEqual(loadPersistedQueue(storage), {})
+  })
+
+  it('does not throw when session storage rejects the write', () => {
+    const storage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('quota')
+      },
+      removeItem: () => {},
+    }
+    const item = createQueuedMessage('keep in memory', undefined, 1)
+    assert.doesNotThrow(() => savePersistedQueue(storage, { ses_1: [item] }))
   })
 })

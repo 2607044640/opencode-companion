@@ -30,6 +30,7 @@ import { ImageLightboxModal, type LightboxImage } from './ImageLightboxModal'
 import { QueuedMessagesList } from './QueuedMessagesList'
 import type { QueuedMessage, QueuedPromptOptions } from '../../utils/message-queue'
 import { applySlashCommand, detectSlashTrigger } from './slash-trigger'
+import { rankPopoverItems } from './popover-rank'
 
 export interface DraftInjection {
   text: string
@@ -435,36 +436,28 @@ export function PromptInput({
     return groups
   }, [providers, modelSearchQuery, prefs.modelVisibility, prefs.providerVisibility])
 
-  // Compute matching popover items
+  // Compute matching popover items with title-prioritized ranking
   const popoverItems = useMemo((): PopoverItem[] => {
     if (popoverMode === 'commands') {
-      const matches = (name: string, description?: string) =>
-        name.toLowerCase().includes(popoverQuery) ||
-        (description ? description.toLowerCase().includes(popoverQuery) : false)
-      const commandItems: PopoverItem[] = commands
-        .filter((c) => matches(c.name, c.description))
-        .map((c) => ({ type: 'command', item: c }))
-      const skillItems: PopoverItem[] = skills
-        .filter((s) => matches(s.name, s.description))
-        .map((s) => ({ type: 'skill', item: s }))
-      return [...commandItems, ...skillItems]
+      const allCandidates: PopoverItem[] = [
+        ...commands.map((c) => ({ type: 'command' as const, item: c })),
+        ...skills.map((s) => ({ type: 'skill' as const, item: s })),
+      ]
+      return rankPopoverItems(allCandidates, popoverQuery)
     }
 
     if (popoverMode === 'context') {
-      const agentMatches: PopoverItem[] = agents
-        .filter(
-          (a) =>
-            a.name.toLowerCase().includes(popoverQuery) ||
-            (a.description && a.description.toLowerCase().includes(popoverQuery))
-        )
-        .map((a) => ({ type: 'agent', item: a }))
+      const rankedAgents = rankPopoverItems(
+        agents.map((a) => ({ type: 'agent' as const, item: a })),
+        popoverQuery
+      )
 
       const fileMatches: PopoverItem[] = matchingFiles.map((f) => ({
         type: 'file',
         item: f,
       }))
 
-      return [...agentMatches, ...fileMatches]
+      return [...rankedAgents, ...fileMatches]
     }
 
     return []

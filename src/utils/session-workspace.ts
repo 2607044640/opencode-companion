@@ -262,3 +262,12 @@ export function planSessionActivation(input: {
 
   return { session: null, projectId: null, shouldInsert: false }
 }
+
+/** A cold deep link stays pinned until that exact session is applied. */
+export function shouldAcceptSessionActivation(
+  pinnedSessionId: string | null,
+  nextSessionId: string
+): boolean {
+  if (!pinnedSessionId) return true
+  return nextSessionId === pinnedSessionId
+}

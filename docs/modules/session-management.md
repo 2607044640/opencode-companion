@@ -2,7 +2,7 @@
 
 Session list, tabs, canonical project binding, 2-letter project badges, lazy draft, pin DnD, unread ring, revert dock, archive, JSON export. Transcripts persist in the OpenCode daemon. Companion never opens SQLite.
 
-`POST /api/git-revert` exists on `serve.mjs` (host worktree revert/reset). **No React caller.** Session rollback UI is daemon `revert` / `unrevert` via `SessionRevertDock`.
+Session rollback UI is daemon `revert` / `unrevert` via `SessionRevertDock`. Host `POST /api/git-revert` was removed; it had no React caller.
 
 Tab chrome shows a 2-letter acronym (`ON`, `OD`, `AS`, `AI`, `NS`) from `getProjectAbbreviation`. Search/map menus show a bordered pill `[APISpace]` from `formatProjectPill`. These live in `src/utils/session-workspace.ts`, not in Header JSX.
 
@@ -69,8 +69,6 @@ Tab chrome shows a 2-letter acronym (`ON`, `OD`, `AS`, `AI`, `NS`) from `getProj
 | `formatProjectPill` | `(name: string) => string` | Pure; `[APISpace]`; already-bracketed passthrough |
 
 `RevertSessionOptions`: `{ partID?: string; files?: boolean }`. `files: false` prefers conversation-only stage.
-
-Host-only (no UI): `POST /api/git-revert` `{ directory, mode?: 'revert' \| 'reset' }` in `serve.mjs` (`git revert HEAD --no-edit` or `git reset HEAD~1 --soft`, 15s).
 
 ## Actionable Recipes
 

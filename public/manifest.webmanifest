@@ -1,0 +1,23 @@
+{
+  "name": "OpenCode Companion",
+  "short_name": "OpenCode5173",
+  "description": "Web Companion for OpenCode daemon with Dialogue Map canvas, visual session search, and Zen reading mode",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c0d0e",
+  "theme_color": "#0c0d0e",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "handle_links": "preferred",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

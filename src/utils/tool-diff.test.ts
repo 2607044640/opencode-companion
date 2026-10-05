@@ -1,6 +1,13 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseUnifiedHunks, buildUnifiedDiff, collapseUnchangedLines, mergeUnifiedDiffs } from './tool-diff'
+import {
+  parseUnifiedHunks,
+  buildUnifiedDiff,
+  collapseUnchangedLines,
+  mergeUnifiedDiffs,
+  formatFileDiffMarker,
+  formatAllDiffMarkers,
+} from './tool-diff'
 import { countDiffLines } from './worked-summary'
 
 describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
@@ -247,4 +254,60 @@ describe('tool-diff Unit Tests (Prometheus T2 Specification)', () => {
     const adds = hunks[0].lines.filter((line) => line.kind === 'add').map((line) => line.text)
     assert.deepEqual(adds, ['second'])
   })
+
+  test('formatFileDiffMarker formats changed lines with line numbers and +/- signs inside <file> tags', () => {
+    const file = {
+      fileName: 'init.py',
+      filePath: '/home/developer/projects/APISpace/init.py',
+      unified: [
+        '--- a/init.py',
+        '+++ b/init.py',
+        '@@ -145,2 +145,2 @@',
+        ' const unchanged = 1',
+        '-old_line',
+        '+new_line',
+      ].join('\n'),
+    }
+    const formatted = formatFileDiffMarker(file)
+    assert.equal(
+      formatted,
+      [
+        '<init.py> /home/developer/projects/APISpace/init.py',
+        '146-old_line',
+        '146+new_line',
+        '</init.py>',
+      ].join('\n')
+    )
+  })
+
+  test('formatAllDiffMarkers formats multiple files separated by blank lines', () => {
+    const files = [
+      {
+        fileName: 'init.py',
+        filePath: 'C:\\AICore\\init.py',
+        unified: '@@ -145,1 +145,1 @@\n-old\n+new',
+      },
+      {
+        fileName: 'paths.py',
+        filePath: '/home/developer/projects/AICore/paths.py',
+        unified: '@@ -66,0 +66,2 @@\n+def is_inside():\n+    return True',
+      },
+    ]
+    const out = formatAllDiffMarkers(files)
+    assert.equal(
+      out,
+      [
+        '<init.py> C:/AICore/init.py',
+        '145-old',
+        '145+new',
+        '</init.py>',
+        '',
+        '<paths.py> /home/developer/projects/AICore/paths.py',
+        '66+def is_inside():',
+        '67+    return True',
+        '</paths.py>',
+      ].join('\n')
+    )
+  })
 })
+

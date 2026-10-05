@@ -419,3 +419,54 @@ export function buildUnifiedDiff(
 
   return `--- a/${filePath}\n+++ b/${filePath}\n@@ -1,${oldLines.length} +1,${newLines.length} @@\n${del ? del + '\n' : ''}${add}`
 }
+
+export interface FormattableDiffFile {
+  fileName?: string
+  filePath?: string
+  unified?: string
+  hunks?: DiffHunk[]
+}
+
+/**
+ * Formats one file's diff into user-specified compact format:
+ * <fileName> filePath
+ * 145+xxx
+ * 145-xxx
+ * </fileName>
+ */
+export function formatFileDiffMarker(file: FormattableDiffFile): string {
+  const normPath = (file.filePath || file.fileName || '').replace(/\\/g, '/')
+  const fileName = file.fileName || normPath.split('/').pop() || 'file'
+  const hunks =
+    file.hunks && file.hunks.length > 0
+      ? file.hunks
+      : parseUnifiedHunks(file.unified || '')
+
+  const lines: string[] = [`<${fileName}> ${normPath}`]
+
+  for (const hunk of hunks) {
+    for (const item of hunk.lines) {
+      if (item.kind === 'add') {
+        const no = item.newNo !== undefined ? item.newNo : ''
+        lines.push(`${no}+${item.text.replace(/\r$/, '')}`)
+      } else if (item.kind === 'del') {
+        const no = item.oldNo !== undefined ? item.oldNo : ''
+        lines.push(`${no}-${item.text.replace(/\r$/, '')}`)
+      }
+    }
+  }
+
+  lines.push(`</${fileName}>`)
+  return lines.join('\n')
+}
+
+/**
+ * Formats multiple files into the compact diff marker format separated by newlines.
+ */
+export function formatAllDiffMarkers(files: FormattableDiffFile[]): string {
+  return files
+    .filter((f) => Boolean(f && (f.filePath || f.fileName)))
+    .map(formatFileDiffMarker)
+    .join('\n\n')
+}
+

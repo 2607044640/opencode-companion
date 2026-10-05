@@ -4,11 +4,41 @@ import { useDiffDrawer } from './DiffDrawerContext'
 import { DiffViewer } from './DiffViewer'
 import { FileTypeIcon } from '../common/FileTypeIcon'
 import { usePreferences } from '../../utils/preferences'
+import { formatFileDiffMarker, formatAllDiffMarkers } from '../../utils/tool-diff'
+
+interface CopyDiffButtonProps {
+  copied: boolean
+  onClick: () => void
+}
+
+export function CopyDiffButton({ copied, onClick }: CopyDiffButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium rounded bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-700/60 text-emerald-300 hover:text-emerald-100 transition-all cursor-pointer shadow-sm active:scale-95"
+      title="复制Diff标记文本 (带文件名、路径与+/-行号)"
+    >
+      {copied ? (
+        <>
+          <Check className="w-3.5 h-3.5 text-emerald-400" />
+          <span>已复制Diff</span>
+        </>
+      ) : (
+        <>
+          <Copy className="w-3.5 h-3.5" />
+          <span>复制Diff</span>
+        </>
+      )}
+    </button>
+  )
+}
 
 export function DiffSidebarDrawer() {
   const { mode, payload, turnPayload, isOpen, close } = useDiffDrawer()
   const { prefs } = usePreferences()
   const [copied, setCopied] = useState(false)
+  const [copiedFileKey, setCopiedFileKey] = useState<string | null>(null)
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({})
   const floating = prefs.floatingDiffView !== false
 
@@ -25,25 +55,34 @@ export function DiffSidebarDrawer() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [isOpen, close])
 
-  const handleCopy = () => {
-    const text =
-      mode === 'turn' && turnPayload
-        ? turnPayload.files.map((f) => f.unified).filter(Boolean).join('\n\n')
-        : payload?.unified || ''
+  const isTurnMode = mode === 'turn' && turnPayload !== null
+  const turnFiles = turnPayload?.files ?? []
+  const uniqueFileCount = turnFiles.length
+  const totalDiffs = turnFiles.reduce((sum, file) => sum + (file.mergedEditCount ?? 1), 0)
+
+  const handleCopyDiffAll = () => {
+    const text = isTurnMode
+      ? formatAllDiffMarkers(turnFiles)
+      : payload
+      ? formatFileDiffMarker(payload)
+      : ''
     if (!text) return
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleCopySingleFile = (file: any, key: string) => {
+    const text = formatFileDiffMarker(file)
+    if (!text) return
+    navigator.clipboard.writeText(text)
+    setCopiedFileKey(key)
+    setTimeout(() => setCopiedFileKey(null), 2000)
+  }
+
   if (!isOpen || (!payload && !turnPayload)) {
     return null
   }
-
-  const isTurnMode = mode === 'turn' && turnPayload !== null
-  const turnFiles = turnPayload?.files ?? []
-  const uniqueFileCount = turnFiles.length
-  const totalDiffs = turnFiles.reduce((sum, file) => sum + (file.mergedEditCount ?? 1), 0)
 
   const getItemKey = (f: any, idx: number) =>
     f.partId ? `${f.partId}_${f.filePath || f.fileName}` : `${f.filePath || f.fileName}_${idx}`
@@ -85,29 +124,19 @@ export function DiffSidebarDrawer() {
         </span>
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         <button
           type="button"
           onClick={toggleAll}
-          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors"
+          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
           title={allCollapsed ? '全部展开 (Expand All)' : '全部折叠 (Collapse All)'}
         >
           <ChevronsUpDown className="w-3.5 h-3.5" />
         </button>
-        <button
-          onClick={handleCopy}
-          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors"
-          title="复制全部差异文本 (Copy All Diffs)"
-        >
-          {copied ? (
-            <Check className="w-3.5 h-3.5 text-emerald-400" />
-          ) : (
-            <Copy className="w-3.5 h-3.5" />
-          )}
-        </button>
+        <CopyDiffButton copied={copied} onClick={handleCopyDiffAll} />
         <button
           onClick={close}
-          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors"
+          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
           title="关闭 (Esc)"
         >
           <X className="w-4 h-4" />
@@ -148,23 +177,11 @@ export function DiffSidebarDrawer() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1 shrink-0">
-        {payload!.unified && (
-          <button
-            onClick={handleCopy}
-            className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors"
-            title="复制统一差异文本 (Copy Diff)"
-          >
-            {copied ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
-        )}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <CopyDiffButton copied={copied} onClick={handleCopyDiffAll} />
         <button
           onClick={close}
-          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors"
+          className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
           title="关闭 (Esc)"
         >
           <X className="w-4 h-4" />
@@ -223,6 +240,21 @@ export function DiffSidebarDrawer() {
                     <span className="text-blue-400">New</span>
                   )}
                 </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCopySingleFile(file, itemKey)
+                  }}
+                  className="p-1 text-zinc-400 hover:text-emerald-300 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
+                  title="复制该文件Diff"
+                >
+                  {copiedFileKey === itemKey ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
                 {isCollapsed ? (
                   <ChevronRight className="w-4 h-4 text-zinc-400" />
                 ) : (

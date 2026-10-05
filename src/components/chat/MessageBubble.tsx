@@ -280,17 +280,29 @@ function createMarkdownComponents(isZenMode?: boolean) {
         }
 
         if (sessId) {
+          const standalone =
+            typeof window !== 'undefined' &&
+            (window.matchMedia('(display-mode: standalone)').matches ||
+              window.matchMedia('(display-mode: window-controls-overlay)').matches)
+          const jumpHref = `/jump?session=${encodeURIComponent(sessId)}`
           return (
             <a
-              href={href}
+              href={standalone ? `/?session=${encodeURIComponent(sessId)}` : jumpHref}
+              target={standalone ? undefined : '_blank'}
+              rel={standalone ? undefined : 'opener'}
               onClick={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
+                if (!standalone) {
+                  const popup = window.open(jumpHref, '_blank')
+                  if (!popup) window.location.assign(jumpHref)
+                  return
+                }
                 window.dispatchEvent(
                   new CustomEvent('switch-session', { detail: { sessionID: sessId } })
                 )
                 try {
-                  window.history.pushState(null, '', `/?session=${sessId}`)
+                  window.history.pushState(null, '', `/?session=${encodeURIComponent(sessId)}`)
                   if (document.activeElement instanceof HTMLElement) {
                     document.activeElement.blur()
                   }
