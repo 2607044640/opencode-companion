@@ -149,7 +149,13 @@ const server = http.createServer((req, res) => {
   const isJumpRoute = reqPath === '/jump'
   const isRootSession = (reqPath === '/' || reqPath === '/index.html') && req.url.includes('session=')
 
-  if (isJumpRoute || isRootSession) {
+  if (isRootSession) {
+    const parsedUrl = new URL(req.url, 'http://127.0.0.1:5173')
+    const sid = parsedUrl.searchParams.get('session') || ''
+    if (sid) rememberSession(sid)
+  }
+
+  if (isJumpRoute) {
     const parsedUrl = new URL(req.url, 'http://127.0.0.1:5173')
     const sid = parsedUrl.searchParams.get('session') || ''
     if (sid) {
@@ -411,7 +417,7 @@ const server = http.createServer((req, res) => {
     rememberSession(sid)
 
     try {
-      // focusInstalledApp is omitted here to prevent recursion
+      focusInstalledApp(sid)
     } catch {}
 
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })

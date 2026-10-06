@@ -53,7 +53,7 @@ function formatTokens(n: number | undefined): string {
   return n.toLocaleString()
 }
 
-function getAgentBadge(agent?: string) {
+export function getAgentBadge(agent?: string) {
   const name = (agent || '').toLowerCase()
   if (name.includes('sisyphus')) {
     return {
@@ -805,6 +805,14 @@ export function MessageBubble({
               </span>
             )}
 
+            {/* Live Generating Pill */}
+            {isBusy && (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-600/70 text-[11px] text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
+                <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
+                <span>{tr('生成中…', 'Generating…', 'Generieren…')}</span>
+              </span>
+            )}
+
             {/* Duration Tag (Only shown if no Worked bar is rendered) */}
             {!turn.hasWork && durationStr && (
               <span
@@ -1013,9 +1021,25 @@ export function MessageBubble({
             <>
             {message.parts.length === 0 && !errorMessage && (
               (isBusy && turn.isLive) ? (
-                <div className="flex items-center gap-2.5 py-4 px-4 rounded-lg bg-purple-950/20 border border-purple-800/30 text-purple-300 text-xs font-mono animate-pulse">
-                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                  <span>{tr('正在等待模型响应或工具执行...', 'Waiting for model response or tool execution...', 'Warten auf Modellantwort...')}</span>
+                <div className="py-2.5 px-3.5 rounded-lg bg-purple-950/25 border border-purple-800/40 flex items-center gap-3.5 shadow-sm">
+                  <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-purple-900/40 border border-purple-700/50 shrink-0 text-purple-300 shadow-inner">
+                    <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-zinc-100">
+                        {tr('正在思考与生成回复…', 'Thinking & Generating Response…', 'Denkt nach und generiert Antwort…')}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      {tr('模型正在分析上下文并规划执行方案…', 'Analyzing context and planning execution…', 'Analysiert Kontext und plant…')}
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-start gap-3 py-3.5 px-4 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-xs">

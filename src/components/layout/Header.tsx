@@ -6,7 +6,6 @@ import {
   PanelLeft,
   Coins,
   AlertCircle,
-  Loader2,
   Sparkles,
   ShieldCheck,
   Folder,
@@ -544,9 +543,15 @@ export function Header({
         {/* Realtime Ambient Status Indicator with Instant Tooltip */}
         <div className="relative group/status flex items-center shrink-0">
           {sessionStatus.type === 'busy' ? (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-950/40 border border-purple-800/60 text-xs text-purple-300 font-medium animate-pulse shadow-sm">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400 shrink-0" />
-              <span className="hidden sm:inline">{t.header.generating}</span>
+            <div
+              tabIndex={0}
+              className="flex items-center justify-center p-1.5 text-purple-400 hover:text-purple-300 rounded-md transition-colors cursor-default"
+              aria-label={t.header.generating}
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+              </span>
             </div>
           ) : sessionStatus.type === 'retry' ? (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/40 border border-amber-800/60 text-xs text-amber-300 font-medium">

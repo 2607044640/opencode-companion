@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Play, Sparkles, MessageSquare, Loader2 } from 'lucide-react'
+import { AlertTriangle, Play, Sparkles, MessageSquare, Loader2, Cpu } from 'lucide-react'
 import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
-import { MessageBubble } from './MessageBubble'
+import { MessageBubble, getAgentBadge } from './MessageBubble'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
 import { extractDraftFromMessage } from '../../utils/draft'
 import { TimelineQuickJump } from './TimelineQuickJump'
@@ -14,7 +14,87 @@ import { getShortcuts, createDoubleTapTracker, isEditableTarget, matchesShortcut
 import { groupTimelineMessages } from '../../utils/timeline-grouping'
 import { computeClientSideDiffs, mergeRevertDiffs } from '../../utils/client-side-diffs'
 import { isAbortError } from '../../services/api'
+import { useI18n } from '../../utils/i18n'
 import type { RevertMode, PromptAttachment } from '../../hooks/useChatStream'
+
+interface GeneratingBubbleProps {
+  agent?: string
+  modelID?: string
+  isZenMode?: boolean
+}
+
+function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) {
+  const { tr } = useI18n()
+  const badge = getAgentBadge(agent)
+  const modelName = modelID || ''
+
+  return (
+    <div
+      data-message-role="assistant-generating"
+      className="w-full max-w-3xl mr-auto my-4 animate-in fade-in slide-in-from-bottom-2 duration-200"
+    >
+      <div
+        className={`w-full rounded-xl border border-purple-800/60 bg-[#121418]/90 shadow-lg shadow-purple-950/30 backdrop-blur-sm transition-all ${
+          isZenMode ? 'p-5 rounded-2xl' : 'p-4'
+        }`}
+      >
+        {/* Header: Agent badge, Model badge, Generating badge */}
+        <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-purple-900/30 text-xs text-zinc-400">
+          <div className="flex items-center gap-2">
+            <div
+              className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold border ${badge.bg}`}
+              title={`Agent: ${badge.label}`}
+            >
+              {badge.initial}
+            </div>
+            <span className="font-semibold text-zinc-200">{badge.label}</span>
+            {modelName && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800/80 text-[10px] font-mono text-zinc-300 border border-zinc-700/60">
+                <Cpu className="w-2.5 h-2.5 text-purple-400" />
+                <span>{modelName}</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-600/70 text-[11px] text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400 shrink-0" />
+            <span>{tr('生成中…', 'Generating…', 'Generieren…')}</span>
+          </div>
+        </div>
+
+        {/* Prominent Generating Body */}
+        <div className="py-3 px-3.5 rounded-lg bg-purple-950/25 border border-purple-900/40 flex items-center gap-3.5 shadow-inner">
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-purple-900/50 border border-purple-700/60 shrink-0 text-purple-300 shadow-sm">
+            <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-zinc-100">
+                {tr('正在思考与生成回复', 'Thinking & Generating Response', 'Denkt nach und generiert Antwort')}
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400 mt-0.5 truncate">
+              {tr(
+                '模型正在解析对话上下文并准备输出方案…',
+                'Analyzing dialogue context and preparing solution…',
+                'Analysiert Dialogkontext und bereitet Lösung vor…'
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* Breathing glowing gradient line */}
+        <div className="w-full h-0.5 mt-3 rounded-full bg-gradient-to-r from-purple-600/20 via-purple-500/80 to-purple-600/20 animate-pulse" />
+      </div>
+    </div>
+  )
+}
 
 interface ChatTimelineProps {
   messages: Message[]
@@ -170,6 +250,18 @@ export function ChatTimeline({
       return item.messages.every((m) => messages.indexOf(m) < revertIndex)
     })
   }, [groupedItems, revertIndex, messages])
+
+  const isLastItemUser =
+    visibleItems.length > 0 &&
+    (visibleItems[visibleItems.length - 1].type === 'user' ||
+      visibleItems[visibleItems.length - 1].type === 'system')
+
+  const showGeneratingCard =
+    sessionStatus.type === 'busy' && isLastItemUser
+
+  const lastUserMsg = messages.length > 0 ? messages[messages.length - 1] : null
+  const targetAgent = lastUserMsg?.info?.agent || activeSession?.agent || 'build'
+  const targetModelId = lastUserMsg?.info?.modelID || activeSession?.model?.id || ''
 
 
   // Track if user scrolled up manually
@@ -652,6 +744,15 @@ export function ChatTimeline({
               />
             )
           })}
+
+          {/* Prominent Model Dialogue Generating Card: Placed directly underneath the user prompt on the left side */}
+          {showGeneratingCard && (
+            <GeneratingBubble
+              agent={targetAgent}
+              modelID={targetModelId}
+              isZenMode={isZenMode}
+            />
+          )}
 
           {/* Error / Retry Banner (Exact Replicate of Image 1) */}
           {(sessionStatus.type === 'retry' || (Boolean(error) && !isAbortError(error))) && (
