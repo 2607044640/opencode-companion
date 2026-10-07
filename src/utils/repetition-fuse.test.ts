@@ -8,6 +8,32 @@ import {
 import type { Message } from '../types/opencode'
 
 describe('repetition-fuse: detectRepetitionLoop', () => {
+  it('detects a short confirmation line copied eight times', () => {
+    const line = '正在确认所有修改已完成。'
+    const result = detectRepetitionLoop((line + '\n').repeat(8))
+    assert.equal(result.isLoop, true)
+    assert.ok(result.cleanText.includes(REPETITION_LOOP_NOTICE))
+  })
+
+  it('detects a multi-line cycle copied three times', () => {
+    const block = [
+      '正在确认所有修改已完成。',
+      '所有修改已完成。',
+      '正在确认测试通过。',
+      '测试通过。',
+      '没有遗漏的步骤。',
+    ].join('\n')
+    const result = detectRepetitionLoop((block + '\n').repeat(3))
+    assert.equal(result.isLoop, true)
+    assert.ok((result.repeatCount || 0) >= 3)
+  })
+
+  it('does not flag ok or seven copies', () => {
+    assert.equal(detectRepetitionLoop('ok\n'.repeat(20)).isLoop, false)
+    const line = '正在确认所有修改已完成。'
+    assert.equal(detectRepetitionLoop((line + '\n').repeat(7)).isLoop, false)
+  })
+
   it('returns isLoop=false for normal non-repetitive text', () => {
     const text =
       'Let me start by inspecting App.tsx for setSelectedProjectId usage. Then I will check useSessions.ts.'

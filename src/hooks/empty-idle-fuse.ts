@@ -118,14 +118,13 @@ export function classifyEmptyIdleFuse(input: EmptyIdleFuseInput): EmptyIdleFuseV
     return { kind: 'none' }
   }
   if (hasTurnContent(last)) {
-    if (last.info.finish === 'abort') {
-      const { hasLoop } = sanitizeMessageRepetition(last)
-      if (hasLoop) {
-        return {
-          kind: 'repetition_loop',
-          errorName: REPETITION_LOOP_ERROR_NAME,
-          message: REPETITION_LOOP_ERROR_MESSAGE,
-        }
+    // A loop that stopped on its own (finish=stop) is the same failure as an abort.
+    const { hasLoop } = sanitizeMessageRepetition(last)
+    if (hasLoop) {
+      return {
+        kind: 'repetition_loop',
+        errorName: REPETITION_LOOP_ERROR_NAME,
+        message: REPETITION_LOOP_ERROR_MESSAGE,
       }
     }
     return { kind: 'none' }

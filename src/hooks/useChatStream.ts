@@ -11,7 +11,8 @@ import type {
 } from '../types/opencode'
 import { api, mergeMessageInfo, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage, isAbortError } from '../services/api'
 import { sseManager } from '../services/sse'
-import { classifyEmptyIdleFuse, decideEmptyTurnAutoRetry, userTurnKey } from './empty-idle-fuse'
+import { classifyEmptyIdleFuse, decideEmptyTurnAutoRetry, userTurnKey, REPETITION_LOOP_ERROR_MESSAGE, REPETITION_LOOP_ERROR_NAME } from './empty-idle-fuse'
+import { sanitizeMessageRepetition } from '../utils/repetition-fuse'
 import { maybeCommitGitCheckpoint } from '../utils/maybe-git-checkpoint'
 import { postExternalFileRollback } from '../services/host-api'
 import { executeRevertWithTimeout, withRevertTimeout, type RevertMode as EngineRevertMode } from '../utils/revert-engine'
@@ -66,6 +67,8 @@ export function useChatStream(
   const statusEpochRef = useRef(0)
   const autoRetriedTurnKeyRef = useRef<string | null>(null)
   const retryRef = useRef<() => Promise<void>>(async () => {})
+  /** One abort per user send. A live copier must not keep the SSE socket open. */
+  const repetitionArmedRef = useRef(false)
 
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
     if (!sessionBusyRef.current && kind === 'clean') return
@@ -80,6 +83,36 @@ export function useChatStream(
     setSessionStatus(next)
     if (known) setRunKnown(true)
   }, [])
+
+  const stopRepetitionLoop = useCallback((messageId: string) => {
+    if (repetitionArmedRef.current) return
+    repetitionArmedRef.current = true
+    setError(REPETITION_LOOP_ERROR_MESSAGE)
+    setMessages((prev) => prev.map((msg) => {
+      if (msg.info.id !== messageId) return msg
+      const { message, hasLoop } = sanitizeMessageRepetition(msg)
+      if (!hasLoop) return msg
+      return {
+        ...message,
+        info: {
+          ...message.info,
+          finish: message.info.finish || 'abort',
+          error: message.info.error || {
+            name: REPETITION_LOOP_ERROR_NAME,
+            message: REPETITION_LOOP_ERROR_MESSAGE,
+            data: { message: REPETITION_LOOP_ERROR_MESSAGE, kind: 'repetition_loop' },
+          },
+        },
+      }
+    }))
+    noteTurnEnd('error')
+    commitSessionStatus({ type: 'idle' })
+    const id = currentSessionIdRef.current
+    if (!id || id === '__draft__') return
+    void api.abortSession(id).catch((err) => {
+      console.error('Failed to abort repetition loop:', err)
+    })
+  }, [noteTurnEnd, commitSessionStatus])
 
   // Load initial messages and todos when sessionId changes.
   // Chrome stays "confirming" until GET /session/status answers, so a restore
@@ -247,6 +280,11 @@ export function useChatStream(
           return { ...msg, parts: nextParts }
         })
 
+        const grown = next.find((msg) => msg.info.id === data.messageID)
+        if (grown && sanitizeMessageRepetition(grown).hasLoop) {
+          queueMicrotask(() => stopRepetitionLoop(data.messageID))
+        }
+
         if (!msgFound) {
           // If message itself is not in state yet, append a placeholder
           const newPart: MessagePart =
@@ -325,6 +363,11 @@ export function useChatStream(
 
           return { ...msg, parts: nextParts }
         })
+
+        const grown = next.find((msg) => msg.info.id === cleanPart.messageID)
+        if (grown && sanitizeMessageRepetition(grown).hasLoop) {
+          queueMicrotask(() => stopRepetitionLoop(cleanPart.messageID))
+        }
 
         if (!msgFound && cleanPart.messageID) {
           const isUserPart = cleanPart.type === 'file'
@@ -481,6 +524,29 @@ export function useChatStream(
       } else {
         noteTurnEnd('clean')
       }
+      if (fuse.kind === 'repetition_loop' && lastMsg && !lastMsg.info.error) {
+        setError(fuse.message)
+        setMessages((prev) => {
+          if (prev.length === 0) return prev
+          const last = prev[prev.length - 1]
+          if (last.info.id !== lastMsg.info.id || last.info.error) return prev
+          const { message } = sanitizeMessageRepetition(last)
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...message,
+              info: {
+                ...message.info,
+                error: {
+                  name: fuse.errorName,
+                  message: fuse.message,
+                  data: { message: fuse.message, kind: fuse.kind },
+                },
+              },
+            },
+          ]
+        })
+      }
       if ((fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg) {
         if (isAbortError(lastMsg.info.error)) {
           return
@@ -542,7 +608,7 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus])
+  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop])
 
   const sendPrompt = useCallback(
     async (
@@ -579,6 +645,7 @@ export function useChatStream(
       setMessages((prev) => [...prev, userMsg])
       pendingOptimisticIdRef.current = userMsg.info.id
       userAbortedRef.current = false
+      repetitionArmedRef.current = false
       commitSessionStatus({ type: 'busy' })
       setError(null)
       setTurnEnd(null)

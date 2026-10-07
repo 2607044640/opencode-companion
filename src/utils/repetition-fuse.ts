@@ -13,16 +13,110 @@ export interface RepetitionMatch {
   readonly truncatedCount?: number
 }
 
+const LINE_COPIES = 8
+const CYCLE_COPIES = 3
+const MAX_PERIOD = 30
+const MIN_LINE = 4
+const SHORT_ACKS = new Set(['ok', 'okay', 'yes', 'no', 'done', 'hmm', '...', '…'])
+const SENTENCE_SPLIT = /(?<=[。！？.!?])\s*/
+
+function loopUnits(text: string): string[] {
+  const units: string[] = []
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const pieces = line.split(SENTENCE_SPLIT).map((part) => part.trim()).filter(Boolean)
+    // Only split a line of short sentences. A real paragraph stays one unit.
+    if (pieces.length >= CYCLE_COPIES && pieces.every((part) => part.length < 40)) units.push(...pieces)
+    else units.push(line)
+  }
+  return units
+}
+
+function lineCounts(line: string): boolean {
+  return line.length >= MIN_LINE && !SHORT_ACKS.has(line.toLowerCase())
+}
+
+/** Eight identical lines, or a 2..30 line block copied three times. */
+function detectLineCycle(text: string): RepetitionMatch {
+  const units = loopUnits(text)
+  let run = 0
+  let previous = ''
+  let runStart = 0
+  let bestRun = 1
+  let bestStart = -1
+  for (let i = 0; i < units.length; i++) {
+    const line = units[i]
+    if (!lineCounts(line)) {
+      run = 0
+      previous = ''
+      continue
+    }
+    if (line === previous) {
+      run += 1
+    } else {
+      run = 1
+      previous = line
+      runStart = i
+    }
+    if (run > bestRun) {
+      bestRun = run
+      bestStart = runStart
+    }
+  }
+  if (bestRun >= LINE_COPIES && bestStart >= 0) {
+    return {
+      isLoop: true,
+      pattern: units[bestStart],
+      repeatCount: bestRun,
+      cleanText: `${units.slice(0, bestStart + 1).join('\n').trim()}\n\n${REPETITION_LOOP_NOTICE}`,
+      truncatedCount: bestRun - 1,
+    }
+  }
+
+  const count = units.length
+  const maxPeriod = Math.min(MAX_PERIOD, Math.floor(count / CYCLE_COPIES))
+  for (let period = 2; period <= maxPeriod; period++) {
+    const usable = count - (count % period)
+    if (usable < period * CYCLE_COPIES) continue
+    const block = units.slice(usable - period, usable)
+    if (new Set(block).size < 2) continue
+    if (!block.some(lineCounts)) continue
+    let matched = 1
+    let index = usable - 2 * period
+    while (index >= 0 && units.slice(index, index + period).every((value, key) => value === block[key])) {
+      matched += 1
+      index -= period
+    }
+    if (matched >= CYCLE_COPIES) {
+      const cut = index + 2 * period
+      return {
+        isLoop: true,
+        pattern: block.join('\n'),
+        repeatCount: matched,
+        cleanText: `${units.slice(0, cut).join('\n').trim()}\n\n${REPETITION_LOOP_NOTICE}`,
+        truncatedCount: matched - 1,
+      }
+    }
+  }
+  return { isLoop: false, cleanText: text }
+}
+
 /**
- * Detects if a text string contains degenerate repeated n-gram blocks
- * (e.g. repeating a >=40 character sentence/paragraph 3 or more times).
+ * Detects degenerate repeats: a short confirmation line copied 8 times,
+ * a multi-line block copied 3 times, or a >=40 character n-gram copied 3 times.
  */
 export function detectRepetitionLoop(
   text: string,
   minWindow = 40,
   minRepeats = 3
 ): RepetitionMatch {
-  if (!text || text.length < minWindow * minRepeats) {
+  if (!text) {
+    return { isLoop: false, cleanText: text }
+  }
+  const lineHit = detectLineCycle(text)
+  if (lineHit.isLoop) return lineHit
+  if (text.length < minWindow * minRepeats) {
     return { isLoop: false, cleanText: text }
   }
 

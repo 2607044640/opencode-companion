@@ -77,6 +77,29 @@ describe('empty-idle-fuse', () => {
     assert.equal(verdict.kind, 'none')
   })
 
+  it('classifies a stopped short cycle as repetition_loop', () => {
+    const block = [
+      '正在确认所有修改已完成。',
+      '所有修改已完成。',
+      '正在确认测试通过。',
+      '测试通过。',
+    ].join('\n')
+    const msg = assistant({
+      finish: 'stop',
+      parts: [
+        {
+          id: 'p1',
+          sessionID: 'ses_1',
+          messageID: 'msg_a',
+          type: 'text',
+          text: (block + '\n').repeat(3),
+        },
+      ],
+    })
+    const verdict = classifyEmptyIdleFuse({ lastMessage: msg, userAborted: false })
+    assert.equal(verdict.kind, 'repetition_loop')
+  })
+
   it('classifies aborted turn with repetition loop as repetition_loop', () => {
     const p =
       'Let me start by inspecting App.tsx for setSelectedProjectId usage. I will grep for setSelectedProjectId in App.tsx.'
