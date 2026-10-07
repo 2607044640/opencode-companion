@@ -43,6 +43,8 @@ interface MessageBubbleProps {
   isReverted?: boolean
   isBusy?: boolean
   isReverting?: boolean
+  /** False until the daemon answers. Hide the finished duration and the live pill. */
+  runKnown?: boolean
 }
 
 
@@ -657,6 +659,7 @@ export function MessageBubble({
   isReverted,
   isBusy,
   isReverting,
+  runKnown = true,
 }: MessageBubbleProps) {
   const { prefs } = usePreferences()
   const { t, tr } = useI18n()
@@ -805,8 +808,15 @@ export function MessageBubble({
               </span>
             )}
 
+            {!runKnown && (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-[11px] text-zinc-300 font-medium">
+                <Loader2 className="w-3 h-3 animate-spin text-zinc-400" />
+                <span>{tr('正在确认状态…', 'Checking status…', 'Status wird geprüft…')}</span>
+              </span>
+            )}
+
             {/* Live Generating Pill */}
-            {isBusy && (
+            {runKnown && isBusy && (
               <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-600/70 text-[11px] text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
                 <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
                 <span>{tr('生成中…', 'Generating…', 'Generieren…')}</span>
@@ -814,7 +824,7 @@ export function MessageBubble({
             )}
 
             {/* Duration Tag (Only shown if no Worked bar is rendered) */}
-            {!turn.hasWork && durationStr && (
+            {runKnown && !turn.hasWork && durationStr && (
               <span
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900 text-[10px] font-mono text-zinc-400 border border-zinc-800"
                 title="Response elapsed time"
@@ -888,7 +898,7 @@ export function MessageBubble({
           {turn.hasWork ? (
             <>
               {/* Top Antigravity-Style Collapsible Tool Calling & Thinking Bar */}
-              <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} />
+              <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} runKnown={runKnown} />
 
               {/* Assistant Attached Images (Square Thumbnails in a Row - matching Image 2) */}
               {turn.fileParts.length > 0 && (

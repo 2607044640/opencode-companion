@@ -6,7 +6,9 @@ import {
   SYSTEM_ABORT_MESSAGE,
   EMPTY_RESPONSE_ERROR_NAME,
   classifyEmptyIdleFuse,
+  decideEmptyTurnAutoRetry,
   hasTurnContent,
+  userTurnKey,
 } from './empty-idle-fuse'
 
 function assistant(overrides: {
@@ -93,6 +95,64 @@ describe('empty-idle-fuse', () => {
     assert.equal(hasTurnContent(msg), true)
     const verdict = classifyEmptyIdleFuse({ lastMessage: msg, userAborted: false })
     assert.equal(verdict.kind, 'repetition_loop')
+  })
+
+  it('auto-retries an empty response once, then stops on the same prompt', () => {
+    const first = decideEmptyTurnAutoRetry({
+      fuseKind: 'empty_response',
+      turnKey: 'plan the failover',
+      alreadyRetriedTurnKey: null,
+      assistantHasError: false,
+    })
+    assert.equal(first.retry, true)
+    assert.equal(first.reason, 'empty_response')
+    const second = decideEmptyTurnAutoRetry({
+      fuseKind: 'system_abort',
+      turnKey: 'plan the failover',
+      alreadyRetriedTurnKey: 'plan the failover',
+      assistantHasError: false,
+    })
+    assert.equal(second.retry, false)
+    assert.equal(second.reason, 'already_retried')
+  })
+
+  it('keys the latch by user text, not the message id retry deletes', () => {
+    const before = userTurnKey([
+      {
+        info: { id: 'usr_old', sessionID: 'ses_1', role: 'user', time: { created: 1 } },
+        parts: [{ id: 'p', sessionID: 'ses_1', messageID: 'usr_old', type: 'text', text: 'same prompt' }],
+      },
+    ])
+    const after = userTurnKey([
+      {
+        info: { id: 'usr_new', sessionID: 'ses_1', role: 'user', time: { created: 2 } },
+        parts: [{ id: 'p2', sessionID: 'ses_1', messageID: 'usr_new', type: 'text', text: 'same prompt' }],
+      },
+    ])
+    assert.equal(before, 'same prompt')
+    assert.equal(after, before)
+  })
+
+  it('does not auto-retry a 502 that already has an error body', () => {
+    const decision = decideEmptyTurnAutoRetry({
+      fuseKind: 'empty_response',
+      turnKey: 'plan the failover',
+      alreadyRetriedTurnKey: null,
+      assistantHasError: true,
+    })
+    assert.equal(decision.retry, false)
+    assert.equal(decision.reason, 'has_error_body')
+  })
+
+  it('does not auto-retry a repetition loop', () => {
+    const decision = decideEmptyTurnAutoRetry({
+      fuseKind: 'repetition_loop',
+      turnKey: 'plan the failover',
+      alreadyRetriedTurnKey: null,
+      assistantHasError: false,
+    })
+    assert.equal(decision.retry, false)
+    assert.equal(decision.reason, 'not_empty')
   })
 
   it('returns none when last message is not assistant', () => {

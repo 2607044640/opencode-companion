@@ -12,7 +12,7 @@ def should_throttle():
         now = time.time()
         if os.path.exists(LOCK_FILE):
             mtime = os.path.getmtime(LOCK_FILE)
-            if now - mtime < 2.0:
+            if now - mtime < 1.0:
                 return True
         with open(LOCK_FILE, "w") as f:
             f.write(str(now))
@@ -72,6 +72,8 @@ def focus_window_by_title():
             user32.GetWindowTextW(hwnd, buff, length + 1)
             title = buff.value
             if "OpenCode Companion" in title or "OpenCode5173" in title:
+                if "Microsoft Edge" in title:
+                    return True
                 target_hwnd = hwnd
                 return False
         return True
@@ -104,13 +106,13 @@ def focus_window_by_title():
     return False
 
 def launch(session_id=""):
-    if should_throttle():
-        return True
-
-    # 1. Try focusing existing window directly on default desktop
+    # 1. Try focusing existing window directly on default desktop (never throttle existing window focus)
     focused = focus_window_by_title()
     if focused:
-        # Window already exists and brought to front once. Do NOT spawn pwahelper.
+        return True
+
+    # 2. Only throttle cold-spawning new pwahelper processes
+    if should_throttle():
         return True
 
     # 2. If window does not exist yet, spawn pwahelper targeting WinSta0\default desktop

@@ -139,3 +139,69 @@ describe('host-api routing config and senior model resolution', () => {
   })
 })
 
+describe('host-api open-external endpoints and path launcher', () => {
+  function createMockReq(url: string, bodyObj: any) {
+    const jsonStr = JSON.stringify(bodyObj)
+    return {
+      url,
+      method: 'POST',
+      on: (event: string, handler: any) => {
+        if (event === 'data') {
+          handler(Buffer.from(jsonStr))
+        } else if (event === 'end') {
+          handler()
+        }
+      },
+    }
+  }
+
+  test('handleHostApi serves POST /api/open-external for vscode and explorer', async () => {
+    let statusCode = 0
+    let bodyData = ''
+
+    const req: any = createMockReq('/api/open-external', {
+      filePath: '/home/developer/projects/APISpace/opencode-companion/package.json',
+      target: 'vscode',
+      line: 'L10-20',
+    })
+    const res: any = {
+      statusCode: 0,
+      setHeader: () => {},
+      end: (data: string) => {
+        bodyData = data
+      },
+    }
+
+    const handled = await handleHostApi(req, res)
+    assert.equal(handled, true)
+    assert.equal(res.statusCode, 200)
+    const payload = JSON.parse(bodyData)
+    assert.equal(payload.ok, true)
+    assert.equal(payload.line, 10)
+  })
+
+  test('POST /api/open-external rejects wildcard paths safely', async () => {
+    let statusCode = 0
+    let bodyData = ''
+
+    const req: any = createMockReq('/api/open-external', {
+      filePath: '**/AGENTS_Antigravity.md',
+      target: 'explorer',
+    })
+    const res: any = {
+      statusCode: 0,
+      setHeader: () => {},
+      end: (data: string) => {
+        bodyData = data
+      },
+    }
+
+    const handled = await handleHostApi(req, res)
+    assert.equal(handled, true)
+    assert.equal(res.statusCode, 400)
+    const payload = JSON.parse(bodyData)
+    assert.equal(payload.ok, false)
+    assert.match(payload.error, /通配符/)
+  })
+})
+

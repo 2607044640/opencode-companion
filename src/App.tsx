@@ -15,7 +15,7 @@ import { useChatStream } from './hooks/useChatStream'
 import { getShortcuts, matchesShortcut, type ShortcutsMap } from './utils/shortcuts'
 import { getNextTabId, getPrevTabId, getTabIdByIndex } from './utils/tab-navigation'
 import { api, canonicalizeDirectory } from './services/api'
-import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore } from 'lucide-react'
+import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore, Check } from 'lucide-react'
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
 import type { Message, PromptAttachment } from './types/opencode'
@@ -156,6 +156,7 @@ export default function App() {
   const {
     messages,
     sessionStatus,
+    runKnown,
     todos,
     loading: messagesLoading,
     error,
@@ -330,6 +331,23 @@ export default function App() {
   }, [])
 
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const handleToast = (e: Event) => {
+      const custom = e as CustomEvent<{ message?: string }>
+      if (custom.detail?.message) {
+        setToastMessage(custom.detail.message)
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => setToastMessage(null), 2500)
+      }
+    }
+    window.addEventListener('opencode-toast', handleToast)
+    return () => {
+      window.removeEventListener('opencode-toast', handleToast)
+      if (timer) clearTimeout(timer)
+    }
+  }, [])
 
   const handleDaemonRestored = useCallback(() => {
     setToastMessage('已恢复与 WSL 后端守护进程的连接')
@@ -689,7 +707,7 @@ export default function App() {
   useEffect(() => {
     if (turnEpoch === 0 || turnEpoch === seenTurnEpochRef.current) return
     seenTurnEpochRef.current = turnEpoch
-    if (sessionStatus.type !== 'idle') return
+    if (!runKnown || sessionStatus.type !== 'idle') return
     if (queuedMessagesRef.current.length === 0) return
     const assistant = [...messages].reverse().find((m) => m.info.role === 'assistant')
     const clean = shouldAutoDispatchQueue({
@@ -701,7 +719,7 @@ export default function App() {
     const { item } = dequeueFirst(queuedMessagesRef.current)
     if (!item) return
     void dispatchQueueHead(item.id)
-  }, [turnEpoch, turnEnd, sessionStatus.type, error, messages, dispatchQueueHead])
+  }, [turnEpoch, turnEnd, runKnown, sessionStatus.type, error, messages, dispatchQueueHead])
 
   const isZenModeRef = useRef(isZenMode)
   useEffect(() => {
@@ -1016,6 +1034,7 @@ export default function App() {
             activeSessionId={activeSessionId}
             activeSession={activeSession}
             sessionStatus={sessionStatus}
+            runKnown={runKnown}
             messages={messages}
             unreadSessionIds={unreadSessionIds}
             onSelectTab={(sessionId) => {
@@ -1083,6 +1102,7 @@ export default function App() {
             <ChatTimeline
               messages={messages}
               sessionStatus={sessionStatus}
+              runKnown={runKnown}
               error={error}
               onRetry={retry}
               onPromptSuggestion={(text) => sendPrompt(text)}
@@ -1121,7 +1141,8 @@ export default function App() {
                   activeSession={activeSession}
                   onSend={handleSendPrompt}
                   onAbort={abort}
-                  isBusy={sessionStatus.type === 'busy' || sessionStatus.type === 'retry'}
+                  isBusy={runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry')}
+                  runKnown={runKnown}
                   queuedMessages={queuedMessages}
                   onEnqueue={handleEnqueue}
                   onSendQueuedNow={(id) => void dispatchQueueHead(id, true)}
@@ -1205,7 +1226,11 @@ export default function App() {
       {/* Floating Action Toast */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-3 py-2 bg-[#16181f]/95 border border-[#2d323e] text-zinc-100 text-xs rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
-          <MapPin className="w-3.5 h-3.5 text-orange-400" />
+          {toastMessage.includes('成功') ? (
+            <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[2.5]" />
+          ) : (
+            <MapPin className="w-3.5 h-3.5 text-orange-400" />
+          )}
           <span>{toastMessage}</span>
         </div>
       )}

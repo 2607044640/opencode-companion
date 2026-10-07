@@ -47,6 +47,6 @@ Health: `curl --max-time 5 http://127.0.0.1:5001/global/health`
 
 Normalize every daemon payload in `src/services/api.ts` before React state. Schema details live in SessionManagement and StreamingChat.
 
-Silent Windows start: `start-silent.vbs` or `pythonw launch.pyw` (Edge `--app=http://127.0.0.1:5173/`). Map JSON in `data/` is gitignored. MIT — see `LICENSE`.
+Silent Windows start: `start-silent.vbs` or `pythonw launch.pyw` (Edge `--app=http://127.0.0.1:5173/`). `pythonw launch_pwa.pyw` focuses an existing OpenCode5173 window before spawning one. Map JSON in `data/` is gitignored. MIT — see `LICENSE`.
 
 `_Architecture.md` is the lean architecture router. `_README.md` is a usage pointer. Do not restore feature lists into this file.

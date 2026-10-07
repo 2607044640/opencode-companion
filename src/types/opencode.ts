@@ -73,6 +73,8 @@ export interface Session {
   time: SessionTime
   version?: string
   revert?: SessionRevert
+  /** Client-only. True while the row is a local stand-in and the daemon list has not caught up. */
+  pending?: boolean
 }
 
 export interface MessageModel {

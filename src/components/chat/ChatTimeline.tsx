@@ -12,6 +12,7 @@ import { findJumpTargetIndex, findNextJumpTargetIndex } from './quick-jump'
 import { usePreferences } from '../../utils/preferences'
 import { getShortcuts, createDoubleTapTracker, isEditableTarget, matchesShortcut, hasActiveOverlay } from '../../utils/shortcuts'
 import { groupTimelineMessages } from '../../utils/timeline-grouping'
+import { isPendingSession } from '../../utils/session-workspace'
 import { computeClientSideDiffs, mergeRevertDiffs } from '../../utils/client-side-diffs'
 import { isAbortError } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
@@ -99,6 +100,8 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
 interface ChatTimelineProps {
   messages: Message[]
   sessionStatus: SessionStatusPayload
+  /** False until the daemon answers. Hide finished, retry, and error chrome. */
+  runKnown?: boolean
   error?: string | null
   onRetry: () => void
   onPromptSuggestion?: (text: string) => void
@@ -119,6 +122,7 @@ interface ChatTimelineProps {
 export function ChatTimeline({
   messages,
   sessionStatus,
+  runKnown = true,
   error,
   onRetry,
   onPromptSuggestion,
@@ -256,8 +260,9 @@ export function ChatTimeline({
     (visibleItems[visibleItems.length - 1].type === 'user' ||
       visibleItems[visibleItems.length - 1].type === 'system')
 
+  const running = runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry')
   const showGeneratingCard =
-    sessionStatus.type === 'busy' && isLastItemUser
+    running && sessionStatus.type === 'busy' && isLastItemUser
 
   const lastUserMsg = messages.length > 0 ? messages[messages.length - 1] : null
   const targetAgent = lastUserMsg?.info?.agent || activeSession?.agent || 'build'
@@ -628,14 +633,7 @@ export function ChatTimeline({
       >
       {visibleItems.length === 0 &&
       !error &&
-      (messagesLoading ||
-        Boolean(
-          activeSession &&
-            activeSession.id !== '__draft__' &&
-            ((activeSession.tokens?.input || 0) > 0 ||
-              (activeSession.tokens?.output || 0) > 0 ||
-              (activeSession.summary?.files || 0) > 0)
-        )) ? (
+      (messagesLoading || isPendingSession(activeSession)) ? (
         <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
           {/* Centered Icon with Spinning Ring Animation (转圈动画) */}
           <div className="relative w-16 h-16 flex items-center justify-center mb-4">
@@ -653,7 +651,7 @@ export function ChatTimeline({
           <p className="text-xs text-zinc-400 max-w-sm mb-4">
             {activeSession?.title
               ? `正在加载「${activeSession.title}」的对话记录…`
-              : '正在同步 WSL2 守护进程工作区与对话数据…'}
+              : '正在加载会话对话记录…'}
           </p>
 
           {/* Three Floating / Bouncing Dots Animation (三个点上下浮动等待) */}
@@ -719,7 +717,8 @@ export function ChatTimeline({
                   message={item.message}
                   isZenMode={isZenMode}
                   onRevertToMessage={handleInitiateRevert}
-                  isBusy={sessionStatus.type === 'busy'}
+                  isBusy={running}
+                  runKnown={runKnown}
                   isReverting={isReverting}
                 />
               )
@@ -738,7 +737,8 @@ export function ChatTimeline({
                 allMessageIds={item.allMessageIds}
                 isZenMode={isZenMode}
                 onRevertToMessage={handleInitiateRevert}
-                isBusy={sessionStatus.type === 'busy'}
+                isBusy={running}
+                runKnown={runKnown}
                 isReverting={isReverting}
                 onRetry={onRetry}
               />
@@ -755,7 +755,7 @@ export function ChatTimeline({
           )}
 
           {/* Error / Retry Banner (Exact Replicate of Image 1) */}
-          {(sessionStatus.type === 'retry' || (Boolean(error) && !isAbortError(error))) && (
+          {runKnown && (sessionStatus.type === 'retry' || (Boolean(error) && !isAbortError(error))) && (
             <div className="max-w-4xl mx-auto my-4 px-4">
               <div className="relative overflow-hidden rounded-lg bg-[#1a1315] border border-rose-900/40 p-3.5 flex items-center justify-between gap-4 shadow-md">
                 {/* Red Left Accent Indicator (from Image 1) */}

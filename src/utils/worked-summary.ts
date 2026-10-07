@@ -132,6 +132,8 @@ export interface ExploreItem {
   partId: string
   tool: string
   pathOrQuery: string
+  fullPath?: string
+  lineRange?: string
   kind: 'file' | 'search'
   status: 'pending' | 'running' | 'completed' | 'error'
   error?: string
@@ -591,6 +593,22 @@ export function partitionAssistantTurn(
 
         const pathOrQuery = isSearch ? String(rawTarget) : normalizePath(String(rawTarget)).fileName
 
+        let lineRange: string | undefined = undefined
+        if (!isSearch) {
+          const s = input.start_line ?? input.StartLine ?? input.startLine ?? input.offset
+          const e = input.end_line ?? input.EndLine ?? input.endLine ?? (input.offset != null && input.limit != null ? Number(input.offset) + Number(input.limit) : undefined)
+          if (s != null && e != null) {
+            lineRange = `L${s}-${e}`
+          } else if (s != null) {
+            lineRange = `L${s}`
+          } else if (input.line != null) {
+            lineRange = `L${input.line}`
+          } else if (typeof tp.state?.title === 'string') {
+            const m = tp.state.title.match(/#L(\d+(?:-\d+)?)/i)
+            if (m) lineRange = m[1].toUpperCase()
+          }
+        }
+
         const { warningKind, warningTooltip } = classifyExploreIssue({
           tool: tp.tool,
           kind: isSearch ? 'search' : 'file',
@@ -603,6 +621,8 @@ export function partitionAssistantTurn(
           partId: tp.id,
           tool: tp.tool,
           pathOrQuery,
+          fullPath: isSearch ? undefined : String(rawTarget),
+          lineRange,
           kind: isSearch ? 'search' : 'file',
           status,
           error: tp.state?.error,

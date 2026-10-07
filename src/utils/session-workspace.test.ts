@@ -4,6 +4,8 @@ import type { Project, Session } from '../types/opencode'
 import {
   formatProjectPill,
   getProjectAbbreviation,
+  isPendingSession,
+  pendingSessionPlaceholder,
   planSessionActivation,
   shouldAcceptSessionActivation,
   resolveCanonicalProjectId,
@@ -137,17 +139,17 @@ describe('session-workspace: project pills', () => {
     assert.equal(formatProjectPill(resolveSessionProject(devSession, projects).name), '[ObsidianDev]')
   })
 
-  it('generates automated 2-letter project abbreviations (ON, OD, AS, AI, NS)', () => {
-    assert.equal(getProjectAbbreviation('ObsidianNote'), 'ON')
-    assert.equal(getProjectAbbreviation('ObsidianDev'), 'OD')
-    assert.equal(getProjectAbbreviation('APISpace'), 'AS')
+  it('generates automated 2-letter project abbreviations (OB, AP, AI, AC, MC)', () => {
+    assert.equal(getProjectAbbreviation('ObsidianNote'), 'OB')
+    assert.equal(getProjectAbbreviation('ObsidianDev'), 'OB')
+    assert.equal(getProjectAbbreviation('APISpace'), 'AP')
     assert.equal(getProjectAbbreviation('AISpace'), 'AI')
     assert.equal(getProjectAbbreviation('AICore'), 'AC')
     assert.equal(getProjectAbbreviation('my-cool-project'), 'MC')
-    assert.equal(getProjectAbbreviation('api_space'), 'AS')
+    assert.equal(getProjectAbbreviation('api_space'), 'AP')
     assert.equal(getProjectAbbreviation('frontend'), 'FR')
-    assert.equal(getProjectAbbreviation('C:\\Godot\\ObsidianNote'), 'ON')
-    assert.equal(getProjectAbbreviation('/workspace/projects/APISpace'), 'AS')
+    assert.equal(getProjectAbbreviation('C:\\Godot\\ObsidianNote'), 'OB')
+    assert.equal(getProjectAbbreviation('/workspace/projects/APISpace'), 'AP')
     assert.equal(getProjectAbbreviation(''), '--')
 
     const apiSession = makeSession({
@@ -171,10 +173,10 @@ describe('session-workspace: project pills', () => {
       directory: obsidianNote.worktree,
     })
 
-    assert.equal(resolveSessionProject(apiSession, projects).abbreviation, 'AS')
+    assert.equal(resolveSessionProject(apiSession, projects).abbreviation, 'AP')
     assert.equal(resolveSessionProject(aiSession, projects).abbreviation, 'AI')
-    assert.equal(resolveSessionProject(devSession, projects).abbreviation, 'OD')
-    assert.equal(resolveSessionProject(noteSession, projects).abbreviation, 'ON')
+    assert.equal(resolveSessionProject(devSession, projects).abbreviation, 'OB')
+    assert.equal(resolveSessionProject(noteSession, projects).abbreviation, 'OB')
   })
 })
 
@@ -275,6 +277,15 @@ describe('session-workspace: deep-link activation plan', () => {
 })
 
 describe('session-workspace: deep-link pin', () => {
+  it('marks only the local stand-in as pending', () => {
+    const pending = pendingSessionPlaceholder('ses_missing', 'global')
+    assert.equal(pending.pending, true)
+    assert.equal(pending.title, '')
+    assert.equal(isPendingSession(pending), true)
+    assert.equal(isPendingSession(makeSession({ id: 'ses_real', title: '正在加载会话…' })), false)
+    assert.equal(isPendingSession(null), false)
+  })
+
   it('rejects a stale session while the url session is still unresolved', () => {
     assert.equal(shouldAcceptSessionActivation('ses_target', 'ses_history'), false)
     assert.equal(shouldAcceptSessionActivation('ses_target', 'ses_target'), true)

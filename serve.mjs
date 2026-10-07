@@ -12,10 +12,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST_DIR = path.join(__dirname, 'dist')
 const PORT = 5173
 
+const FOCUS_DEBOUNCE_MS = 200
 let lastFocusTs = 0
 function focusInstalledApp(sessionId) {
   const now = Date.now()
-  if (now - lastFocusTs < 2000) return
+  if (now - lastFocusTs < FOCUS_DEBOUNCE_MS) return
   lastFocusTs = now
   const launcherPy = path.join(__dirname, 'launch_pwa.pyw')
   if (fs.existsSync(launcherPy)) {
@@ -126,6 +127,9 @@ function jumpPage(sessionId) {
     <h2>已唤起 OpenCode5173</h2>
     <p>已在桌面应用中打开会话${safeSession ? ` (${safeSession})` : ''}。<br>此网页标签可直接关闭。</p>
     <button class="btn" onclick="window.close()">关闭此标签</button>
+    <div style="margin-top: 14px;">
+      <a style="color: #71717a; font-size: 12px; text-decoration: underline;" href="/${safeSession ? `?session=${safeSession}&view=web` : '?view=web'}">在网页中继续使用</a>
+    </div>
   </div>
   <script>
     try {
@@ -160,11 +164,11 @@ const server = http.createServer((req, res) => {
     const sid = parsedUrl.searchParams.get('session') || ''
     if (sid) {
       rememberSession(sid)
-      try {
-        focusInstalledApp(sid)
-      } catch (err) {
-        console.error('[serve.mjs] focusInstalledApp error:', err)
-      }
+    }
+    try {
+      focusInstalledApp(sid)
+    } catch (err) {
+      console.error('[serve.mjs] focusInstalledApp error:', err)
     }
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -280,7 +284,8 @@ const server = http.createServer((req, res) => {
     reqPath === '/api/external-file-rollback' ||
     reqPath === '/api/routing-config' ||
     reqPath === '/api/skills' ||
-    reqPath === '/api/model-profiles'
+    reqPath === '/api/model-profiles' ||
+    reqPath === '/api/open-external'
   ) {
     req.url = req.url || reqPath
     void handleHostApi(req, res).then((handled) => {
@@ -699,6 +704,16 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
 
         const presets = []
         const seenUrls = new Set()
+        let hubProviders = []
+        const hubFile = path.join(__dirname, 'data', 'relay_hub.json')
+        if (fs.existsSync(hubFile)) {
+          try {
+            const hub = JSON.parse(fs.readFileSync(hubFile, 'utf8'))
+            if (Array.isArray(hub.providers)) hubProviders = hub.providers
+          } catch {
+            hubProviders = []
+          }
+        }
 
         // Dynamic Active Channels: automatically map every active channel from Gateway
         const activeChannels = channels.filter(c => c.status === 1 && c.base_url && c.key)
@@ -723,10 +738,18 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             }
           }
 
+          const modelList = String(c.models || '')
+            .split(',')
+            .map((m) => m.trim())
+            .filter(Boolean)
+          const bound = modelList.find((m) => m.toLowerCase() === 'grok-4.7') || modelList[0] || ''
           let name = c.name || '中转站'
-          if (c.models && !name.includes('(')) {
-            const firstModel = c.models.split(',')[0].trim()
-            name = `${name} (${firstModel})`
+          if (id === 'relay_wending') {
+            name = '稳定中转-Grok (grok-4.7)'
+          } else if (id === 'relay_llmfree') {
+            name = 'LLMFree-Grok (grok-4.7)'
+          } else if (bound && !name.includes('(')) {
+            name = `${name} (${bound})`
           }
 
           presets.push({
@@ -738,6 +761,29 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             currency: 'USD',
             quotaRate: 500000,
             cnyRate: 7.2,
+          })
+        }
+
+        for (const h of hubProviders) {
+          const cleanBase = String(h.baseUrl || '').replace(/\/+$/, '')
+          if (!cleanBase || !h.apiKey) continue
+          const existing = presets.find((p) => p.baseUrl === cleanBase)
+          if (existing) {
+            existing.apiKey = h.apiKey
+            if (h.name) existing.name = h.name
+            if (h.redeemUrl) existing.redeemUrl = h.redeemUrl
+            continue
+          }
+          seenUrls.add(cleanBase)
+          presets.push({
+            id: h.id,
+            name: h.name,
+            baseUrl: cleanBase,
+            apiKey: h.apiKey,
+            redeemUrl: h.redeemUrl || `${cleanBase}/redeem`,
+            currency: h.currency || 'USD',
+            quotaRate: h.quotaRate || 500000,
+            cnyRate: h.cnyRate || 7.2,
           })
         }
 
@@ -755,7 +801,7 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             },
             {
               id: 'relay_wending',
-              name: '稳定中转-Gemini',
+              name: '稳定中转-Grok (grok-4.7)',
               baseUrl: 'https://xn--fiq104an1x80s.com',
               redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
               currency: 'USD',

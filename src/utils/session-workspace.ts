@@ -102,9 +102,9 @@ export function resolveCanonicalProjectId(
  * acronym boundaries, kebab-case, snake_case, and leaf folder names.
  *
  * Examples:
- *   - "ObsidianNote" -> "ON"
- *   - "ObsidianDev"  -> "OD"
- *   - "APISpace"     -> "AS"
+ *   - "ObsidianNote" -> "OB"
+ *   - "ObsidianDev"  -> "OB"
+ *   - "APISpace"     -> "AP"
  *   - "AISpace"      -> "AI"
  *   - "AICore"       -> "AC"
  *   - "my-cool-app"  -> "MC"
@@ -113,7 +113,17 @@ export function getProjectAbbreviation(name?: string): string {
   if (!name || !name.trim()) return '--'
 
   const cleanName = name.replace(/\\/g, '/').split('/').filter(Boolean).pop() || name.trim()
-  if (cleanName.toLowerCase() === 'aicore') return 'AC'
+  const lower = cleanName.toLowerCase().replace(/[-_\s.]+/g, '')
+
+  // Explicit project abbreviation specifications:
+  // APISpace -> AP
+  if (lower === 'apispace') return 'AP'
+  // AISpace -> AI
+  if (lower === 'aispace') return 'AI'
+  // ObsidianNote / ObsidianDev / Obsidian -> OB
+  if (lower === 'obsidiannote' || lower === 'obsidiandev' || lower === 'obsidian') return 'OB'
+  // AICore -> AC
+  if (lower === 'aicore') return 'AC'
 
   // 1. Replace delimiters (hyphens, underscores, dots, whitespace) with space
   let formatted = cleanName.replace(/[-_.\s]+/g, ' ').trim()
@@ -261,6 +271,27 @@ export function planSessionActivation(input: {
   }
 
   return { session: null, projectId: null, shouldInsert: false }
+}
+
+/** Local stand-in used until `planSessionActivation` can insert the daemon row. Not a list member. */
+export function pendingSessionPlaceholder(sessionId: string, projectID = 'global'): Session {
+  return {
+    id: sessionId,
+    slug: sessionId,
+    projectID,
+    directory: '',
+    title: '',
+    agent: 'build',
+    model: { id: '', providerID: '' },
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    cost: 0,
+    time: { created: 0, updated: 0 },
+    pending: true,
+  }
+}
+
+export function isPendingSession(session: { pending?: boolean } | null | undefined): boolean {
+  return session?.pending === true
 }
 
 /** A cold deep link stays pinned until that exact session is applied. */

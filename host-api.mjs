@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { skillScan, resolveSkillWorkspace } from './skill-discovery.mjs'
+import { openInVSCode, openInExplorer } from './vscode-launcher.mjs'
 
 const PROJECTS_ROOT = process.env.PROJECTS_ROOT || '/workspace/projects/'
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rs|go|md|css|html|vue|svelte|json)$/i
@@ -442,7 +443,8 @@ export async function handleHostApi(req, res) {
     url !== '/api/external-file-rollback' &&
     url !== '/api/routing-config' &&
     url !== '/api/skills' &&
-    url !== '/api/model-profiles'
+    url !== '/api/model-profiles' &&
+    url !== '/api/open-external'
   ) {
     return false
   }
@@ -493,6 +495,21 @@ export async function handleHostApi(req, res) {
     const body = raw ? JSON.parse(raw) : {}
     if (url === '/api/git-checkpoint') {
       sendJson(res, 200, runGitCheckpoint(body.directory, body.title, body.summary))
+      return true
+    }
+    if (url === '/api/open-external') {
+      const { filePath, target, line } = body
+      if (target === 'vscode') {
+        const resObj = openInVSCode(filePath, line)
+        sendJson(res, resObj.ok ? 200 : 400, resObj)
+        return true
+      }
+      if (target === 'explorer') {
+        const resObj = openInExplorer(filePath)
+        sendJson(res, resObj.ok ? 200 : 400, resObj)
+        return true
+      }
+      sendJson(res, 400, { ok: false, error: 'target must be "vscode" or "explorer"' })
       return true
     }
     console.log(`[Revert:HostApi] Received POST /api/external-file-rollback: ${body.actions?.length || 0} action(s)`)

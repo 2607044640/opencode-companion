@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   X,
   Plus,
@@ -8,9 +8,11 @@ import {
   AlertCircle,
   Sparkles,
   ShieldCheck,
+  Loader2,
   Folder,
   BookmarkPlus,
   Network,
+  Check,
 } from 'lucide-react'
 import type { Message, Project, Session, SessionStatusPayload } from '../../types/opencode'
 import { CopyExportButton } from '../chat/CopyExportButton'
@@ -38,6 +40,8 @@ interface HeaderProps {
   activeSessionId: string | null
   activeSession: Session | null
   sessionStatus: SessionStatusPayload
+  /** False until the daemon run map answers. Hide idle and retry chrome. */
+  runKnown?: boolean
   messages?: Message[]
   unreadSessionIds?: string[]
   onSelectTab: (sessionId: string) => void
@@ -78,6 +82,7 @@ export function Header({
   activeSessionId,
   activeSession,
   sessionStatus,
+  runKnown = true,
   messages,
   unreadSessionIds,
   onSelectTab,
@@ -111,6 +116,67 @@ export function Header({
   } | null>(null)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [copiedTabId, setCopiedTabId] = useState<string | null>(null)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handleCopyTabTitle = async (
+    e: React.MouseEvent,
+    tabId: string,
+    titleText: string
+  ) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!titleText) return
+
+    let copied = false
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(titleText)
+        copied = true
+      }
+    } catch {
+      copied = false
+    }
+
+    if (!copied) {
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = titleText
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-9999px'
+        textArea.style.top = '-9999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        copied = document.execCommand('copy')
+        document.body.removeChild(textArea)
+      } catch {
+        copied = false
+      }
+    }
+
+    setCopiedTabId(tabId)
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current)
+    }
+    copyTimeoutRef.current = setTimeout(() => {
+      setCopiedTabId(null)
+    }, 2000)
+
+    window.dispatchEvent(
+      new CustomEvent('opencode-toast', {
+        detail: { message: isZh ? '复制标题成功' : 'Title copied' },
+      })
+    )
+  }
 
   // 1. Dynamic Model Profile & Operational Context Ceiling
   // SSOT: C:\AICore\skills\OpenCodeDataControl\scripts\data\model_profiles.json
@@ -198,10 +264,12 @@ export function Header({
             const rawTitle = isDraft ? null : (session?.title && session.title.trim())
             const title = isDraft
               ? (isZh ? '新会话' : 'New session')
-              : (rawTitle || (isZh ? '未命名会话' : 'Untitled session'))
+              : (rawTitle || (isZh ? '正在加载…' : 'Loading…'))
             const projectBadge = session ? resolveSessionProject(session, projects) : null
             const tabBadge = isDraft ? '+' : (projectBadge?.abbreviation || 'OP')
             const isEditing = !isDraft && editingTabId === tabId
+            const isCopied = copiedTabId === tabId
+            const titleToCopy = (session?.title && session.title.trim()) || rawTitle || title
 
             const handleCommitTitle = () => {
               const trimmed = editingTitle.trim()
@@ -251,13 +319,30 @@ export function Header({
                     : 'bg-[#121418]/80 text-[#8b949e] border-t-transparent hover:bg-[#181b20] hover:text-[#c9d1d9] border-x border-[#1a1d24]'
                 }`}
               >
-                {/* Project / Folder 2-letter icon badge (e.g. ON, OD, AS) */}
-                <span
-                  className="min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center bg-amber-950/80 text-amber-400 border border-amber-800/40 select-none shadow-sm"
-                  title={projectBadge ? (isZh ? `所属工程: ${projectBadge.name}` : `Project: ${projectBadge.name}`) : undefined}
-                >
-                  {tabBadge}
-                </span>
+                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) with click-to-copy */}
+                <div className="relative inline-flex items-center shrink-0">
+                  <span
+                    onClick={(e) => handleCopyTabTitle(e, tabId, titleToCopy)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center select-none shadow-sm cursor-pointer transition-all ${
+                      isCopied
+                        ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+                        : 'bg-amber-950/80 text-amber-400 border border-amber-800/40 hover:brightness-125 hover:border-amber-600/80 active:scale-95'
+                    }`}
+                    title={
+                      isZh
+                        ? `${projectBadge ? `所属工程: ${projectBadge.name}\n` : ''}点击复制标题: ${titleToCopy}`
+                        : `${projectBadge ? `Project: ${projectBadge.name}\n` : ''}Click to copy title: ${titleToCopy}`
+                    }
+                  >
+                    {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-300 stroke-[2.5]" /> : tabBadge}
+                  </span>
+                  {isCopied && (
+                    <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#16181f]/95 text-emerald-400 text-[10px] font-medium rounded-md shadow-xl border border-emerald-500/60 whitespace-nowrap z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-1">
+                      {isZh ? '复制标题成功' : 'Title copied'}
+                    </span>
+                  )}
+                </div>
 
                 {/* Unread marker (blue dot) */}
                 {!isDraft && Boolean(unreadSessionIds?.includes(tabId)) && (
@@ -542,7 +627,16 @@ export function Header({
 
         {/* Realtime Ambient Status Indicator with Instant Tooltip */}
         <div className="relative group/status flex items-center shrink-0">
-          {sessionStatus.type === 'busy' ? (
+          {!runKnown ? (
+            <div
+              tabIndex={0}
+              className="flex items-center gap-1.5 px-2 py-1 text-zinc-400 rounded-md"
+              aria-label={t.header.confirming}
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+              <span className="hidden sm:inline text-[11px]">{t.header.confirming}</span>
+            </div>
+          ) : sessionStatus.type === 'busy' ? (
             <div
               tabIndex={0}
               className="flex items-center justify-center p-1.5 text-purple-400 hover:text-purple-300 rounded-md transition-colors cursor-default"
@@ -573,7 +667,9 @@ export function Header({
 
           {/* Immediate floating tooltip on hover for ambient status */}
           <div className="pointer-events-none absolute right-0 top-full mt-1.5 z-50 whitespace-nowrap rounded-md bg-[#12141a]/95 backdrop-blur-md border border-[#2a2e38] px-2 py-1 text-[11px] font-medium text-zinc-200 shadow-xl opacity-0 translate-y-1 group-hover/status:opacity-100 group-hover/status:translate-y-0 transition-all duration-150">
-            {sessionStatus.type === 'busy'
+            {!runKnown
+              ? t.header.confirming
+              : sessionStatus.type === 'busy'
               ? t.header.generating
               : sessionStatus.type === 'retry'
                 ? t.header.retrying(sessionStatus.attempt || 1)

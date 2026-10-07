@@ -349,7 +349,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
               },
               {
                 id: 'relay_wending',
-                name: '稳定中转-Gemini',
+                name: '稳定中转-Grok (grok-4.7)',
                 baseUrl: 'https://xn--fiq104an1x80s.com',
                 apiKey: 'sk-wending',
                 redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
@@ -399,7 +399,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
               },
               {
                 id: 'relay_wending',
-                name: '稳定中转-Gemini',
+                name: '稳定中转-Grok (grok-4.7)',
                 baseUrl: 'https://xn--fiq104an1x80s.com',
                 apiKey: 'sk-wending',
                 currency: 'USD',

@@ -8,6 +8,11 @@ import {
   closeTabsToRightState,
 } from '../utils/tab-navigation'
 import {
+  resolveInitialTabsState,
+  saveStoredOpenTabs,
+  saveStoredActiveTab,
+} from '../utils/tab-persistence'
+import {
   getArchivedSessionIds,
   archiveSessionId,
   unarchiveSessionId,
@@ -15,6 +20,8 @@ import {
   isSessionArchived,
 } from '../utils/archiving'
 import {
+  isPendingSession,
+  pendingSessionPlaceholder,
   planSessionActivation,
   resolveCanonicalProjectId,
   shouldAcceptSessionActivation,
@@ -59,7 +66,8 @@ export function useSessions() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
     try {
-      const id = new URLSearchParams(window.location.search).get('session')
+      const { initialActiveId } = resolveInitialTabsState({ draftSessionId: DRAFT_SESSION_ID })
+      const id = initialActiveId
       if (id && id !== DRAFT_SESSION_ID) {
         api.prefetchMessages(id)
         return id
@@ -69,8 +77,9 @@ export function useSessions() {
   })
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
     try {
-      const id = new URLSearchParams(window.location.search).get('session')
-      if (id && id !== DRAFT_SESSION_ID) return [id]
+      const { initialTabs } = resolveInitialTabsState({ draftSessionId: DRAFT_SESSION_ID })
+      return initialTabs
+
     } catch {}
     return []
   })
@@ -82,6 +91,7 @@ export function useSessions() {
   const activeSessionIdRef = useRef<string | null>(activeSessionId)
   const selectGenerationRef = useRef(0)
   const pinnedDeepLinkRef = useRef<string | null>(activeSessionId)
+  const navIntentReplayedRef = useRef(false)
 
   useEffect(() => {
     sessionsRef.current = sessions
@@ -92,6 +102,23 @@ export function useSessions() {
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId
   }, [activeSessionId])
+
+  useEffect(() => {
+    saveStoredOpenTabs(openTabIds)
+  }, [openTabIds])
+
+  useEffect(() => {
+    saveStoredActiveTab(activeSessionId)
+  }, [activeSessionId])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      saveStoredOpenTabs(openTabIds)
+      saveStoredActiveTab(activeSessionId)
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [openTabIds, activeSessionId])
 
   const writeSessionUrl = useCallback((sessionId: string | null) => {
     try {
@@ -129,7 +156,12 @@ export function useSessions() {
   const refresh = useCallback(async () => {
     try {
       const urlSessionIdEarly = new URLSearchParams(window.location.search).get('session')
-      if (urlSessionIdEarly) api.prefetchMessages(urlSessionIdEarly)
+      const earlyTarget =
+        urlSessionIdEarly ||
+        (activeSessionIdRef.current && activeSessionIdRef.current !== DRAFT_SESSION_ID
+          ? activeSessionIdRef.current
+          : null)
+      if (earlyTarget) api.prefetchMessages(earlyTarget)
 
       const [projList, sessList] = await Promise.all([
         api.getProjects(),
@@ -139,12 +171,17 @@ export function useSessions() {
 
       const urlParams = new URLSearchParams(window.location.search)
       const urlSessionId = urlParams.get('session')
+      const targetSessionId =
+        urlSessionId ||
+        (activeSessionIdRef.current && activeSessionIdRef.current !== DRAFT_SESSION_ID
+          ? activeSessionIdRef.current
+          : null)
       let nextSessions = sessList
       let fetchedMissing: Session | null = null
 
-      if (urlSessionId && !sessList.some((s) => s.id === urlSessionId)) {
+      if (targetSessionId && !sessList.some((s) => s.id === targetSessionId)) {
         try {
-          fetchedMissing = await api.getSession(urlSessionId)
+          fetchedMissing = await api.getSession(targetSessionId)
           nextSessions = [fetchedMissing, ...sessList.filter((s) => s.id !== fetchedMissing?.id)]
         } catch (err) {
           console.error('Failed to fetch deep-linked session:', err)
@@ -153,9 +190,9 @@ export function useSessions() {
 
       setSessions(nextSessions)
 
-      if (urlSessionId) {
+      if (targetSessionId) {
         const plan = planSessionActivation({
-          sessionId: urlSessionId,
+          sessionId: targetSessionId,
           localSessions: nextSessions,
           fetchedSession: fetchedMissing,
           projects: projList,
@@ -178,7 +215,9 @@ export function useSessions() {
           const first = validSessions[0]
           api.prefetchMessages(first.id)
           setActiveSessionId(first.id)
-          setOpenTabIds([first.id])
+          setOpenTabIds((prev) =>
+            prev.length > 0 ? (prev.includes(first.id) ? prev : [...prev, first.id]) : [first.id]
+          )
           const pid = resolveCanonicalProjectId(first, projList)
           if (pid) setSelectedProjectId(pid)
         }
@@ -256,6 +295,11 @@ export function useSessions() {
     }
 
     if (sessionId) api.prefetchMessages(sessionId)
+
+    // Immediately activate tab and select session for 0-latency UI response
+    setActiveSessionId(sessionId)
+    setOpenTabIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]))
+    writeSessionUrl(sessionId)
 
     const localPlan = planSessionActivation({
       sessionId,
@@ -564,7 +608,10 @@ export function useSessions() {
         time: { created: Date.now(), updated: Date.now() },
       } as Session
     }
-    return sessions.find((s) => s.id === activeSessionId) || null
+    const found = sessions.find((s) => s.id === activeSessionId)
+    if (found) return found
+    if (activeSessionId) return pendingSessionPlaceholder(activeSessionId, selectedProjectId || 'global')
+    return null
   }, [sessions, activeSessionId, selectedProjectId, projects])
 
   const updateSession = useCallback(
@@ -648,22 +695,14 @@ export function useSessions() {
       }
     } catch {}
 
-    // 3. Fallback polling for backend active session intent
-    let lastHandledTs = Date.now()
-    const checkActiveSession = async () => {
-      try {
-        const res = await fetch('/api/active-session')
-        if (res.ok) {
-          const data = await res.json()
-          if (data?.sessionId && data.ts > lastHandledTs) {
-            lastHandledTs = data.ts
-            selectSession(String(data.sessionId))
-          }
-        }
-      } catch {}
+    // 3. Replay a boot-script intent that arrived before this listener existed.
+    // Once per mount: selectSession changes must not yank the user back to a stale intent.
+    // index.html is the only /api/active-session poller. This hook is the only selectSession writer.
+    if (!navIntentReplayedRef.current) {
+      navIntentReplayedRef.current = true
+      const intent = (window as Window & { __ocNavIntent?: { sessionId?: string } }).__ocNavIntent
+      if (intent?.sessionId) selectSession(String(intent.sessionId))
     }
-    const pollTimer = setInterval(checkActiveSession, 1200)
-    window.addEventListener('focus', checkActiveSession)
 
     // 4. If current window is opened in a normal browser tab with ?session=...
     // automatically notify running PWA and trigger backend window activation
@@ -679,8 +718,6 @@ export function useSessions() {
     } catch {}
 
     return () => {
-      clearInterval(pollTimer)
-      window.removeEventListener('focus', checkActiveSession)
       try {
         bc?.close()
       } catch {}
@@ -701,6 +738,7 @@ export function useSessions() {
     activeSessionId,
     activeSession,
     isDraftSession: activeSessionId === DRAFT_SESSION_ID,
+    isPendingSession: isPendingSession(activeSession),
     openTabIds,
     searchQuery,
     setSearchQuery,

@@ -3,8 +3,10 @@ import { X, Copy, Check, ChevronDown, ChevronRight, ChevronsUpDown } from 'lucid
 import { useDiffDrawer } from './DiffDrawerContext'
 import { DiffViewer } from './DiffViewer'
 import { FileTypeIcon } from '../common/FileTypeIcon'
+import { FileActionMenu } from '../common/FileActionMenu'
 import { usePreferences } from '../../utils/preferences'
 import { formatFileDiffMarker, formatAllDiffMarkers } from '../../utils/tool-diff'
+import { useI18n } from '../../utils/i18n'
 
 interface CopyDiffButtonProps {
   copied: boolean
@@ -12,22 +14,23 @@ interface CopyDiffButtonProps {
 }
 
 export function CopyDiffButton({ copied, onClick }: CopyDiffButtonProps) {
+  const { tr } = useI18n()
   return (
     <button
       type="button"
       onClick={onClick}
       className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-medium rounded bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-700/60 text-emerald-300 hover:text-emerald-100 transition-all cursor-pointer shadow-sm active:scale-95"
-      title="复制Diff标记文本 (带文件名、路径与+/-行号)"
+      title={tr('复制Diff标记文本 (带文件名、路径与+/-行号)', 'Copy diff markers text (with file, path, and line numbers)')}
     >
       {copied ? (
         <>
           <Check className="w-3.5 h-3.5 text-emerald-400" />
-          <span>已复制Diff</span>
+          <span>{tr('已复制Diff', 'Copied Diff')}</span>
         </>
       ) : (
         <>
           <Copy className="w-3.5 h-3.5" />
-          <span>复制Diff</span>
+          <span>{tr('复制Diff', 'Copy Diff')}</span>
         </>
       )}
     </button>
@@ -37,6 +40,7 @@ export function CopyDiffButton({ copied, onClick }: CopyDiffButtonProps) {
 export function DiffSidebarDrawer() {
   const { mode, payload, turnPayload, isOpen, close } = useDiffDrawer()
   const { prefs } = usePreferences()
+  const { tr, isZh } = useI18n()
   const [copied, setCopied] = useState(false)
   const [copiedFileKey, setCopiedFileKey] = useState<string | null>(null)
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({})
@@ -106,11 +110,11 @@ export function DiffSidebarDrawer() {
     <div className="flex items-center justify-between px-4 py-3 border-b border-[#272a30] bg-[#121418]/90 select-none shrink-0">
       <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
         <span className="font-semibold text-xs text-zinc-100 font-mono tracking-tight">
-          Review
+          {tr('差异审查', 'Review')}
         </span>
         <span className="text-zinc-600">|</span>
         <span className="text-xs text-zinc-400 font-mono">
-          {turnPayload.title || 'For Turn'}
+          {turnPayload.title || tr('本轮修改', 'For Turn')}
         </span>
         {turnPayload.turnBadge && (
           <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-[10px] font-mono text-zinc-300">
@@ -119,7 +123,11 @@ export function DiffSidebarDrawer() {
         )}
         <span className="px-2 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-800/60 text-emerald-400 font-mono text-[10px] font-medium">
           {totalDiffs > uniqueFileCount
-            ? `${totalDiffs} ${totalDiffs === 1 ? 'diff' : 'diffs'} (${uniqueFileCount} ${uniqueFileCount === 1 ? 'file' : 'files'})`
+            ? isZh
+              ? `${totalDiffs} 处修改 (${uniqueFileCount} 个文件)`
+              : `${totalDiffs} ${totalDiffs === 1 ? 'diff' : 'diffs'} (${uniqueFileCount} ${uniqueFileCount === 1 ? 'file' : 'files'})`
+            : isZh
+            ? `${uniqueFileCount} 个文件`
             : `${uniqueFileCount} ${uniqueFileCount === 1 ? 'file' : 'files'}`}
         </span>
       </div>
@@ -129,7 +137,7 @@ export function DiffSidebarDrawer() {
           type="button"
           onClick={toggleAll}
           className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
-          title={allCollapsed ? '全部展开 (Expand All)' : '全部折叠 (Collapse All)'}
+          title={allCollapsed ? tr('全部展开', 'Expand All') : tr('全部折叠', 'Collapse All')}
         >
           <ChevronsUpDown className="w-3.5 h-3.5" />
         </button>
@@ -137,7 +145,7 @@ export function DiffSidebarDrawer() {
         <button
           onClick={close}
           className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
-          title="关闭 (Esc)"
+          title={tr('关闭 (Esc)', 'Close (Esc)')}
         >
           <X className="w-4 h-4" />
         </button>
@@ -167,7 +175,7 @@ export function DiffSidebarDrawer() {
 
             {payload!.status === 'added' && payload!.additions === 0 && (
               <span className="px-1.5 py-0.2 rounded bg-blue-950/70 border border-blue-800/60 text-blue-400 font-mono text-[10px]">
-                New
+                {tr('新建', 'New')}
               </span>
             )}
           </div>
@@ -179,10 +187,11 @@ export function DiffSidebarDrawer() {
 
       <div className="flex items-center gap-1.5 shrink-0">
         <CopyDiffButton copied={copied} onClick={handleCopyDiffAll} />
+        {payload?.filePath && <FileActionMenu filePath={payload.filePath} />}
         <button
           onClick={close}
           className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
-          title="关闭 (Esc)"
+          title={tr('关闭 (Esc)', 'Close (Esc)')}
         >
           <X className="w-4 h-4" />
         </button>
@@ -217,7 +226,7 @@ export function DiffSidebarDrawer() {
                 </span>
                 {file.mergedEditCount && file.mergedEditCount > 1 && (
                   <span className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-[10px] font-mono text-zinc-400 shrink-0">
-                    {file.mergedEditCount} edits
+                    {file.mergedEditCount} {tr('次修改', 'edits')}
                   </span>
                 )}
                 <span
@@ -237,7 +246,7 @@ export function DiffSidebarDrawer() {
                     <span className="text-rose-400 font-semibold">-{file.deletions}</span>
                   )}
                   {file.status === 'added' && file.additions === 0 && (
-                    <span className="text-blue-400">New</span>
+                    <span className="text-blue-400">{tr('新建', 'New')}</span>
                   )}
                 </div>
                 <button
@@ -247,7 +256,7 @@ export function DiffSidebarDrawer() {
                     handleCopySingleFile(file, itemKey)
                   }}
                   className="p-1 text-zinc-400 hover:text-emerald-300 rounded hover:bg-zinc-800 transition-colors cursor-pointer"
-                  title="复制该文件Diff"
+                  title={tr('复制该文件Diff', 'Copy file diff')}
                 >
                   {copiedFileKey === itemKey ? (
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -255,6 +264,9 @@ export function DiffSidebarDrawer() {
                     <Copy className="w-3.5 h-3.5" />
                   )}
                 </button>
+                <div onClick={(e) => e.stopPropagation()}>
+                  <FileActionMenu filePath={file.filePath} />
+                </div>
                 {isCollapsed ? (
                   <ChevronRight className="w-4 h-4 text-zinc-400" />
                 ) : (
@@ -281,11 +293,15 @@ export function DiffSidebarDrawer() {
 
   const footer = (
     <div className="px-3 py-1.5 border-t border-[#1f2228] bg-[#0f1115] text-[10px] text-zinc-500 flex items-center justify-between select-none">
-      <span>按 Esc 或点击右上角关闭</span>
+      <span>{tr('按 Esc 或点击右上角关闭', 'Press Esc or click top-right to close')}</span>
       <span className="font-mono text-zinc-600">
         {isTurnMode
           ? totalDiffs > uniqueFileCount
-            ? `${totalDiffs} DIFFS MODIFIED (${uniqueFileCount} ${uniqueFileCount === 1 ? 'FILE' : 'FILES'})`
+            ? isZh
+              ? `${totalDiffs} 处改动已修改 (${uniqueFileCount} 个文件)`
+              : `${totalDiffs} DIFFS MODIFIED (${uniqueFileCount} ${uniqueFileCount === 1 ? 'FILE' : 'FILES'})`
+            : isZh
+            ? `${uniqueFileCount} 个文件已修改`
             : `${uniqueFileCount} ${uniqueFileCount === 1 ? 'FILE' : 'FILES'} MODIFIED`
           : payload?.tool?.toUpperCase()}
       </span>

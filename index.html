@@ -23,24 +23,8 @@
           }
 
           var params = new URLSearchParams(window.location.search);
-          var sid = params.get('session');
-          if (sid && params.get('view') !== 'web') {
-            fetch('/api/focus-app?session=' + encodeURIComponent(sid)).catch(function() {});
-            try {
-              window.opener = null;
-              window.open('', '_self');
-              window.close();
-            } catch (e) {}
-            setTimeout(function() {
-              try { window.close(); } catch (e) {}
-            }, 150);
-
-            window.addEventListener('DOMContentLoaded', function() {
-              if (document.body) {
-                var safeSid = sid.replace(/[^a-zA-Z0-9_-]/g, '');
-                document.body.innerHTML = '<div style="background:#0c0d0e;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px;box-sizing:border-box;"><div style="background:#16181d;border:1px solid #27272a;border-radius:12px;padding:32px 36px;max-width:420px;box-shadow:0 10px 25px -5px rgba(0,0,0,0.5);"><div style="font-size:36px;margin-bottom:12px;">🚀</div><h2 style="margin:0 0 8px 0;font-size:18px;font-weight:600;color:#f4f4f5;">已唤起 OpenCode5173</h2><p style="margin:0 0 20px 0;font-size:14px;color:#a1a1aa;line-height:1.5;">已在桌面应用中打开会话 (' + safeSid + ')。<br>此网页标签可直接关闭。</p><button style="display:inline-block;background:#f97316;color:#ffffff;padding:8px 20px;border-radius:6px;font-size:14px;font-weight:500;border:none;cursor:pointer;" onclick="window.close()">关闭此标签</button><div style="margin-top:14px;"><a style="color:#71717a;font-size:12px;text-decoration:underline;" href="' + window.location.pathname + '?session=' + encodeURIComponent(sid) + '&view=web">在网页中继续使用</a></div></div></div>';
-              }
-            });
+          if (params.get('view') !== 'web') {
+            window.location.replace('/jump' + window.location.search);
           }
         } catch (e) {}
       })();
@@ -128,16 +112,18 @@
               const data = await res.json();
               if (data && data.sessionId && data.ts > lastHandledTs) {
                 lastHandledTs = data.ts;
+                window.__ocNavIntent = { sessionId: data.sessionId, ts: data.ts };
                 window.dispatchEvent(new CustomEvent('switch-session', { detail: { sessionID: data.sessionId } }));
-                const url = new URL(window.location.href);
-                url.searchParams.set('session', data.sessionId);
-                window.history.pushState({}, '', url.toString());
               }
             }
           } catch (e) {}
         }
-        setInterval(checkNavIntent, 600);
+        setInterval(checkNavIntent, 200);
         window.addEventListener('focus', checkNavIntent);
+        document.addEventListener('visibilitychange', function() {
+          if (!document.hidden) checkNavIntent();
+        });
+        window.addEventListener('pageshow', checkNavIntent);
       })();
     </script>
   </body>

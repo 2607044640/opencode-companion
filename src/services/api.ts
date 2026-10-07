@@ -19,8 +19,17 @@ import type {
   RoutingConfigResponse,
   ModelProfilesResponse,
   SendPromptOptions,
+  SessionStatusPayload,
 } from '../types/opencode'
+import { sessionStatusFromTable } from '../utils/session-run-state'
 import { buildPromptParts } from '../utils/prompt-parts'
+import {
+  nextSessionListLimit,
+  SESSION_LIST_CAP,
+  SESSION_LIST_START,
+  sessionListExhausted,
+  sessionListPath,
+} from './session-pages'
 
 export const DAEMON_LOOPBACK_URL = 'http://127.0.0.1:5001'
 
@@ -93,12 +102,6 @@ export const CANONICAL_PROJECTS: readonly CanonicalProjectMeta[] = [
     defaultColor: 'cyan',
     fallbackId: 'af780317cdbe4ad0e34fd43acd12b34ac3093bed',
   },
-  {
-    name: 'AICore',
-    defaultWorktree: '/home/developer/projects/AICore',
-    defaultColor: 'amber',
-    fallbackId: '568bc3678fd5edb9259a1ba82dd71bfac38a8c54',
-  },
 ] as const
 
 export function matchCanonicalWorkspace(worktree?: string, name?: string): CanonicalProjectMeta | null {
@@ -119,7 +122,6 @@ const JAIL_PROJECT_ROOTS: Readonly<Record<string, string>> = {
   apispace: '/home/developer/projects/APISpace',
   obsidiannote: '/home/developer/projects/ObsidianNote',
   obsidiandev: '/home/developer/projects/ObsidianDev',
-  aicore: '/home/developer/projects/AICore',
   aispace: '/home/developer/projects/AISpace',
 }
 
@@ -127,7 +129,6 @@ const WINDOWS_PROJECT_ROOTS: Readonly<Record<string, string>> = {
   'c:/apispace': JAIL_PROJECT_ROOTS.apispace,
   'c:/obsidiannote': JAIL_PROJECT_ROOTS.obsidiannote,
   'c:/obsidiandev': JAIL_PROJECT_ROOTS.obsidiandev,
-  'c:/aicore': JAIL_PROJECT_ROOTS.aicore,
   'c:/godot/aispace': JAIL_PROJECT_ROOTS.aispace,
 }
 
@@ -147,13 +148,13 @@ export function canonicalizeDirectory(dir?: string): string | undefined {
     return WINDOWS_PROJECT_ROOTS[lower]
   }
 
-  const legacy = normalized.match(/^\/workspace\/projects\/(APISpace|ObsidianNote|ObsidianDev|AICore|AISpace)$/i)
+  const legacy = normalized.match(/^\/workspace\/projects\/(APISpace|ObsidianNote|ObsidianDev|AISpace)$/i)
   if (legacy) {
     return JAIL_PROJECT_ROOTS[legacy[1].toLowerCase()]
   }
 
   throw new Error(
-    `directory must be one of the 5 project roots (APISpace, ObsidianNote, ObsidianDev, AICore, AISpace); got ${dir}`,
+    `directory must be one of the 4 project roots (APISpace, ObsidianNote, ObsidianDev, AISpace); got ${dir}`,
   )
 }
 
@@ -193,6 +194,13 @@ export function deduplicateAndFilterProjects(rawProjects: Project[]): Project[] 
   for (const raw of rawProjects) {
     if (raw.id === 'global' || raw.worktree === '/') {
       globalProject = raw
+      continue
+    }
+
+    // AICore is an internal skill/rule directory, strictly not an OpenCode project
+    const normName = (raw.name || '').trim().toLowerCase()
+    const normWorktree = (raw.worktree || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    if (normName === 'aicore' || normWorktree.endsWith('/aicore') || normWorktree === 'c:/aicore') {
       continue
     }
 
@@ -628,6 +636,42 @@ interface MessageCacheEntry {
 
 const messageCache = new Map<string, MessageCacheEntry>()
 
+function sessionRows(payload: unknown): any[] {
+  if (Array.isArray(payload)) return payload
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: any[] }).data
+  }
+  return []
+}
+
+async function collectSessionPages(directory?: string): Promise<any[]> {
+  let limit = SESSION_LIST_START
+  let rows: any[] = []
+
+  for (;;) {
+    let payload: unknown
+    try {
+      payload = await request<unknown>(sessionListPath(limit, directory))
+    } catch {
+      if (rows.length > 0) return rows
+      if (!directory) return []
+      try {
+        payload = await request<unknown>(
+          `/api/session?directory=${encodeURIComponent(directory)}&limit=${limit}`
+        )
+      } catch {
+        return rows
+      }
+    }
+
+    rows = sessionRows(payload)
+    if (sessionListExhausted(rows.length, limit) || limit >= SESSION_LIST_CAP) return rows
+    const grown = nextSessionListLimit(limit)
+    if (grown === limit) return rows
+    limit = grown
+  }
+}
+
 async function fetchNormalizedMessages(sessionID: string): Promise<Message[]> {
   const raw = await request<any[]>(`/session/${sessionID}/message`)
   if (!Array.isArray(raw)) return []
@@ -781,51 +825,20 @@ export const api = {
   },
 
   /**
-   * Fetch all sessions across global and canonical workspaces with defensive normalization.
-   * If directory is specified, fetches sessions scoped to that directory.
+   * Fetch every session the daemon will return.
+   * `limit` is a ceiling, not a page. 500 used to hide every older row
+   * from the sidebar and from Ctrl+K. The limit grows until a short page.
    */
   async getSessions(directory?: string): Promise<Session[]> {
-    if (directory) {
-      try {
-        const resp = await request<any>(`/api/session?directory=${encodeURIComponent(directory)}&limit=500`)
-        const items = Array.isArray(resp) ? resp : (Array.isArray(resp?.data) ? resp.data : [])
-        if (items.length > 0) {
-          return items.map(normalizeSession)
-        }
-      } catch {
-        // fallback
-      }
-      try {
-        const raw = await request<any[]>(`/session?directory=${encodeURIComponent(directory)}&limit=500`)
-        if (Array.isArray(raw)) return raw.map(normalizeSession)
-      } catch {
-        return []
-      }
-      return []
-    }
-
-    // Comprehensive session retrieval: query global + each canonical workspace in parallel
+    const collected = await collectSessionPages(directory)
     const sessionMap = new Map<string, Session>()
-
-    const queries: Promise<any>[] = [
-      request<any[]>('/session?limit=500').catch(() => []),
-    ]
-
-    const results = await Promise.allSettled(queries)
-    for (const res of results) {
-      if (res.status === 'fulfilled') {
-        const rawData = res.value
-        const items = Array.isArray(rawData) ? rawData : (Array.isArray(rawData?.data) ? rawData.data : [])
-        for (const item of items) {
-          if (item && item.id && !sessionMap.has(item.id)) {
-            sessionMap.set(item.id, normalizeSession(item))
-          }
-        }
+    for (const item of collected) {
+      if (item && item.id && !sessionMap.has(item.id)) {
+        sessionMap.set(item.id, normalizeSession(item))
       }
     }
 
     const allSessions = Array.from(sessionMap.values())
-    // Sort descending by time
     allSessions.sort((a, b) => {
       const timeA = a.time?.updated || a.time?.created || 0
       const timeB = b.time?.updated || b.time?.created || 0
@@ -1140,6 +1153,20 @@ export const api = {
       return Array.isArray(data) ? data : []
     } catch {
       return []
+    }
+  },
+
+  /**
+   * Live run map. Busy/retry means the daemon is still generating.
+   * A missing id is idle (process died, reboot, or the session is not running).
+   * Null means the status call itself failed — caller must not invent busy.
+   */
+  async getSessionStatus(sessionID: string): Promise<SessionStatusPayload | null> {
+    try {
+      const raw = await request<unknown>('/session/status', { cache: 'no-store' })
+      return sessionStatusFromTable(raw, sessionID)
+    } catch {
+      return null
     }
   },
 

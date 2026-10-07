@@ -1,5 +1,10 @@
 import type { Message, TextPart } from '../../types/opencode'
 import type { CachedMessageDoc } from './search-types'
+import {
+  indexIsFresh,
+  readStoredIndex,
+  writeStoredIndex,
+} from './message-index-store'
 
 export function extractSearchableDocs(messages: readonly Message[]): CachedMessageDoc[] {
   const docs: CachedMessageDoc[] = []
@@ -31,12 +36,16 @@ export function extractSearchableDocs(messages: readonly Message[]): CachedMessa
   return docs
 }
 
-export interface CacheEntry {
+interface CacheEntry {
   updatedAt: number
   docs: CachedMessageDoc[]
   lastAccessedAt: number
 }
 
+/**
+ * Hot cache. `persist` writes through to IndexedDB so a reload can
+ * search sessions that were indexed before. Tests pass `persist: false`.
+ */
 export class MessageCache {
   private readonly entries = new Map<string, CacheEntry>()
   private readonly maxEntries: number
@@ -51,7 +60,6 @@ export class MessageCache {
     if (!entry) return undefined
 
     if (currentUpdatedAt !== undefined && entry.updatedAt < currentUpdatedAt) {
-      // Stale cache
       this.entries.delete(sessionId)
       return undefined
     }
@@ -62,7 +70,6 @@ export class MessageCache {
 
   set(sessionId: string, updatedAt: number, docs: CachedMessageDoc[]): void {
     if (this.entries.size >= this.maxEntries && !this.entries.has(sessionId)) {
-      // Evict least recently accessed entry
       let oldestKey: string | null = null
       let oldestTime = Infinity
 
@@ -85,6 +92,12 @@ export class MessageCache {
     })
   }
 
+  /** Hot cache only. Callers that fetched from the daemon also persist. */
+  remember(sessionId: string, updatedAt: number, docs: CachedMessageDoc[], persist: boolean): void {
+    this.set(sessionId, updatedAt, docs)
+    if (persist) void writeStoredIndex({ sessionId, updatedAt, docs })
+  }
+
   has(sessionId: string, currentUpdatedAt?: number): boolean {
     return this.get(sessionId, currentUpdatedAt) !== undefined
   }
@@ -99,3 +112,21 @@ export class MessageCache {
 }
 
 export const messageCache = new MessageCache(200)
+
+/**
+ * Memory first, then IndexedDB. A stored row older than the session's
+ * `updatedAt` is stale and must be fetched again.
+ */
+export async function loadIndexedDocs(
+  sessionId: string,
+  currentUpdatedAt?: number,
+  memory: MessageCache = messageCache
+): Promise<CachedMessageDoc[] | undefined> {
+  const hot = memory.get(sessionId, currentUpdatedAt)
+  if (hot) return hot
+
+  const stored = await readStoredIndex(sessionId)
+  if (!stored || !indexIsFresh(stored.updatedAt, currentUpdatedAt)) return undefined
+  memory.set(sessionId, stored.updatedAt, stored.docs)
+  return stored.docs
+}

@@ -18,8 +18,15 @@ import type { Session, Project } from '../../types/opencode'
 import { matchCanonicalWorkspace, api } from '../../services/api'
 import { useI18n, type TranslationDictionary } from '../../utils/i18n'
 import { getArchivedSessionIds, isSessionArchived } from '../../utils/archiving'
-import type { SearchMode, MessageSearchHit } from './search-types'
-import { messageCache, extractSearchableDocs } from './message-cache'
+import type { SearchMode } from './search-types'
+import { messageCache, extractSearchableDocs, loadIndexedDocs } from './message-cache'
+import {
+  compactSearchText,
+  foldSearchText,
+  prepareSearchQuery,
+  searchTokens,
+  textMatchesTokens,
+} from './search-text'
 import {
   queryAllCachedMessages,
   type SessionSearchTarget,
@@ -160,7 +167,7 @@ function FloatingSearchContent({
     () => initialSelectedProjectId || 'ALL'
   )
 
-  const [messageHits, setMessageHits] = useState<MessageSearchHit[]>([])
+  const [indexedTargets, setIndexedTargets] = useState<SessionSearchTarget[]>([])
   const [isSearchingMessages, setIsSearchingMessages] = useState(false)
 
   const isComposingRef = useRef(false)
@@ -227,10 +234,10 @@ function FloatingSearchContent({
 
   // Titles mode: Filtered & Ranked sessions
   const filteredSessions = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const prepared = prepareSearchQuery(query)
+    const foldedQuery = foldSearchText(prepared)
 
-    if (!q) {
-      // Sort by recent updated time descending
+    if (!foldedQuery) {
       return [...projectFilteredSessions].sort((a, b) => {
         const timeA = a.time?.updated || a.time?.created || 0
         const timeB = b.time?.updated || b.time?.created || 0
@@ -238,56 +245,54 @@ function FloatingSearchContent({
       })
     }
 
-    const words = q.split(/\s+/).filter(Boolean)
+    const compactQuery = compactSearchText(prepared)
+    const tokens = searchTokens(prepared)
 
-    // Relevance scoring
+    // Relevance scoring. Both sides go through foldSearchText so a pasted
+    // title still matches when the stored title has a newline or a variation selector.
     const scored: { session: Session; score: number }[] = []
 
     for (const s of projectFilteredSessions) {
-      const rawTitle = s.title?.trim() || 'Untitled Session'
-      const titleLower = rawTitle.toLowerCase()
-      const dirLower = (s.directory || '').toLowerCase()
-      const agentLower = (s.agent || '').toLowerCase()
-      const projNameLower = (sessionProjectMap.get(s.id)?.name || '').toLowerCase()
+      const titleFolded = foldSearchText(s.title) || 'untitled session'
+      const titleCompact = compactSearchText(s.title) || 'untitledsession'
+      const dirFolded = foldSearchText(s.directory)
+      const agentFolded = foldSearchText(s.agent)
+      const projFolded = foldSearchText(sessionProjectMap.get(s.id)?.name)
 
       let score = 0
-      // Full phrase matches
-      if (titleLower.startsWith(q)) {
+      if (titleFolded.startsWith(foldedQuery) || titleCompact.startsWith(compactQuery)) {
         score += 150
-      } else if (titleLower.includes(q)) {
+      } else if (titleFolded.includes(foldedQuery) || titleCompact.includes(compactQuery)) {
         score += 100
-      } else if (projNameLower.includes(q)) {
+      } else if (projFolded.includes(foldedQuery) || compactSearchText(projFolded).includes(compactQuery)) {
         score += 50
-      } else if (dirLower.includes(q)) {
+      } else if (dirFolded.includes(foldedQuery) || compactSearchText(dirFolded).includes(compactQuery)) {
         score += 30
-      } else if (agentLower.includes(q)) {
+      } else if (agentFolded.includes(foldedQuery) || compactSearchText(agentFolded).includes(compactQuery)) {
         score += 20
       }
 
-      // Multi-word matching
-      if (words.length > 1) {
+      if (tokens.length > 1) {
         let allWordsMatched = true
         let wordScore = 0
-        for (const w of words) {
-          const inTitle = titleLower.includes(w)
-          const inProj = projNameLower.includes(w)
-          const inDir = dirLower.includes(w)
-          const inAgent = agentLower.includes(w)
-
-          if (inTitle) {
-            wordScore += titleLower.startsWith(w) ? 40 : 25
-          } else if (inProj) {
+        for (const token of tokens) {
+          if (titleFolded.includes(token)) {
+            wordScore += titleFolded.startsWith(token) ? 40 : 25
+          } else if (projFolded.includes(token)) {
             wordScore += 15
-          } else if (inDir) {
+          } else if (dirFolded.includes(token)) {
             wordScore += 10
-          } else if (inAgent) {
+          } else if (agentFolded.includes(token)) {
             wordScore += 5
           } else {
             allWordsMatched = false
             break
           }
         }
-        if (allWordsMatched) {
+        if (allWordsMatched && textMatchesTokens(
+          `${titleFolded} ${projFolded} ${dirFolded} ${agentFolded}`,
+          tokens
+        )) {
           score += wordScore
         }
       }
@@ -309,32 +314,25 @@ function FloatingSearchContent({
     return scored.map((item) => item.session)
   }, [projectFilteredSessions, query, sessionProjectMap])
 
-  // Messages mode: Lazy background indexing & full-text query pipeline
+  const messageCorpusKey = projectFilteredSessions
+    .map((session) => `${session.id}:${session.time?.updated ?? 0}`)
+    .join('\0')
+
+  // Index walk is independent of the query. Typing used to abort the
+  // in-flight fetches, so a session stayed invisible until it was opened.
   useEffect(() => {
-    if (searchMode !== 'messages') {
-      setMessageHits([])
-      setIsSearchingMessages(false)
-      return
-    }
+    if (searchMode !== 'messages') return
 
-    const trimmed = query.trim()
-    if (!trimmed) {
-      setMessageHits([])
-      setIsSearchingMessages(false)
-      return
-    }
+    let cancelled = false
+    const corpus = projectFilteredSessions
 
-    let isCancelled = false
-    const abortController = new AbortController()
-
-    const debounceTimer = setTimeout(async () => {
-      if (isCancelled) return
-
+    const run = async () => {
       const cachedTargets: SessionSearchTarget[] = []
       const uncachedSessions: Session[] = []
 
-      for (const session of projectFilteredSessions) {
-        const cachedDocs = messageCache.get(session.id, session.time?.updated)
+      for (const session of corpus) {
+        const cachedDocs = await loadIndexedDocs(session.id, session.time?.updated)
+        if (cancelled) return
         const meta = toMessageSearchMeta(
           sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE,
           session.directory
@@ -352,69 +350,58 @@ function FloatingSearchContent({
         }
       }
 
-      // Instant 0ms response from cached sessions
-      const initialHits = queryAllCachedMessages(cachedTargets, trimmed)
-      if (!isCancelled) {
-        setMessageHits(initialHits)
-      }
-
+      if (!cancelled) setIndexedTargets(cachedTargets)
       if (uncachedSessions.length === 0) {
-        setIsSearchingMessages(false)
+        if (!cancelled) setIsSearchingMessages(false)
         return
       }
 
-      setIsSearchingMessages(true)
+      if (!cancelled) setIsSearchingMessages(true)
 
-      // Concurrent fetch pool (max 6 requests in-flight)
       const CONCURRENCY_LIMIT = 6
       const allTargets = [...cachedTargets]
 
       for (let i = 0; i < uncachedSessions.length; i += CONCURRENCY_LIMIT) {
-        if (isCancelled || abortController.signal.aborted) break
-
+        if (cancelled) return
         const batch = uncachedSessions.slice(i, i + CONCURRENCY_LIMIT)
         await Promise.all(
           batch.map(async (session) => {
             try {
-              if (isCancelled || abortController.signal.aborted) return
               const rawMessages = await api.getMessages(session.id)
+              if (cancelled) return
               const docs = extractSearchableDocs(rawMessages)
-              messageCache.set(session.id, session.time?.updated || 0, docs)
-
-              const meta = toMessageSearchMeta(
-                sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE,
-                session.directory
-              )
+              messageCache.remember(session.id, session.time?.updated || 0, docs, true)
               allTargets.push({
                 sessionId: session.id,
                 sessionTitle: session.title || 'Untitled Session',
                 docs,
-                meta,
+                meta: toMessageSearchMeta(
+                  sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE,
+                  session.directory
+                ),
                 updatedAt: session.time?.updated,
               })
             } catch {
-              // Ignore individual session failure or abort
+              // One session failing does not drop the rest of the index.
             }
           })
         )
-
-        if (!isCancelled) {
-          const updatedHits = queryAllCachedMessages(allTargets, trimmed)
-          setMessageHits(updatedHits)
-        }
+        if (!cancelled) setIndexedTargets([...allTargets])
       }
 
-      if (!isCancelled) {
-        setIsSearchingMessages(false)
-      }
-    }, 180)
-
-    return () => {
-      isCancelled = true
-      abortController.abort()
-      clearTimeout(debounceTimer)
+      if (!cancelled) setIsSearchingMessages(false)
     }
-  }, [searchMode, query, projectFilteredSessions, sessionProjectMap])
+
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [searchMode, messageCorpusKey, sessionProjectMap])
+
+  const messageHits = useMemo(() => {
+    if (searchMode !== 'messages' || !query.trim()) return []
+    return queryAllCachedMessages(indexedTargets, query)
+  }, [searchMode, query, indexedTargets])
 
   // Total items in current active mode
   const currentItemCount = searchMode === 'titles' ? filteredSessions.length : messageHits.length

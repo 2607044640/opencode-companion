@@ -354,8 +354,11 @@ export async function syncRelayPresets(
         p.name = 'LLMFree-Grok (grok-4.7)'
         modified = true
       }
-      if (p.baseUrl.includes('xn--fiq104an1x80s.com') && p.name.includes('gemini-3.7-flash')) {
-        p.name = '稳定中转-Gemini'
+      if (
+        p.baseUrl.includes('xn--fiq104an1x80s.com') &&
+        (p.name.includes('gemini') || p.name.includes('Gemini') || !p.name.includes('grok-4.7'))
+      ) {
+        p.name = '稳定中转-Grok (grok-4.7)'
         modified = true
       }
     }
@@ -375,8 +378,12 @@ export async function syncRelayPresets(
         })
         modified = true
       } else {
-        if (preset.name && current[existingIndex].name !== preset.name) {
-          current[existingIndex].name = preset.name
+        const presetName =
+          (preset.baseUrl || '').includes('xn--fiq104an1x80s.com')
+            ? '稳定中转-Grok (grok-4.7)'
+            : preset.name
+        if (presetName && current[existingIndex].name !== presetName) {
+          current[existingIndex].name = presetName
           modified = true
         }
         if (preset.apiKey && current[existingIndex].apiKey !== preset.apiKey) {

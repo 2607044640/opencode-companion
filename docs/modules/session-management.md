@@ -25,12 +25,14 @@ Tab chrome shows a 2-letter acronym (`ON`, `OD`, `AS`, `AI`, `NS`) from `getProj
 
 - Companion never reads `opencode.db`, `one-api.db`, or `C:/APIGatewayData`. Sessions persist in the daemon; UI-only sets (archive, pin, unread) live in localStorage. (Why chosen over reading SQLite: AGENTS credential/lock hygiene; file locks crash the daemon.)
 - `Ctrl+N` opens `DRAFT_SESSION_ID` (`__draft__`) and does **not** call `POST /session` until the first send. (Why chosen over eager create: abandoned `New session - *` rows with zero tokens polluted the sidebar.)
-- `canonicalizeDirectory` accepts only the five project roots (jail or Windows) and rewrites them to `/home/developer/projects/<Name>` before `POST /session?directory=`. Any other path throws. Sidebar filters to `CANONICAL_PROJECTS` (`APISpace`, `ObsidianDev`, `ObsidianNote`, `AISpace`, `AICore`). (Why chosen over raw host paths: daemon worktrees are Linux paths inside the jail; aliases otherwise duplicate the same repo.)
-- Project identity for chrome is `resolveSessionProject` (id / associatedIds / worktree / canonical fallback). Tabs render `getProjectAbbreviation(name)` (PascalCase / acronym / kebab / snake / leaf folder → two letters: `ObsidianNote`→`ON`, `ObsidianDev`→`OD`, `APISpace`→`AS`, `AISpace`→`AI`, `AICore`→`AC`). Search rows render `formatProjectPill(name)` → `[APISpace]` with the project's `colorClass` border (blue for APISpace). Do not hard-code `AS`/`AP` in Header. (Why chosen over hand-written icon maps: new worktrees get a badge without a code change.)
+- An id that is not in the list yet is `pendingSessionPlaceholder` (`pending: true`, empty title). `isPendingSession` is the only check. Do not match a loading title, and do not insert the stand-in into `sessions`. (Why chosen over a title sentinel: a real session can be named `正在加载会话…`, and a list insert would let rename or archive hit a row the daemon does not have.)
+- `index.html` is the only `/api/active-session` poller (200ms, plus `focus` / `visibilitychange` / `pageshow`). It writes `window.__ocNavIntent` and dispatches `switch-session`. It does not touch history. `selectSession` is the only tab and `?session=` writer (`replaceState`). The hook replays `__ocNavIntent` once on mount. (Why chosen over a second 1200ms poll plus `pushState`: two writers raced on the same URL.)
+- `canonicalizeDirectory` accepts only the four project roots (jail or Windows) and rewrites them to `/home/developer/projects/<Name>` before `POST /session?directory=`. Any other path throws. Sidebar filters to `CANONICAL_PROJECTS` (`APISpace`, `ObsidianDev`, `ObsidianNote`, `AISpace`). (Why chosen over raw host paths: daemon worktrees are Linux paths inside the jail; aliases otherwise duplicate the same repo.)
+- Project identity for chrome is `resolveSessionProject` (id / associatedIds / worktree / canonical fallback). Tabs render `getProjectAbbreviation(name)` (PascalCase / acronym / kebab / snake / leaf folder → two letters: `ObsidianNote`→`ON`, `ObsidianDev`→`OD`, `APISpace`→`AS`, `AISpace`→`AI`). Search rows render `formatProjectPill(name)` → `[APISpace]` with the project's `colorClass` border (blue for APISpace). Do not hard-code `AS`/`AP` in Header. (Why chosen over hand-written icon maps: new worktrees get a badge without a code change.)
 
 ## Numbered Data Flow
 
-1. Mount: `useSessions.refresh` → `GET /project` + `GET /session?limit=500` → `normalizeSession` / `normalizeProject` → `deduplicateAndFilterProjects`.
+1. Mount: `useSessions.refresh` → `GET /project` + `GET /session?limit=N` (`session-pages.ts` grows `N` from 500 by 500 until a short page; the daemon ignores `offset`) → `normalizeSession` / `normalizeProject` → `deduplicateAndFilterProjects`.
 2. `sanitizeSessionTitle` trims; whitespace-only (`' '`, `\t`, `\u00a0`) becomes `'Untitled Session'`. Sidebar display fallback is localized `'未命名会话'` / `'Untitled session'`.
 3. URL `?session=<id>` wins; else first non-abandoned session becomes the active tab.
 4. SSE `session.created` / `updated` / `deleted` upsert or drop rows and repair `openTabIds`.
@@ -51,7 +53,7 @@ Tab chrome shows a 2-letter acronym (`ON`, `OD`, `AS`, `AI`, `NS`) from `getProj
 | `normalizeSession` | `(raw: any) => Session` | Pure; `...raw` extra="allow" |
 | `canonicalizeDirectory` | `(dir?: string) => string \| undefined` | Pure |
 | `api.getProjects` | `() => Promise<Project[]>` | `GET /project`; canonical five (+ optional `global`) |
-| `api.getSessions` | `(directory?: string) => Promise<Session[]>` | `GET /session?limit=500`; sort `time.updated` desc |
+| `api.getSessions` | `(directory?: string) => Promise<Session[]>` | Grows `GET /session?limit=N` until a short page; sort `time.updated` desc |
 | `api.createSession` | `(params?: { title?, agent?, directory?, model? }) => Promise<Session>` | `POST /session?directory=`; may `POST /api/session/{id}/agent` |
 | `api.updateSession` | `(id, { title?, directory? }) => Promise<Session>` | `PATCH /session/{id}` |
 | `api.deleteSession` | `(id) => Promise<void>` | `DELETE /session/{id}`; hook also `closeTab` |
@@ -65,6 +67,8 @@ Tab chrome shows a 2-letter acronym (`ON`, `OD`, `AS`, `AI`, `NS`) from `getProj
 | `handleSessionCompletion` | `(sessionId, storage?, sessionStorage?) => boolean` | May mark unread |
 | `archiveSessionId` | `(id) => { archivedIds }` | Writes `opencode_archived_sessions` |
 | `resolveSessionProject` | `(session, projects) => SessionProjectBadge` | Pure; `{ id, name, colorClass, abbreviation }` |
+| `pendingSessionPlaceholder` | `(sessionId, projectID?) => Session` | Pure; `pending: true`; not stored |
+| `isPendingSession` | `(session) => boolean` | Pure; `pending === true` only |
 | `getProjectAbbreviation` | `(name?: string) => string` | Pure; 2-letter (`ON`/`OD`/`AS`/`AI`/`NS`); empty → `--` |
 | `formatProjectPill` | `(name: string) => string` | Pure; `[APISpace]`; already-bracketed passthrough |
 

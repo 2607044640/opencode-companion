@@ -11,7 +11,7 @@ import type {
 } from '../types/opencode'
 import { api, mergeMessageInfo, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage, isAbortError } from '../services/api'
 import { sseManager } from '../services/sse'
-import { classifyEmptyIdleFuse } from './empty-idle-fuse'
+import { classifyEmptyIdleFuse, decideEmptyTurnAutoRetry, userTurnKey } from './empty-idle-fuse'
 import { maybeCommitGitCheckpoint } from '../utils/maybe-git-checkpoint'
 import { postExternalFileRollback } from '../services/host-api'
 import { executeRevertWithTimeout, withRevertTimeout, type RevertMode as EngineRevertMode } from '../utils/revert-engine'
@@ -21,6 +21,7 @@ import {
   reconcileHistoryWithOptimistic,
 } from '../utils/prompt-parts'
 import { partitionAssistantTurn } from '../utils/worked-summary'
+import { isRunningStatus } from '../utils/session-run-state'
 
 import type {
   PromptAttachment,
@@ -39,6 +40,8 @@ export function useChatStream(
   const [loading, setLoading] = useState<boolean>(() => Boolean(sessionId && sessionId !== '__draft__'))
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
   const [sessionStatus, setSessionStatus] = useState<SessionStatusPayload>({ type: 'idle' })
+  /** False until GET /session/status answers. Chrome must not paint finished or retry from a guess. */
+  const [runKnown, setRunKnown] = useState(false)
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [error, setError] = useState<string | null>(null)
   /** Bumps on every transition into idle so the queue can drain even if status was already idle. */
@@ -59,6 +62,10 @@ export function useChatStream(
   const transitioningSessionIdRef = useRef<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(sessionId)
   const sessionBusyRef = useRef(false)
+  /** Bumps on every status write so a late /session/status snapshot cannot clobber SSE, send, or abort. */
+  const statusEpochRef = useRef(0)
+  const autoRetriedTurnKeyRef = useRef<string | null>(null)
+  const retryRef = useRef<() => Promise<void>>(async () => {})
 
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
     if (!sessionBusyRef.current && kind === 'clean') return
@@ -67,9 +74,37 @@ export function useChatStream(
     setTurnEpoch((n) => n + 1)
   }, [])
 
-  // Load initial messages and todos when sessionId changes
+  const commitSessionStatus = useCallback((next: SessionStatusPayload, known = true) => {
+    statusEpochRef.current += 1
+    if (isRunningStatus(next)) sessionBusyRef.current = true
+    setSessionStatus(next)
+    if (known) setRunKnown(true)
+  }, [])
+
+  // Load initial messages and todos when sessionId changes.
+  // Chrome stays "confirming" until GET /session/status answers, so a restore
+  // cannot paint the finished check or a stale retry banner first.
+  // A late snapshot cannot overwrite SSE, send, or abort.
   const loadSessionData = useCallback(async (id: string) => {
+    if (currentSessionIdRef.current !== id) return
     const peeked = api.peekMessages(id)
+    const statusEpoch = statusEpochRef.current
+    const applySnapshot = (status: SessionStatusPayload | null) => {
+      if (currentSessionIdRef.current !== id) return false
+      if (statusEpochRef.current !== statusEpoch) return false
+      if (!status) return false
+      // A send/restore that already marked this session running wins over a stale idle snapshot.
+      if (status.type === 'idle' && sessionBusyRef.current) {
+        setRunKnown(true)
+        return false
+      }
+      commitSessionStatus(status)
+      return true
+    }
+    const statusPromise = api.getSessionStatus(id).then((status) => {
+      applySnapshot(status)
+      return status
+    })
     if (peeked) {
       setMessages((prev) => reconcileHistoryWithOptimistic(peeked, prev))
       setLoadedSessionId(id)
@@ -81,29 +116,36 @@ export function useChatStream(
     const todosPromise = api.getTodos(id)
     try {
       const history = await api.getMessages(id)
+      const runStatus = await statusPromise
       if (currentSessionIdRef.current !== id) return
+      if (runStatus === null && statusEpochRef.current === statusEpoch) {
+        const last = history[history.length - 1]
+        if (last?.info.role === 'assistant') {
+          const probed = partitionAssistantTurn(last.parts, last.info, Date.now(), false)
+          if (probed.isLive) commitSessionStatus({ type: 'busy' })
+        }
+      }
+      if (currentSessionIdRef.current === id && statusEpochRef.current === statusEpoch) {
+        setRunKnown(true)
+      }
       setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
       setLoadedSessionId(id)
       setLoading(false)
       const initialTodos = await todosPromise
       if (currentSessionIdRef.current !== id) return
       setTodos(initialTodos || [])
-
-      const last = history[history.length - 1]
-      if (last?.info.role === 'assistant') {
-        const probed = partitionAssistantTurn(last.parts, last.info, Date.now(), false)
-        if (probed.isLive) setSessionStatus({ type: 'busy' })
-      }
     } catch (err) {
+      if (currentSessionIdRef.current !== id) return
       console.error('Failed to load session history:', err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       if (currentSessionIdRef.current === id) {
         setLoadedSessionId(id)
+        setLoading(false)
+        if (statusEpochRef.current === statusEpoch) setRunKnown(true)
       }
-      setLoading(false)
     }
-  }, [])
+  }, [commitSessionStatus])
 
   useEffect(() => {
     currentSessionIdRef.current = sessionId
@@ -115,34 +157,53 @@ export function useChatStream(
       return
     }
 
-    setSessionStatus({ type: 'idle' })
+    commitSessionStatus({ type: 'idle' }, false)
+    sessionBusyRef.current = false
+    setRunKnown(false)
     setError(null)
     setTurnEnd(null)
-    sessionBusyRef.current = false
     userAbortedRef.current = false
 
     if (!sessionId || sessionId === '__draft__') {
       setMessages([])
       setTodos([])
+      setLoading(false)
+      setLoadedSessionId(sessionId)
+      setRunKnown(true)
       return
     }
 
+    setLoading(true)
     setMessages([])
     setTodos([])
     loadSessionData(sessionId)
+
+    // Ctrl+W then Ctrl+Shift+T restores a frozen page (bfcache). The painted
+    // checkmark or retry banner is stale until /session/status answers again.
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      const id = currentSessionIdRef.current
+      if (!id || id === '__draft__') return
+      statusEpochRef.current += 1
+      sessionBusyRef.current = false
+      setRunKnown(false)
+      setError(null)
+      void loadSessionData(id)
+    }
+    window.addEventListener('pageshow', onPageShow)
 
     // Subscribe to SSE events
     const unsubDelta = sseManager.onPartDelta((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
 
-      setMessages((prev) => {
-        const target = prev.find((m) => m.info.id === data.messageID)
-        const done = Boolean(target?.info.time.completed || target?.info.finish || target?.info.error)
-        if (target && !done) {
-          setSessionStatus((s) => (s.type === 'busy' ? s : { type: 'busy' }))
-        }
+      const known = messagesRef.current.find((m) => m.info.id === data.messageID)
+      const done = Boolean(known?.info.time.completed || known?.info.finish || known?.info.error)
+      if (known && !done && !sessionBusyRef.current) {
+        commitSessionStatus({ type: 'busy' })
+      }
 
+      setMessages((prev) => {
         let msgFound = false
         const next = prev.map((msg) => {
           if (msg.info.id !== data.messageID) return msg
@@ -325,7 +386,7 @@ export function useChatStream(
 
     const unsubStatus = sseManager.onSessionStatus((data) => {
       if (data.sessionID !== sessionId) return
-      setSessionStatus(data.status)
+      commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
         noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
       }
@@ -334,7 +395,7 @@ export function useChatStream(
     // SSE Error Fuse: break out of busy state immediately on backend errors
     const unsubError = sseManager.onSessionError((data) => {
       if (data.sessionID !== sessionId) return
-      setSessionStatus({ type: 'idle' })
+      commitSessionStatus({ type: 'idle' })
 
       // User-initiated or backend abort is not a relay failure
       if (userAbortedRef.current || isAbortError(data.error)) {
@@ -380,7 +441,7 @@ export function useChatStream(
     // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
       const unsubIdle = sseManager.onSessionIdle((data) => {
       if (data.sessionID !== sessionId) return
-      setSessionStatus({ type: 'idle' })
+      commitSessionStatus({ type: 'idle' })
 
       const currentMsgs = messagesRef.current
       const lastMsg = currentMsgs[currentMsgs.length - 1]
@@ -392,6 +453,21 @@ export function useChatStream(
       userAbortedRef.current = false
       if (fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
         void maybeCommitGitCheckpoint(sessionId, currentMsgs)
+      }
+      const turnKey = userTurnKey(currentMsgs)
+      const auto =
+        (fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg
+          ? decideEmptyTurnAutoRetry({
+              fuseKind: fuse.kind,
+              turnKey,
+              alreadyRetriedTurnKey: autoRetriedTurnKeyRef.current,
+              assistantHasError: Boolean(lastMsg.info.error),
+            })
+          : null
+      if (auto?.retry && turnKey) {
+        autoRetriedTurnKeyRef.current = turnKey
+        void retryRef.current()
+        return
       }
       if (abortedByUser || fuse.kind === 'user_abort') {
         noteTurnEnd('user')
@@ -406,7 +482,10 @@ export function useChatStream(
         noteTurnEnd('clean')
       }
       if ((fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg) {
-        if (isAbortError(lastMsg.info.error) || lastMsg.info.finish === 'abort') {
+        if (isAbortError(lastMsg.info.error)) {
+          return
+        }
+        if (lastMsg.info.finish === 'abort' && auto?.reason !== 'already_retried') {
           return
         }
         const errorMsg = lastMsg.info.error
@@ -453,6 +532,7 @@ export function useChatStream(
     })
 
     return () => {
+      window.removeEventListener('pageshow', onPageShow)
       unsubDelta()
       unsubPartUpdated()
       unsubMsgUpdated()
@@ -462,7 +542,7 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData, noteTurnEnd])
+  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus])
 
   const sendPrompt = useCallback(
     async (
@@ -499,8 +579,7 @@ export function useChatStream(
       setMessages((prev) => [...prev, userMsg])
       pendingOptimisticIdRef.current = userMsg.info.id
       userAbortedRef.current = false
-      sessionBusyRef.current = true
-      setSessionStatus({ type: 'busy' })
+      commitSessionStatus({ type: 'busy' })
       setError(null)
       setTurnEnd(null)
 
@@ -515,11 +594,11 @@ export function useChatStream(
       } catch (err) {
         console.error('Failed to send prompt:', err)
         setError(err instanceof Error ? err.message : String(err))
-        setSessionStatus({ type: 'idle' })
+        commitSessionStatus({ type: 'idle' })
         noteTurnEnd('error')
       }
     },
-    [sessionId, noteTurnEnd]
+    [sessionId, noteTurnEnd, commitSessionStatus]
   )
 
   const abort = useCallback(async (opts?: { preempt?: boolean }) => {
@@ -530,7 +609,7 @@ export function useChatStream(
       userAbortedRef.current = true
     }
     setError(null)
-    setSessionStatus({ type: 'idle' })
+    commitSessionStatus({ type: 'idle' })
     if (running && !opts?.preempt) {
       noteTurnEnd('user')
     } else {
@@ -541,7 +620,7 @@ export function useChatStream(
     } catch (err) {
       console.error('Failed to abort session:', err)
     }
-  }, [sessionId, noteTurnEnd])
+  }, [sessionId, noteTurnEnd, commitSessionStatus])
 
   const retry = useCallback(async () => {
     setError(null)
@@ -611,6 +690,10 @@ export function useChatStream(
       attachments,
     })
   }, [sessionId, sendPrompt, loadSessionData])
+
+  useEffect(() => {
+    retryRef.current = retry
+  }, [retry])
 
   const [reverting, setReverting] = useState<boolean>(false)
 
@@ -688,6 +771,7 @@ export function useChatStream(
   return {
     messages,
     loading: loading || Boolean(sessionId && sessionId !== '__draft__' && loadedSessionId !== sessionId),
+    runKnown,
     sessionStatus,
     todos,
     error,

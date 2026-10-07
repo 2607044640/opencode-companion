@@ -36,9 +36,10 @@ describe('Project Dropdown Ordering & Resolution', () => {
     },
   ]
 
-  it('orders canonical projects strictly as: APISpace, ObsidianNote, ObsidianDev, AICore, AISpace', () => {
-    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AICore', 'AISpace']
+  it('orders canonical projects strictly as: APISpace, ObsidianNote, ObsidianDev, AISpace (excluding AICore)', () => {
+    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AISpace']
     const canonicalList: Project[] = []
+    const others: Project[] = []
 
     for (const name of canonicalOrder) {
       const found = mockProjects.find(
@@ -51,10 +52,23 @@ describe('Project Dropdown Ordering & Resolution', () => {
       }
     }
 
+    for (const p of mockProjects) {
+      if (p.id === 'global' || p.worktree === '/') continue
+      const pName = (p.name || '').toLowerCase()
+      const pWorktree = (p.worktree || '').toLowerCase()
+      if (pName === 'aicore' || pWorktree.endsWith('/aicore') || pWorktree === 'c:/aicore') continue
+      if (!canonicalList.some((cp) => cp.id === p.id)) {
+        others.push(p)
+      }
+    }
+
+    const orderedProjects = [...canonicalList, ...others]
+
     assert.deepEqual(
-      canonicalList.map((p) => p.name),
-      ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AICore', 'AISpace']
+      orderedProjects.map((p) => p.name),
+      ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AISpace']
     )
+    assert.equal(orderedProjects.some((p) => p.name === 'AICore'), false)
   })
 
   it('resolves active project selection and supports no-project selection', () => {

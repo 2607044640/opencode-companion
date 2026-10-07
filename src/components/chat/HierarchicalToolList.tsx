@@ -21,6 +21,7 @@ import type { WorkGroup, ExploreItem, CommandItem, ThoughtItem } from '../../uti
 import { formatWorkedLabel } from '../../utils/worked-summary'
 import { EditRow } from './EditRow'
 import { ToolCard } from './ToolCard'
+import { FileViewModal } from './FileViewModal'
 import { DelayedTooltip } from '../common/DelayedTooltip'
 import { tr } from '../../utils/i18n'
 
@@ -32,6 +33,7 @@ interface HierarchicalToolListProps {
 
 function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: boolean }) {
   const [expanded, setExpanded] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<ExploreItem | null>(null)
 
   // Count unique files and search items
   const uniqueFiles = new Set(
@@ -41,102 +43,148 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
 
   let summaryLabel = ''
   if (uniqueFiles > 0 && searchCount > 0) {
-    summaryLabel = `Explored ${uniqueFiles} ${uniqueFiles === 1 ? 'file' : 'files'}, ${searchCount} ${searchCount === 1 ? 'search' : 'searches'}`
+    summaryLabel = tr(
+      `查看了 ${uniqueFiles} 个文件，进行了 ${searchCount} 次搜索`,
+      `Explored ${uniqueFiles} ${uniqueFiles === 1 ? 'file' : 'files'}, ${searchCount} ${searchCount === 1 ? 'search' : 'searches'}`
+    )
   } else if (uniqueFiles > 0) {
-    summaryLabel = `Explored ${uniqueFiles} ${uniqueFiles === 1 ? 'file' : 'files'}`
+    summaryLabel = tr(
+      `查看了 ${uniqueFiles} 个文件`,
+      `Explored ${uniqueFiles} ${uniqueFiles === 1 ? 'file' : 'files'}`
+    )
   } else {
-    summaryLabel = `Searched ${searchCount} ${searchCount === 1 ? 'query' : 'queries'}`
+    summaryLabel = tr(
+      `搜索了 ${searchCount} 次`,
+      `Searched ${searchCount} ${searchCount === 1 ? 'query' : 'queries'}`
+    )
   }
 
   const hasRunning = (isLive ?? true) && items.some((i) => i.status === 'running' || i.status === 'pending')
   const hasWarnings = items.some((i) => i.status === 'error' || Boolean(i.warningKind))
 
   return (
-    <div className="rounded border border-zinc-800/60 bg-zinc-900/40 overflow-hidden text-xs">
-      <div
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between px-2.5 py-1.5 hover:bg-zinc-800/50 cursor-pointer select-none transition-colors"
-      >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Eye className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-          <span className="font-medium text-zinc-300 truncate">
-            {summaryLabel}
-          </span>
+    <>
+      <div className="rounded border border-zinc-800/60 bg-zinc-900/40 overflow-hidden text-xs">
+        <div
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center justify-between px-2.5 py-1.5 hover:bg-zinc-800/50 cursor-pointer select-none transition-colors"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Eye className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="font-medium text-zinc-300 truncate">
+              {summaryLabel}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            {hasRunning ? (
+              <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+            ) : hasWarnings ? (
+              <DelayedTooltip
+                content={tr('浏览提示 (如搜索未匹配或文件未找到)', 'Exploration notices (e.g. search misses or files not found)')}
+                variant="warning"
+                placement="top-end"
+              >
+                <span className="flex items-center text-amber-400">
+                  <AlertTriangle className="w-3 h-3" />
+                </span>
+              </DelayedTooltip>
+            ) : (
+              <CheckCircle2 className="w-3 h-3 text-zinc-500" />
+            )}
+            <button className="text-zinc-500 hover:text-zinc-300">
+              {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 ml-2">
-          {hasRunning ? (
-            <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
-          ) : hasWarnings ? (
-            <DelayedTooltip
-              content="Exploration notices (e.g. search misses or files not found)"
-              variant="warning"
-              placement="top-end"
-            >
-              <span className="flex items-center text-amber-400">
-                <AlertTriangle className="w-3 h-3" />
-              </span>
-            </DelayedTooltip>
-          ) : (
-            <CheckCircle2 className="w-3 h-3 text-zinc-500" />
-          )}
-          <button className="text-zinc-500 hover:text-zinc-300">
-            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+        {expanded && (
+          <div className="px-3 py-2 border-t border-zinc-800/50 bg-[#090b0d]/70 space-y-1.5 font-mono text-[11px] select-text">
+            {items.map((it, idx) => {
+              const isClickable = Boolean(it.output || it.error || it.fullPath || it.kind === 'file')
+              return (
+                <div
+                  key={`${it.partId}_${idx}`}
+                  onClick={isClickable ? () => setSelectedItem(it) : undefined}
+                  className={`group flex items-center gap-2 text-zinc-400 truncate py-1 px-1.5 -mx-1.5 rounded transition-all ${
+                    isClickable
+                      ? 'cursor-pointer hover:bg-zinc-800/60 hover:text-zinc-200'
+                      : ''
+                  }`}
+                  title={
+                    isClickable
+                      ? it.kind === 'file'
+                        ? tr('点击查看文件内容', 'Click to view file')
+                        : tr('点击查看搜索结果', 'Click to view results')
+                      : it.pathOrQuery
+                  }
+                >
+                  {it.kind === 'file' ? (
+                    <Eye className="w-3.5 h-3.5 text-blue-400/80 shrink-0 group-hover:text-blue-300 transition-colors" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5 text-purple-400/80 shrink-0 group-hover:text-purple-300 transition-colors" />
+                  )}
+                  <span
+                    className={`truncate select-text flex-1 transition-colors ${
+                      isClickable
+                        ? 'text-zinc-300 group-hover:text-cyan-300 group-hover:underline underline-offset-2'
+                        : 'text-zinc-300'
+                    }`}
+                    title={it.fullPath || it.pathOrQuery}
+                  >
+                    {it.pathOrQuery}
+                  </span>
+
+                  {it.lineRange && (
+                    <span className="text-[10px] font-mono text-cyan-400/80 group-hover:text-cyan-300 bg-cyan-950/40 px-1 py-0.2 rounded shrink-0 select-none">
+                      #{it.lineRange}
+                    </span>
+                  )}
+
+                  <div className="ml-auto flex items-center gap-1.5 shrink-0 select-none">
+                    {it.warningKind === 'no_match' && (
+                      <DelayedTooltip content={it.warningTooltip || tr('未找到匹配项', 'No matches found')} variant="warning" placement="top-end">
+                        <span className="flex items-center text-amber-400 cursor-help">
+                          <SearchX className="w-3.5 h-3.5" />
+                        </span>
+                      </DelayedTooltip>
+                    )}
+                    {it.warningKind === 'not_found' && (
+                      <DelayedTooltip content={it.warningTooltip || tr('文件未找到', 'File not found')} variant="warning" placement="top-end">
+                        <span className="flex items-center text-amber-400 cursor-help">
+                          <FileQuestion className="w-3.5 h-3.5" />
+                        </span>
+                      </DelayedTooltip>
+                    )}
+                    {it.warningKind === 'blocked' && (
+                      <DelayedTooltip content={it.warningTooltip || tr('操作受阻或权限不足', 'Action blocked or permission denied')} variant="warning" placement="top-end">
+                        <span className="flex items-center text-amber-400 cursor-help">
+                          <ShieldAlert className="w-3.5 h-3.5" />
+                        </span>
+                      </DelayedTooltip>
+                    )}
+                    {it.warningKind === 'warning' && (
+                      <DelayedTooltip content={it.warningTooltip || tr('浏览提示', 'Exploration notice')} variant="warning" placement="top-end">
+                        <span className="flex items-center text-amber-400 cursor-help">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                        </span>
+                      </DelayedTooltip>
+                    )}
+                    <span className="text-zinc-600 text-[9px] uppercase font-sans font-bold group-hover:text-zinc-400 transition-colors">
+                      {it.tool}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {expanded && (
-        <div className="px-3 py-2 border-t border-zinc-800/50 bg-[#090b0d]/70 space-y-1.5 font-mono text-[11px] select-text cursor-text">
-          {items.map((it, idx) => (
-            <div key={`${it.partId}_${idx}`} className="flex items-center gap-2 text-zinc-400 truncate py-0.5">
-              {it.kind === 'file' ? (
-                <Eye className="w-3 h-3 text-blue-400/80 shrink-0" />
-              ) : (
-                <Search className="w-3 h-3 text-purple-400/80 shrink-0" />
-              )}
-              <span className="text-zinc-300 truncate select-text flex-1" title={it.pathOrQuery}>
-                {it.pathOrQuery}
-              </span>
-
-              <div className="ml-auto flex items-center gap-1.5 shrink-0 select-none">
-                {it.warningKind === 'no_match' && (
-                  <DelayedTooltip content={it.warningTooltip || 'No matches found'} variant="warning" placement="top-end">
-                    <span className="flex items-center text-amber-400 cursor-help">
-                      <SearchX className="w-3.5 h-3.5" />
-                    </span>
-                  </DelayedTooltip>
-                )}
-                {it.warningKind === 'not_found' && (
-                  <DelayedTooltip content={it.warningTooltip || 'File not found'} variant="warning" placement="top-end">
-                    <span className="flex items-center text-amber-400 cursor-help">
-                      <FileQuestion className="w-3.5 h-3.5" />
-                    </span>
-                  </DelayedTooltip>
-                )}
-                {it.warningKind === 'blocked' && (
-                  <DelayedTooltip content={it.warningTooltip || 'Action blocked or permission denied'} variant="warning" placement="top-end">
-                    <span className="flex items-center text-amber-400 cursor-help">
-                      <ShieldAlert className="w-3.5 h-3.5" />
-                    </span>
-                  </DelayedTooltip>
-                )}
-                {it.warningKind === 'warning' && (
-                  <DelayedTooltip content={it.warningTooltip || 'Exploration notice'} variant="warning" placement="top-end">
-                    <span className="flex items-center text-amber-400 cursor-help">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                    </span>
-                  </DelayedTooltip>
-                )}
-                <span className="text-zinc-600 text-[9px] uppercase font-sans font-bold">
-                  {it.tool}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+      {selectedItem && (
+        <FileViewModal item={selectedItem} onClose={() => setSelectedItem(null)} />
       )}
-    </div>
+    </>
   )
 }
 
@@ -171,7 +219,7 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Terminal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span className="font-medium text-zinc-300 truncate font-mono text-[11px]" title={items.length === 1 ? items[0].command : undefined}>
-            {items.length === 1 ? `Ran ${items[0].command}` : `Ran ${items.length} commands`}
+            {items.length === 1 ? tr(`运行了 ${items[0].command}`, `Ran ${items[0].command}`) : tr(`运行了 ${items.length} 条命令`, `Ran ${items.length} commands`)}
           </span>
         </div>
 
@@ -179,7 +227,7 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
           {hasRunning ? (
             <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
           ) : hasError ? (
-            <DelayedTooltip content="Command execution failed" variant="error" placement="top-end">
+            <DelayedTooltip content={tr('命令执行失败', 'Command execution failed')} variant="error" placement="top-end">
               <span className="flex items-center text-rose-400">
                 <XCircle className="w-3 h-3" />
               </span>
@@ -208,7 +256,7 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
               <div className="flex items-start justify-between gap-2 text-zinc-300">
                 <div className="flex items-start gap-1.5 min-w-0 flex-1 leading-relaxed">
                   {cmd.status === 'error' ? (
-                    <DelayedTooltip content={cmd.error || 'Command execution failed'} variant="error" placement="top-end">
+                    <DelayedTooltip content={cmd.error || tr('命令执行失败', 'Command execution failed')} variant="error" placement="top-end">
                       <span className="flex items-center text-rose-400 shrink-0 mt-0.5 cursor-help">
                         <XCircle className="w-3.5 h-3.5" />
                       </span>
@@ -248,7 +296,7 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
                 <div className="mt-2 pt-1.5 border-t border-zinc-800/50">
                   <div className="flex items-center justify-between mb-1">
                     <span className={`text-[9px] uppercase font-sans font-bold select-none ${cmd.status === 'error' ? 'text-rose-400' : 'text-zinc-500'}`}>
-                      {cmd.status === 'error' ? 'Error Output:' : 'Output:'}
+                      {cmd.status === 'error' ? tr('错误输出:', 'Error Output:') : tr('输出:', 'Output:')}
                     </span>
                     <button
                       type="button"
@@ -301,7 +349,7 @@ function ThoughtGroupCard({
   const [expanded, setExpanded] = useState(false)
 
   const durationStr = durationMs > 0 ? formatWorkedLabel(durationMs, false).replace('Worked for ', '') : ''
-  const title = durationStr ? `Thought for ${durationStr}` : 'Thought'
+  const title = durationStr ? tr(`思考过程 (${durationStr})`, `Thought for ${durationStr}`) : tr('思考过程', 'Thought')
   const hasText = items.some((th) => th.text.trim().length > 0)
 
   return (
@@ -326,7 +374,7 @@ function ThoughtGroupCard({
         <div className="p-3 border-t border-zinc-800/50 bg-[#090b0d]/70 text-zinc-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto select-text cursor-text">
           {hasText
             ? items.map((th) => th.text).filter(Boolean).join('\n\n')
-            : <span className="text-zinc-500 italic">(Thinking interrupted or empty)</span>}
+            : <span className="text-zinc-500 italic">{tr('(思考中断或为空)', '(Thinking interrupted or empty)')}</span>}
         </div>
       )}
     </div>

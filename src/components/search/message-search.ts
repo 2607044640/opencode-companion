@@ -1,4 +1,5 @@
 import type { CachedMessageDoc, MessageSearchHit } from './search-types'
+import { prepareSearchQuery, searchTokens, textMatchesQuery } from './search-text'
 
 export function extractMatchSnippet(
   text: string,
@@ -7,14 +8,8 @@ export function extractMatchSnippet(
 ): string {
   if (!text) return ''
 
-  const trimmed = query.trim()
-  if (!trimmed) {
-    const preview = text.slice(0, 110).replace(/\r?\n+/g, ' ').replace(/\s{2,}/g, ' ').trim()
-    return text.length > 110 ? `${preview}...` : preview
-  }
-
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  if (words.length === 0) {
+  const tokens = searchTokens(prepareSearchQuery(query))
+  if (tokens.length === 0) {
     const preview = text.slice(0, 110).replace(/\r?\n+/g, ' ').replace(/\s{2,}/g, ' ').trim()
     return text.length > 110 ? `${preview}...` : preview
   }
@@ -23,8 +18,8 @@ export function extractMatchSnippet(
   let firstMatchIndex = -1
   let matchedWordLength = 0
 
-  for (const word of words) {
-    const idx = lowerText.indexOf(word.toLowerCase())
+  for (const word of tokens) {
+    const idx = lowerText.indexOf(word)
     if (idx !== -1) {
       if (firstMatchIndex === -1 || idx < firstMatchIndex) {
         firstMatchIndex = idx
@@ -63,22 +58,14 @@ export function searchSessionDocs(
   meta?: SessionSearchMeta,
   maxHitsPerSession = 3
 ): MessageSearchHit[] {
-  const trimmed = query.trim()
-  if (!trimmed) return []
+  const tokens = searchTokens(prepareSearchQuery(query))
+  if (tokens.length === 0) return []
 
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  if (words.length === 0) return []
-
-  const lowerWords = words.map((w) => w.toLowerCase())
   const hits: MessageSearchHit[] = []
 
   for (let i = 0; i < docs.length; i++) {
     const doc = docs[i]
-    const lowerDoc = doc.text.toLowerCase()
-
-    // Substring-AND match: all terms must match
-    const allMatched = lowerWords.every((w) => lowerDoc.includes(w))
-    if (!allMatched) continue
+    if (!textMatchesQuery(doc.text, query)) continue
 
     hits.push({
       sessionId,
@@ -86,7 +73,7 @@ export function searchSessionDocs(
       messageId: doc.id,
       role: doc.role,
       snippet: extractMatchSnippet(doc.text, query),
-      matchWords: words,
+      matchWords: [...tokens],
       timestamp: doc.time?.created || doc.time?.completed,
       turnIndex: i + 1,
       projectId: meta?.projectId,

@@ -14,21 +14,26 @@ import { formatWorkedLabel } from '../../utils/worked-summary'
 import { HierarchicalToolList } from './HierarchicalToolList'
 import { DelayedTooltip } from '../common/DelayedTooltip'
 import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
-import { tr } from '../../utils/i18n'
+import { useI18n, tr } from '../../utils/i18n'
 
 interface WorkedSummaryCardProps {
   turn: WorkedTurn
   messageId: string
   isBusy?: boolean
+  /** False until the daemon answers. Do not paint the finished check or a live timer. */
+  runKnown?: boolean
 }
 
-export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy }: WorkedSummaryCardProps) {
+export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown = true }: WorkedSummaryCardProps) {
+  const { isZh } = useI18n()
   const { openTurn } = useDiffDrawer()
   const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
   const editCount = editGroups.length
 
-  // A turn is live based on robust part-level analysis from partitionAssistantTurn
-  const isEffectivelyLive = turn.isLive
+  // A turn is live based on robust part-level analysis from partitionAssistantTurn.
+  // Until the daemon answers, neither the checkmark nor the live timer is honest.
+  const confirming = !runKnown
+  const isEffectivelyLive = !confirming && turn.isLive
 
   const isThinking =
     isEffectivelyLive &&
@@ -57,13 +62,23 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy }: WorkedSu
       ? Math.max(0, now - turn.createdTime)
       : turn.durationMs
 
-  const label = formatWorkedLabel(
+  const rawLabel = formatWorkedLabel(
     displayDuration,
     isEffectivelyLive,
     turn.finish,
     turn.isAborted,
     isThinking ? 'thinking' : 'working'
   )
+  const settledLabel = isZh
+    ? rawLabel
+        .replace(/^Thinking for /, '思考中 ')
+        .replace(/^Working for /, '执行中 ')
+        .replace(/^Worked for /, '耗时 ')
+        .replace(/\(Aborted\)/, '(已中断)')
+    : rawLabel
+  const label = confirming
+    ? tr('正在确认状态…', 'Checking status…', 'Status wird geprüft…')
+    : settledLabel
 
   const handleToggle = () => {
     userInteractedRef.current = true
@@ -87,7 +102,7 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy }: WorkedSu
           </span>
 
           <span className="text-[10px] text-zinc-500 font-mono shrink-0">
-            ({turn.totalWorkItems} {turn.totalWorkItems === 1 ? 'action' : 'actions'})
+            ({turn.totalWorkItems} {turn.totalWorkItems === 1 ? tr('个操作', 'action') : tr('个操作', 'actions')})
           </span>
 
           {editCount > 0 && (
@@ -108,36 +123,41 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy }: WorkedSu
             >
               <FileCode className="w-3 h-3 text-emerald-400" />
               <span>
-                {editCount} {editCount === 1 ? 'diff' : 'diffs'}
+                {editCount} {editCount === 1 ? tr('处改动', 'diff') : tr('处改动', 'diffs')}
               </span>
             </button>
           )}
 
           {isEffectivelyLive && (
             <span className="hidden sm:inline text-[10px] text-purple-400 animate-pulse font-mono truncate">
-              {isThinking ? 'Thinking...' : 'Executing step...'}
+              {isThinking ? tr('思考中...', 'Thinking...') : tr('正在执行步骤...', 'Executing step...')}
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0 ml-2">
-          {isEffectivelyLive ? (
+          {confirming ? (
+            <span className="flex items-center gap-1 text-zinc-400 font-mono text-[10px]">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span className="hidden sm:inline">{tr('确认中', 'Checking', 'Prüfen')}</span>
+            </span>
+          ) : isEffectivelyLive ? (
             <span className="flex items-center gap-1 text-purple-400 font-mono text-[10px]">
               <Loader2 className="w-3 h-3 animate-spin" />
-              <span className="hidden sm:inline">{isThinking ? 'Thinking' : 'Running'}</span>
+              <span className="hidden sm:inline">{isThinking ? tr('思考中', 'Thinking') : tr('运行中', 'Running')}</span>
             </span>
           ) : turn.isAborted ? (
-            <DelayedTooltip content="Generation was aborted" variant="warning" placement="top-end">
+            <DelayedTooltip content={tr('生成已中断', 'Generation was aborted')} variant="warning" placement="top-end">
               <span className="flex items-center gap-1 text-amber-400 font-mono text-[10px]">
                 <AlertCircle className="w-3 h-3" />
-                <span className="hidden sm:inline">Aborted</span>
+                <span className="hidden sm:inline">{tr('已中断', 'Aborted')}</span>
               </span>
             </DelayedTooltip>
           ) : turn.hasRealError ? (
-            <DelayedTooltip content="Execution error encountered" variant="error" placement="top-end">
+            <DelayedTooltip content={tr('遇到执行错误', 'Execution error encountered')} variant="error" placement="top-end">
               <span className="flex items-center gap-1 text-rose-400 font-mono text-[10px]">
                 <XCircle className="w-3 h-3" />
-                <span className="hidden sm:inline">Issues</span>
+                <span className="hidden sm:inline">{tr('异常', 'Issues')}</span>
               </span>
             </DelayedTooltip>
           ) : (
@@ -159,7 +179,7 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy }: WorkedSu
       {/* Expanded Hierarchical Breakdown */}
       {expanded && (
         <div className="border-t border-[#272a30] select-text">
-          <HierarchicalToolList groups={turn.groups} messageId={messageId} isLive={isEffectivelyLive} />
+          <HierarchicalToolList groups={turn.groups} messageId={messageId} isLive={confirming || isEffectivelyLive} />
         </div>
       )}
     </div>

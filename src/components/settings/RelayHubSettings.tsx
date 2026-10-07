@@ -39,8 +39,8 @@ interface RelayFormData {
 
 const PRESETS = [
   {
-    label: '稳定中转 (Gemini)',
-    name: '稳定中转',
+    label: '稳定中转-Grok (grok-4.7)',
+    name: '稳定中转-Grok',
     baseUrl: 'https://xn--fiq104an1x80s.com',
     redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
     currency: 'USD' as const,

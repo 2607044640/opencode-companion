@@ -25,6 +25,7 @@ export interface TranslationDictionary {
     revert: string
     revertTitle: string
     idle: string
+    confirming: string
     generating: string
     retrying: (attempt: number) => string
     newTab: string
@@ -223,6 +224,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       revert: '撤回',
       revertTitle: '撤回最后一轮对话 (Revert last exchange)',
       idle: '空闲就绪',
+      confirming: '正在确认状态…',
       generating: '生成中...',
       retrying: (attempt: number) => `重试中 (${attempt})`,
       newTab: '新建会话标签',
@@ -419,6 +421,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       revert: 'Revert',
       revertTitle: 'Revert last exchange',
       idle: 'Idle',
+      confirming: 'Checking status…',
       generating: 'Generating...',
       retrying: (attempt: number) => `Retrying (${attempt})`,
       newTab: 'Open new tab session',
@@ -615,6 +618,7 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       revert: 'Rückgängig machen',
       revertTitle: 'Letzte Runde rückgängig machen (Revert last exchange)',
       idle: 'Bereit',
+      confirming: 'Status wird geprüft…',
       generating: 'Generierung läuft...',
       retrying: (attempt: number) => `Wiederhole (${attempt})`,
       newTab: 'Neuer Chat-Tab',

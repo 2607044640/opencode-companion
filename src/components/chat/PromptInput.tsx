@@ -56,6 +56,8 @@ interface PromptInputProps {
   ) => void
   onAbort: () => void
   isBusy: boolean
+  /** False until the daemon answers. Neither send nor stop is honest yet. */
+  runKnown?: boolean
   queuedMessages?: QueuedMessage[]
   onEnqueue?: (draft: PromptDraft) => void
   onSendQueuedNow?: (id: string) => void
@@ -78,6 +80,7 @@ export function PromptInput({
   onSend,
   onAbort,
   isBusy,
+  runKnown = true,
   queuedMessages,
   onEnqueue,
   onSendQueuedNow,
@@ -1110,7 +1113,17 @@ export function PromptInput({
 
           {/* Right Action Button (Send / Stop) */}
           <div className="flex items-center gap-2">
-            {isBusy ? (
+            {!runKnown ? (
+              <button
+                type="button"
+                disabled
+                className="w-7 h-7 rounded-md bg-zinc-800 text-zinc-400 flex items-center justify-center cursor-wait"
+                title={isZh ? '正在确认状态…' : 'Checking status…'}
+                aria-label={isZh ? '正在确认状态' : 'Checking status'}
+              >
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              </button>
+            ) : isBusy ? (
               <>
                 {(text.trim() || attachments.length > 0) && (
                   <button

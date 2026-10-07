@@ -52,7 +52,8 @@ At most three. System-wide. Modules reference these; they do not restate them.
 - `src/utils/prompt-parts.ts` — `buildPromptParts`, `buildOptimisticMessage`, `reconcileHistoryWithOptimistic`. Single part builder for UI and `prompt_async`.
 - `src/utils/session-workspace.ts` — project resolve, `formatProjectPill` (`[APISpace]`), `getProjectAbbreviation` (`AS`/`ON`/`OD`/`AI`/`NS`).
 - `src/components/{chat,layout,map,search,settings,diff}/` — UI stores named in the table above. `map/canvas/session-search.ts`, `HighlightedText.tsx`, `blueprint-action-helpers.ts` belong to DialogueBlueprint. Diff drawer chrome is StreamingChat.
-- `serve.mjs` — host static + `/api/map`, `/api/export-session`, `/api/proxy/relay-quota`, `/api/materialize-attachment`. Bind `127.0.0.1`. Materialize writes sanitized basenames under `/home/workdir/attachments` and `APISpace/attachments` (also `image.png`). Non-blocking; not the daemon prompt contract.
+- `serve.mjs` — host static + `/api/map`, `/api/export-session`, `/api/proxy/relay-quota`, `/api/materialize-attachment`. Bind `127.0.0.1`. Materialize writes sanitized basenames under `/home/workdir/attachments` and `APISpace/attachments` (also `image.png`). Non-blocking; not the daemon prompt contract. `focusInstalledApp` debounce is 200ms and prefers `launch_pwa.pyw` (focus an existing OpenCode5173 window, then spawn). `index.html` publishes `/api/active-session` onto `switch-session` only.
+
 
 Skill (JIT, not this tree): `OpenCodeCompanionDev`. Daemon/jail: `OpenCodeBackendOps`. Channel provision on `:3000`: `GatewayAPIManager`.
 

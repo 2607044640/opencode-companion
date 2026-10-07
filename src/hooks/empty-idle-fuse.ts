@@ -68,6 +68,50 @@ export function hasTurnContent(msg: Message): boolean {
   return msg.parts.some(partHasVisibleContent)
 }
 
+export interface AutoRetryDecision {
+  readonly retry: boolean
+  readonly reason: 'empty_response' | 'system_abort' | 'already_retried' | 'not_empty' | 'has_error_body'
+}
+
+/** One automatic resend per user message, only for an empty relay failure.
+ * A 502 that already has an error body stays on the banner: Host go-on owns that path.
+ * repetition_loop is not a reason here.
+ */
+export function userTurnKey(messages: readonly Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.info.role !== 'user') continue
+    const text = msg.parts
+      .filter((part): part is TextPart => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n')
+      .trim()
+    return text || msg.info.id
+  }
+  return null
+}
+
+export function decideEmptyTurnAutoRetry(input: {
+  readonly fuseKind: EmptyIdleFuseKind
+  readonly turnKey: string | null
+  readonly alreadyRetriedTurnKey: string | null
+  readonly assistantHasError: boolean
+}): AutoRetryDecision {
+  if (input.fuseKind !== 'empty_response' && input.fuseKind !== 'system_abort') {
+    return { retry: false, reason: 'not_empty' }
+  }
+  if (input.turnKey === null) {
+    return { retry: false, reason: 'not_empty' }
+  }
+  if (input.assistantHasError) {
+    return { retry: false, reason: 'has_error_body' }
+  }
+  if (input.turnKey === input.alreadyRetriedTurnKey) {
+    return { retry: false, reason: 'already_retried' }
+  }
+  return { retry: true, reason: input.fuseKind }
+}
+
 export function classifyEmptyIdleFuse(input: EmptyIdleFuseInput): EmptyIdleFuseVerdict {
   const last = input.lastMessage
   if (!last || last.info.role !== 'assistant') {
