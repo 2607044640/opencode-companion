@@ -82,22 +82,28 @@ export function toWindowsPath(posixPath: string): string {
     return `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, '\\')}`
   }
 
-  // 3. Known workspace roots
+  // 3. Known workspace roots (case-insensitive)
+  const cleanedLower = cleaned.toLowerCase()
   for (const { jail, win } of WORKSPACE_PATH_MAPPINGS) {
-    if (cleaned === jail || cleaned.startsWith(jail + '/')) {
+    const jailLower = jail.toLowerCase()
+    if (cleanedLower === jailLower || cleanedLower.startsWith(jailLower + '/')) {
       const rel = cleaned.slice(jail.length).replace(/^\/+/, '')
       return rel ? `${win}\\${rel.replace(/\//g, '\\')}` : win
     }
   }
 
-  // 4. Generic /home/developer/projects/<name> or /workspace/projects/<name>
-  const genericMatch = cleaned.match(/^(?:\/home\/developer|\/workspace)\/projects\/([^/]+)(?:\/(.*))?$/i)
+  // 4. Generic /home/developer/projects/<name>, /workspace/projects/<name>, or /projects/<name>
+  const genericMatch = cleaned.match(/^(?:(?:\/home\/developer|\/workspace)\/projects|\/projects)\/([^/]+)(?:\/(.*))?$/i)
   if (genericMatch) {
     const wsName = genericMatch[1]
     const rest = genericMatch[2] ? '\\' + genericMatch[2].replace(/\//g, '\\') : ''
     const lowerWs = wsName.toLowerCase()
     let base = `C:\\${wsName}`
     if (lowerWs === 'aispace') base = 'C:\\Godot\\AISpace'
+    else if (lowerWs === 'apispace') base = 'C:\\APISpace'
+    else if (lowerWs === 'aicore') base = 'C:\\AICore'
+    else if (lowerWs === 'obsidiannote') base = 'C:\\ObsidianNote'
+    else if (lowerWs === 'obsidiandev') base = 'C:\\ObsidianDev'
     return `${base}${rest}`
   }
 

@@ -3,6 +3,7 @@ import { FileTypeIcon } from '../common/FileTypeIcon'
 import { DelayedTooltip } from '../common/DelayedTooltip'
 import type { EditItem } from '../../utils/worked-summary'
 import { useDiffDrawer, editItemToDiffPayload } from '../diff/DiffDrawerContext'
+import { toWindowsPath } from '../../utils/path-resolver'
 import { tr } from '../../utils/i18n'
 
 interface EditRowProps {
@@ -17,15 +18,17 @@ export function EditRow({ item, messageId }: EditRowProps) {
     open(editItemToDiffPayload(item, messageId))
   }
 
+  const winPath = toWindowsPath(item.filePath)
+
   return (
     <button
       onClick={handleClick}
       type="button"
       className="w-full flex items-center justify-between px-2.5 py-1.5 rounded bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800/50 text-left transition-all group select-none cursor-pointer"
       title={tr(
-        `点击查看差异: ${item.filePath}`,
-        `Click to open diff viewer: ${item.filePath}`,
-        `Klicken, um Diff-Viewer zu öffnen: ${item.filePath}`
+        `点击查看差异: ${winPath}`,
+        `Click to open diff viewer: ${winPath}`,
+        `Klicken, um Diff-Viewer zu öffnen: ${winPath}`
       )}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">

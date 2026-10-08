@@ -11,6 +11,7 @@ import {
 import type { ExploreItem } from '../../utils/worked-summary'
 import { FileTypeIcon } from '../common/FileTypeIcon'
 import { FileActionMenu } from '../common/FileActionMenu'
+import { toWindowsPath } from '../../utils/path-resolver'
 import { useI18n } from '../../utils/i18n'
 
 export interface FileViewModalProps {
@@ -223,7 +224,8 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
   }
 
   const handleCopyPath = () => {
-    navigator.clipboard.writeText(parsed.filePath)
+    if (!parsed.filePath) return
+    navigator.clipboard.writeText(toWindowsPath(parsed.filePath))
     setCopiedPath(true)
     setTimeout(() => setCopiedPath(false), 2000)
   }
@@ -276,7 +278,7 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
                   title={tr('点击复制路径', 'Click to copy path')}
                   onClick={handleCopyPath}
                 >
-                  {parsed.filePath.replace(/\\/g, '/')}
+                  {toWindowsPath(parsed.filePath)}
                   {copiedPath && (
                     <span className="ml-1.5 text-emerald-400 text-[9px] font-sans font-medium">
                       ({tr('已复制路径', 'Copied path')})
@@ -313,7 +315,7 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
               )}
             </button>
             {parsed.filePath && (
-              <FileActionMenu filePath={parsed.filePath} line={parsed.lineRange} />
+              <FileActionMenu filePath={toWindowsPath(parsed.filePath)} line={parsed.lineRange} />
             )}
             <button
               type="button"

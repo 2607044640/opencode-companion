@@ -19,6 +19,10 @@ const MAX_PERIOD = 30
 const MIN_LINE = 4
 const SHORT_ACKS = new Set(['ok', 'okay', 'yes', 'no', 'done', 'hmm', '...', '…'])
 const SENTENCE_SPLIT = /(?<=[。！？.!?])\s*/
+const STATUS_PREFIX = /^(?:正在确认|正在发送|正在)/
+const STATUS_WINDOW = 36
+const STATUS_MAX_UNIQUE = 14
+const STATUS_MIN_TOP = 6
 
 function loopUnits(text: string): string[] {
   const units: string[] = []
@@ -99,7 +103,37 @@ function detectLineCycle(text: string): RepetitionMatch {
       }
     }
   }
+  const shuffled = detectShuffledStatus(units)
+  if (shuffled) return shuffled
   return { isLoop: false, cleanText: text }
+}
+
+function statusKey(line: string): string {
+  return line.replace(STATUS_PREFIX, '').trim() || line
+}
+
+/** Same confirmation set, order changing. A fixed period does not match. */
+function detectShuffledStatus(units: string[]): RepetitionMatch | null {
+  const counted = units.filter(lineCounts)
+  if (counted.length < STATUS_WINDOW) return null
+  const window = counted.slice(-STATUS_WINDOW)
+  const counts = new Map<string, number>()
+  for (const line of window) {
+    const key = statusKey(line)
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  let top = 0
+  for (const value of counts.values()) {
+    if (value > top) top = value
+  }
+  if (counts.size > STATUS_MAX_UNIQUE || top < STATUS_MIN_TOP) return null
+  const keep = counted.slice(0, -STATUS_WINDOW)
+  return {
+    isLoop: true,
+    repeatCount: top,
+    cleanText: `${keep.join('\n').trim()}\n\n${REPETITION_LOOP_NOTICE}`,
+    truncatedCount: STATUS_WINDOW,
+  }
 }
 
 /**

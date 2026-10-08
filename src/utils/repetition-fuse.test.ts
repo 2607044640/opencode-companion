@@ -28,6 +28,41 @@ describe('repetition-fuse: detectRepetitionLoop', () => {
     assert.ok((result.repeatCount || 0) >= 3)
   })
 
+  it('detects the same confirmation set when the order changes', () => {
+    const lines = [
+      '最终回复已发送。',
+      '正在确认最终回复已发送。',
+      '正在确认没有遗漏的步骤。',
+      '没有遗漏的步骤。',
+      '正在确认所有文件修改已保存。',
+      '所有文件修改已保存。',
+      '正在确认测试通过。',
+      '测试通过。',
+      '正在确认文档更新完成。',
+      '文档更新完成。',
+      '正在确认代码修改完成。',
+      '代码修改完成。',
+      '正在确认最终回复准备就绪。',
+      '最终回复准备就绪。',
+      '正在发送最终回复。',
+      '正在确认没有遗漏。',
+      '没有遗漏。',
+      '正在确认所有修改已完成。',
+      '所有修改已完成。',
+    ]
+    const bag = [...lines, ...lines, ...lines, ...Array.from({ length: 12 }, () => '最终回复已发送。')]
+    const order = [8, 2, 15, 0, 11, 4, 19, 6, 1, 13, 7, 16, 3, 10, 18, 5, 12, 9, 14, 17]
+    const shuffled = [
+      ...order.map((i) => bag[i % bag.length]),
+      ...Array.from({ length: 40 }, (_, i) => bag[(i * 7 + 3) % bag.length]),
+    ]
+    const result = detectRepetitionLoop(shuffled.join('\n'))
+    assert.equal(result.isLoop, true)
+    assert.ok(result.cleanText.includes(REPETITION_LOOP_NOTICE))
+    const prose = Array.from({ length: 40 }, (_, i) => `第${i}步看了不同的文件，结论也不一样。`).join('\n')
+    assert.equal(detectRepetitionLoop(prose).isLoop, false)
+  })
+
   it('does not flag ok or seven copies', () => {
     assert.equal(detectRepetitionLoop('ok\n'.repeat(20)).isLoop, false)
     const line = '正在确认所有修改已完成。'

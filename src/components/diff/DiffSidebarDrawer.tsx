@@ -6,6 +6,7 @@ import { FileTypeIcon } from '../common/FileTypeIcon'
 import { FileActionMenu } from '../common/FileActionMenu'
 import { usePreferences } from '../../utils/preferences'
 import { formatFileDiffMarker, formatAllDiffMarkers } from '../../utils/tool-diff'
+import { toWindowsPath } from '../../utils/path-resolver'
 import { useI18n } from '../../utils/i18n'
 
 interface CopyDiffButtonProps {
@@ -66,9 +67,17 @@ export function DiffSidebarDrawer() {
 
   const handleCopyDiffAll = () => {
     const text = isTurnMode
-      ? formatAllDiffMarkers(turnFiles)
+      ? formatAllDiffMarkers(
+          turnFiles.map((f) => ({
+            ...f,
+            filePath: toWindowsPath(f.filePath),
+          }))
+        )
       : payload
-      ? formatFileDiffMarker(payload)
+      ? formatFileDiffMarker({
+          ...payload,
+          filePath: toWindowsPath(payload.filePath),
+        })
       : ''
     if (!text) return
     navigator.clipboard.writeText(text)
@@ -77,7 +86,10 @@ export function DiffSidebarDrawer() {
   }
 
   const handleCopySingleFile = (file: any, key: string) => {
-    const text = formatFileDiffMarker(file)
+    const text = formatFileDiffMarker({
+      ...file,
+      filePath: toWindowsPath(file.filePath),
+    })
     if (!text) return
     navigator.clipboard.writeText(text)
     setCopiedFileKey(key)
@@ -179,15 +191,15 @@ export function DiffSidebarDrawer() {
               </span>
             )}
           </div>
-          <div className="text-[10px] font-mono text-zinc-500 truncate" title={payload!.filePath}>
-            {payload!.filePath}
+          <div className="text-[10px] font-mono text-zinc-500 truncate" title={toWindowsPath(payload!.filePath)}>
+            {toWindowsPath(payload!.filePath)}
           </div>
         </div>
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
         <CopyDiffButton copied={copied} onClick={handleCopyDiffAll} />
-        {payload?.filePath && <FileActionMenu filePath={payload.filePath} />}
+        {payload?.filePath && <FileActionMenu filePath={toWindowsPath(payload.filePath)} />}
         <button
           onClick={close}
           className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
@@ -231,9 +243,9 @@ export function DiffSidebarDrawer() {
                 )}
                 <span
                   className="text-[11px] font-mono text-zinc-500 truncate"
-                  title={file.filePath}
+                  title={toWindowsPath(file.filePath)}
                 >
-                  {file.filePath.replace(/\\/g, '/')}
+                  {toWindowsPath(file.filePath)}
                 </span>
               </div>
 
@@ -265,7 +277,7 @@ export function DiffSidebarDrawer() {
                   )}
                 </button>
                 <div onClick={(e) => e.stopPropagation()}>
-                  <FileActionMenu filePath={file.filePath} />
+                  <FileActionMenu filePath={toWindowsPath(file.filePath)} />
                 </div>
                 {isCollapsed ? (
                   <ChevronRight className="w-4 h-4 text-zinc-400" />
