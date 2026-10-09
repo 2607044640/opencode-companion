@@ -16,6 +16,16 @@ describe('Session Title Sanitization & Normalization', () => {
     assert.equal(sanitizeSessionTitle('Code Audit [APISpace]'), 'Code Audit [APISpace]')
   })
 
+  it('strips envelope tags, newlines, and a leading Ctl token', () => {
+    assert.equal(
+      sanitizeSessionTitle('<user_intent>\ncpen 它弄完了，我把下载的核心文件，放入下载里面'),
+      '它弄完了，我把下载的核心文件，放入下载里面'
+    )
+    assert.equal(sanitizeSessionTitle('cpen: 新开会话必须命名'), '新开会话必须命名')
+    const long = 'a'.repeat(60)
+    assert.equal(sanitizeSessionTitle(long), `${'a'.repeat(48)}...`)
+  })
+
   it('handles non-string or falsy values safely', () => {
     assert.equal(sanitizeSessionTitle(null), 'Untitled Session')
     assert.equal(sanitizeSessionTitle(undefined), 'Untitled Session')

@@ -116,30 +116,29 @@ export function Header({
   } | null>(null)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
-  const [copiedTabId, setCopiedTabId] = useState<string | null>(null)
+  const [copiedInfo, setCopiedInfo] = useState<{ tabId: string; type: 'title' | 'session_id' } | null>(null)
+  const [pressingTabId, setPressingTabId] = useState<string | null>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isLongPressedRef = useRef(false)
 
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) {
         clearTimeout(copyTimeoutRef.current)
       }
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
     }
   }, [])
 
-  const handleCopyTabTitle = async (
-    e: React.MouseEvent,
-    tabId: string,
-    titleText: string
-  ) => {
-    e.stopPropagation()
-    e.preventDefault()
-    if (!titleText) return
-
+  const copyTextToClipboard = async (text: string): Promise<boolean> => {
+    if (!text) return false
     let copied = false
     try {
       if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(titleText)
+        await navigator.clipboard.writeText(text)
         copied = true
       }
     } catch {
@@ -149,7 +148,7 @@ export function Header({
     if (!copied) {
       try {
         const textArea = document.createElement('textarea')
-        textArea.value = titleText
+        textArea.value = text
         textArea.style.position = 'fixed'
         textArea.style.left = '-9999px'
         textArea.style.top = '-9999px'
@@ -162,20 +161,77 @@ export function Header({
         copied = false
       }
     }
+    return copied
+  }
 
-    setCopiedTabId(tabId)
+  const triggerCopyFeedback = (tabId: string, type: 'title' | 'session_id') => {
+    setCopiedInfo({ tabId, type })
     if (copyTimeoutRef.current) {
       clearTimeout(copyTimeoutRef.current)
     }
     copyTimeoutRef.current = setTimeout(() => {
-      setCopiedTabId(null)
+      setCopiedInfo(null)
     }, 2000)
+
+    const msg =
+      type === 'session_id'
+        ? (isZh ? '复制session id成功' : 'Session ID copied')
+        : (isZh ? '复制标题成功' : 'Title copied')
 
     window.dispatchEvent(
       new CustomEvent('opencode-toast', {
-        detail: { message: isZh ? '复制标题成功' : 'Title copied' },
+        detail: { message: msg },
       })
     )
+  }
+
+  const handleBadgePointerDown = (
+    e: React.PointerEvent,
+    tabId: string,
+    sessionId: string
+  ) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+    }
+    isLongPressedRef.current = false
+    setPressingTabId(tabId)
+
+    longPressTimerRef.current = setTimeout(async () => {
+      isLongPressedRef.current = true
+      setPressingTabId(null)
+      await copyTextToClipboard(sessionId)
+      triggerCopyFeedback(tabId, 'session_id')
+    }, 2000)
+  }
+
+  const handleBadgePointerUpOrLeave = (e: React.PointerEvent) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    setPressingTabId(null)
+  }
+
+  const handleBadgeClick = async (
+    e: React.MouseEvent,
+    tabId: string,
+    titleText: string
+  ) => {
+    e.stopPropagation()
+    e.preventDefault()
+
+    // If long press already executed at 2s mark, swallow the click
+    if (isLongPressedRef.current) {
+      isLongPressedRef.current = false
+      return
+    }
+
+    // Normal click: copy title
+    await copyTextToClipboard(titleText)
+    triggerCopyFeedback(tabId, 'title')
   }
 
   // 1. Dynamic Model Profile & Operational Context Ceiling
@@ -268,7 +324,9 @@ export function Header({
             const projectBadge = session ? resolveSessionProject(session, projects) : null
             const tabBadge = isDraft ? '+' : (projectBadge?.abbreviation || 'OP')
             const isEditing = !isDraft && editingTabId === tabId
-            const isCopied = copiedTabId === tabId
+            const isCopied = copiedInfo?.tabId === tabId
+            const isPressing = pressingTabId === tabId && !isCopied
+            const sessionIdToCopy = isDraft ? 'draft' : (session?.id || tabId)
             const titleToCopy = (session?.title && session.title.trim()) || rawTitle || title
 
             const handleCommitTitle = () => {

@@ -256,7 +256,15 @@ export function deduplicateAndFilterProjects(rawProjects: Project[]): Project[] 
 }
 
 export function sanitizeSessionTitle(rawTitle: unknown, defaultFallback = 'Untitled Session'): string {
-  const coerced = String(rawTitle ?? '').trim()
+  let coerced = String(rawTitle ?? '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  coerced = coerced.replace(/^(?:cpen|cpec|cen|cec|cpn|cpc|cpe\+n|cpe\+c)\b[:\s]*/i, '').trim()
+  if (coerced.length > 48) {
+    coerced = `${coerced.slice(0, 48).trimEnd()}...`
+  }
   return coerced || defaultFallback
 }
 
