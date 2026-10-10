@@ -207,7 +207,7 @@ export function Header({
     }, 2000)
   }
 
-  const handleBadgePointerUpOrLeave = (e: React.PointerEvent) => {
+  const handleBadgePointerUpOrLeave = () => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current)
       longPressTimerRef.current = null
@@ -377,27 +377,35 @@ export function Header({
                     : 'bg-[#121418]/80 text-[#8b949e] border-t-transparent hover:bg-[#181b20] hover:text-[#c9d1d9] border-x border-[#1a1d24]'
                 }`}
               >
-                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) with click-to-copy */}
+                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) with click / 2s long-press */}
                 <div className="relative inline-flex items-center shrink-0">
                   <span
-                    onClick={(e) => handleCopyTabTitle(e, tabId, titleToCopy)}
+                    onClick={(e) => handleBadgeClick(e, tabId, titleToCopy)}
+                    onPointerDown={(e) => handleBadgePointerDown(e, tabId, sessionIdToCopy)}
+                    onPointerUp={handleBadgePointerUpOrLeave}
+                    onPointerLeave={handleBadgePointerUpOrLeave}
+                    onPointerCancel={handleBadgePointerUpOrLeave}
                     onMouseDown={(e) => e.stopPropagation()}
                     className={`min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center select-none shadow-sm cursor-pointer transition-all ${
                       isCopied
                         ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+                        : isPressing
+                        ? 'bg-amber-900 text-amber-200 border border-amber-500 scale-95 shadow-inner'
                         : 'bg-amber-950/80 text-amber-400 border border-amber-800/40 hover:brightness-125 hover:border-amber-600/80 active:scale-95'
                     }`}
                     title={
                       isZh
-                        ? `${projectBadge ? `所属工程: ${projectBadge.name}\n` : ''}点击复制标题: ${titleToCopy}`
-                        : `${projectBadge ? `Project: ${projectBadge.name}\n` : ''}Click to copy title: ${titleToCopy}`
+                        ? `${projectBadge ? `所属工程: ${projectBadge.name}\n` : ''}点击复制标题: ${titleToCopy}\n长按2秒复制会话ID: ${sessionIdToCopy}`
+                        : `${projectBadge ? `Project: ${projectBadge.name}\n` : ''}Click to copy title: ${titleToCopy}\nHold 2s to copy session ID: ${sessionIdToCopy}`
                     }
                   >
                     {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-300 stroke-[2.5]" /> : tabBadge}
                   </span>
                   {isCopied && (
                     <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#16181f]/95 text-emerald-400 text-[10px] font-medium rounded-md shadow-xl border border-emerald-500/60 whitespace-nowrap z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-1">
-                      {isZh ? '复制标题成功' : 'Title copied'}
+                      {isZh
+                        ? (copiedInfo?.type === 'session_id' ? '复制session id成功' : '复制标题成功')
+                        : (copiedInfo?.type === 'session_id' ? 'Session ID copied' : 'Title copied')}
                     </span>
                   )}
                 </div>
