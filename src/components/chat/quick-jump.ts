@@ -145,18 +145,37 @@ export function computeDialogueTicks(
 
 /**
  * Computes the position and size of the viewport indicator thumb on the track rail.
+ * Dynamically scales down as message count / scrollHeight increases, supporting compact
+ * rendering for dense dialogue histories.
  */
-export function computeViewportThumb(container: {
-  scrollHeight: number
-  scrollTop: number
-  clientHeight: number
-}): { topPct: number; heightPct: number } {
+export function computeViewportThumb(
+  container: {
+    scrollHeight: number
+    scrollTop: number
+    clientHeight: number
+  },
+  options: {
+    minThumbPx?: number
+    minHeightPct?: number
+  } = {}
+): { topPct: number; heightPct: number } {
   const { scrollHeight, scrollTop, clientHeight } = container
   if (scrollHeight <= 0 || clientHeight >= scrollHeight) {
     return { topPct: 0, heightPct: 100 }
   }
 
-  const heightPct = Math.max(8, Math.min(100, (clientHeight / scrollHeight) * 100))
+  // Dynamically derive minimum height percentage from desired min thumb pixels (default 12px)
+  // while ensuring thumb remains responsive and compact for massive dialogue histories.
+  const minThumbPx = options.minThumbPx ?? 12
+  const estimatedTrackHeight = Math.max(120, clientHeight - 48)
+  const defaultMinPct = (minThumbPx / estimatedTrackHeight) * 100
+  const minHeightPct =
+    options.minHeightPct !== undefined
+      ? options.minHeightPct
+      : Math.max(1.2, Math.min(6, defaultMinPct))
+
+  const rawHeightPct = (clientHeight / scrollHeight) * 100
+  const heightPct = Math.max(minHeightPct, Math.min(100, rawHeightPct))
   const topPct = (scrollTop / Math.max(1, scrollHeight)) * 100
   const clampedTopPct = Math.max(0, Math.min(100 - heightPct, topPct))
 

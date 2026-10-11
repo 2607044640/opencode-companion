@@ -245,34 +245,46 @@ export function TimelineQuickJump({
           />
 
           {/* Dialogue Ticks ("x个小条") */}
-          {ticks.map((tick) => (
-            <div
-              key={tick.index}
-              onClick={(e) => {
-                e.stopPropagation()
-                onJumpToUserIndex(tick.index)
-              }}
-              style={{
-                top: `${tick.percentage}%`,
-                transform: 'translateY(-50%)',
-              }}
-              className={`group/tick absolute left-0.5 right-0.5 cursor-pointer z-10 transition-all ${
-                tick.isActive
-                  ? 'h-[4px] rounded-full bg-orange-400 shadow-sm shadow-orange-500/80 ring-1 ring-orange-300 scale-x-125'
-                  : 'h-[3px] rounded-full bg-amber-500/75 hover:bg-orange-400 hover:h-[5px] hover:scale-x-125 shadow-xs shadow-amber-500/40'
-              }`}
-            >
-              {/* Left Hover Tooltip: Preview turn # and snippet text */}
-              <div className="absolute right-5 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-[#181a20]/95 border border-[#30363d] text-zinc-200 text-[11px] font-sans shadow-2xl pointer-events-none z-30 opacity-0 group-hover/tick:opacity-100 transition-opacity duration-150 flex items-center gap-1.5 whitespace-nowrap">
-                <span className="w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center bg-amber-950/80 text-amber-400 border border-amber-700/50 shrink-0">
-                  #{tick.index + 1}
-                </span>
-                <span className="max-w-[200px] truncate text-zinc-300 font-mono text-[10px]">
-                  {tick.snippet}
-                </span>
+          {ticks.map((tick) => {
+            const isVeryDense = ticks.length > 50
+            const isDense = ticks.length > 25
+            const tickHeightClass = isVeryDense
+              ? tick.isActive
+                ? 'h-[2.5px] rounded-full bg-orange-400 shadow-sm shadow-orange-500/80 ring-1 ring-orange-300 scale-x-125'
+                : 'h-[1.5px] rounded-full bg-amber-500/75 hover:bg-orange-400 hover:h-[3px] hover:scale-x-125 shadow-xs shadow-amber-500/40'
+              : isDense
+              ? tick.isActive
+                ? 'h-[3px] rounded-full bg-orange-400 shadow-sm shadow-orange-500/80 ring-1 ring-orange-300 scale-x-125'
+                : 'h-[2px] rounded-full bg-amber-500/75 hover:bg-orange-400 hover:h-[4px] hover:scale-x-125 shadow-xs shadow-amber-500/40'
+              : tick.isActive
+              ? 'h-[4px] rounded-full bg-orange-400 shadow-sm shadow-orange-500/80 ring-1 ring-orange-300 scale-x-125'
+              : 'h-[3px] rounded-full bg-amber-500/75 hover:bg-orange-400 hover:h-[5px] hover:scale-x-125 shadow-xs shadow-amber-500/40'
+
+            return (
+              <div
+                key={tick.index}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onJumpToUserIndex(tick.index)
+                }}
+                style={{
+                  top: `${tick.percentage}%`,
+                  transform: 'translateY(-50%)',
+                }}
+                className={`group/tick absolute left-0.5 right-0.5 cursor-pointer z-10 transition-all ${tickHeightClass}`}
+              >
+                {/* Left Hover Tooltip: Preview turn # and snippet text */}
+                <div className="absolute right-5 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-[#181a20]/95 border border-[#30363d] text-zinc-200 text-[11px] font-sans shadow-2xl pointer-events-none z-30 opacity-0 group-hover/tick:opacity-100 transition-opacity duration-150 flex items-center gap-1.5 whitespace-nowrap">
+                  <span className="w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center bg-amber-950/80 text-amber-400 border border-amber-700/50 shrink-0">
+                    #{tick.index + 1}
+                  </span>
+                  <span className="max-w-[200px] truncate text-zinc-300 font-mono text-[10px]">
+                    {tick.snippet}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Bottom Button: Down arrow (▼) */}

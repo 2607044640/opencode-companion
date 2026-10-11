@@ -31,6 +31,11 @@ import { QueuedMessagesList } from './QueuedMessagesList'
 import type { QueuedMessage, QueuedPromptOptions } from '../../utils/message-queue'
 import { applySlashCommand, detectSlashTrigger } from './slash-trigger'
 import { rankPopoverItems } from './popover-rank'
+import {
+  getStoredPromptDraft,
+  saveStoredPromptDraft,
+  clearStoredPromptDraft,
+} from '../../utils/prompt-draft'
 
 export interface DraftInjection {
   text: string
@@ -45,6 +50,7 @@ export interface PromptDraft {
 }
 
 interface PromptInputProps {
+  activeSessionId?: string | null
   activeSession?: Session | null
   onSend: (
     text: string,
@@ -76,6 +82,7 @@ interface PromptInputProps {
 }
 
 export function PromptInput({
+  activeSessionId,
   activeSession,
   onSend,
   onAbort,
@@ -217,6 +224,118 @@ export function PromptInput({
     }
     document.addEventListener('pointerdown', handleClickOutside)
     return () => document.removeEventListener('pointerdown', handleClickOutside)
+  }, [])
+
+  // Session draft autosave & persistence (5s interval + debounced save + window flush)
+  const currentSessionId = activeSessionId || activeSession?.id || '__draft__'
+  const [isDraftSaved, setIsDraftSaved] = useState(false)
+  const textRef = useRef(text)
+  const attachmentsRef = useRef(attachments)
+  const currentSessionIdRef = useRef(currentSessionId)
+  const prevSessionIdRef = useRef<string | null>(null)
+  const isInitialDraftLoadedRef = useRef(false)
+
+  // Keep live refs synced
+  useEffect(() => {
+    textRef.current = text
+    attachmentsRef.current = attachments
+    currentSessionIdRef.current = currentSessionId
+  }, [text, attachments, currentSessionId])
+
+  // Restore draft when session changes (or on initial mount)
+  useEffect(() => {
+    // If switching between sessions after initial load, flush outgoing draft first
+    if (
+      isInitialDraftLoadedRef.current &&
+      prevSessionIdRef.current &&
+      prevSessionIdRef.current !== currentSessionId
+    ) {
+      saveStoredPromptDraft(prevSessionIdRef.current, {
+        text: textRef.current,
+        attachments: attachmentsRef.current,
+      })
+    }
+
+    const stored = getStoredPromptDraft(currentSessionId)
+    if (stored) {
+      setText(stored.text)
+      setAttachments(stored.attachments || [])
+      setIsDraftSaved(Boolean(stored.text.trim() || (stored.attachments && stored.attachments.length > 0)))
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto'
+          textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`
+        }
+      })
+    } else if (isInitialDraftLoadedRef.current) {
+      setText('')
+      setAttachments([])
+      setIsDraftSaved(false)
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
+      }
+    }
+
+    prevSessionIdRef.current = currentSessionId
+    isInitialDraftLoadedRef.current = true
+  }, [currentSessionId])
+
+  // Periodic autosave loop: saves every 5 seconds continuously while editing
+  useEffect(() => {
+    const autosaveTimer = setInterval(() => {
+      const sid = currentSessionIdRef.current
+      const curText = textRef.current
+      const curAtts = attachmentsRef.current
+      if (curText.trim() || (curAtts && curAtts.length > 0)) {
+        saveStoredPromptDraft(sid, { text: curText, attachments: curAtts })
+        setIsDraftSaved(true)
+      } else {
+        clearStoredPromptDraft(sid)
+        setIsDraftSaved(false)
+      }
+    }, 5000)
+
+    return () => clearInterval(autosaveTimer)
+  }, [])
+
+  // Debounced autosave (1s) after typing or attachment change
+  useEffect(() => {
+    if (!isInitialDraftLoadedRef.current) return
+
+    const debounceTimer = setTimeout(() => {
+      const sid = currentSessionIdRef.current
+      if (text.trim() || attachments.length > 0) {
+        saveStoredPromptDraft(sid, { text, attachments })
+        setIsDraftSaved(true)
+      } else {
+        clearStoredPromptDraft(sid)
+        setIsDraftSaved(false)
+      }
+    }, 1000)
+
+    return () => clearTimeout(debounceTimer)
+  }, [text, attachments])
+
+  // Synchronous flush before page unload / F5 refresh / tab close
+  useEffect(() => {
+    const flushDraft = () => {
+      const sid = currentSessionIdRef.current
+      const curText = textRef.current
+      const curAtts = attachmentsRef.current
+      if (curText.trim() || (curAtts && curAtts.length > 0)) {
+        saveStoredPromptDraft(sid, { text: curText, attachments: curAtts })
+      } else {
+        clearStoredPromptDraft(sid)
+      }
+    }
+
+    window.addEventListener('beforeunload', flushDraft)
+    window.addEventListener('pagehide', flushDraft)
+    return () => {
+      window.removeEventListener('beforeunload', flushDraft)
+      window.removeEventListener('pagehide', flushDraft)
+      flushDraft()
+    }
   }, [])
 
   const activeSessionRef = useRef(activeSession)
@@ -744,6 +863,9 @@ export function PromptInput({
   }
 
   const clearComposer = () => {
+    const sid = currentSessionIdRef.current
+    clearStoredPromptDraft(sid)
+    setIsDraftSaved(false)
     setText('')
     setAttachments([])
     setPopoverOpen(false)
@@ -1113,6 +1235,16 @@ export function PromptInput({
 
           {/* Right Action Button (Send / Stop) */}
           <div className="flex items-center gap-2">
+            {/* Subtle Draft Autosave indicator */}
+            {isDraftSaved && (text.trim() || attachments.length > 0) && (
+              <span
+                className="hidden sm:inline-flex items-center gap-1 text-[11px] text-zinc-500 font-mono select-none px-1.5 py-0.5 rounded bg-zinc-900/60 border border-zinc-800/50"
+                title={isZh ? '草稿每5秒自动保存至本地，刷新或关闭不会丢失' : 'Draft autosaves every 5s, will not be lost on reload'}
+              >
+                <Check className="w-2.5 h-2.5 text-emerald-500" />
+                <span>{isZh ? '草稿已保存' : 'Draft saved'}</span>
+              </span>
+            )}
             {!runKnown ? (
               <button
                 type="button"

@@ -147,6 +147,34 @@ describe('Dialogue Navigation Rail Geometry & Ticks', () => {
     // top = 250 / 1000 * 100 = 25%
     assert.equal(thumb.topPct, 25)
   })
+
+  test('computeViewportThumb scales down to compact size for large dialogue counts', () => {
+    // 30+ dialogues: scrollHeight is 20,000, clientHeight is 700 (ratio = 3.5%)
+    // Previously clamped to 8%, now scales down to 3.5%
+    const container = { scrollHeight: 20000, scrollTop: 5000, clientHeight: 700 }
+    const thumb = computeViewportThumb(container)
+
+    assert.equal(thumb.heightPct, 3.5)
+    assert.equal(thumb.topPct, 25)
+  })
+
+  test('computeViewportThumb clamps to sleek minimum thumb size for massive dialogue volumes', () => {
+    // 100+ dialogues: scrollHeight is 100,000, clientHeight is 800
+    // Raw ratio is 0.8%, which smoothly clamps to ~1.6% (~12px) without overflowing track bottom
+    const container = { scrollHeight: 100000, scrollTop: 100000, clientHeight: 800 }
+    const thumb = computeViewportThumb(container)
+
+    assert.ok(thumb.heightPct <= 2.0 && thumb.heightPct >= 1.2)
+    // Ensure thumb + top never exceeds 100%
+    assert.ok(thumb.topPct + thumb.heightPct <= 100.1)
+  })
+
+  test('computeViewportThumb respects custom minHeightPct and minThumbPx overrides', () => {
+    const container = { scrollHeight: 50000, scrollTop: 10000, clientHeight: 500 }
+    const thumbWithCustomMin = computeViewportThumb(container, { minHeightPct: 2.0 })
+    assert.equal(thumbWithCustomMin.heightPct, 2.0)
+    assert.equal(thumbWithCustomMin.topPct, 20)
+  })
 })
 
 describe('Command Copy Separation Logic', () => {

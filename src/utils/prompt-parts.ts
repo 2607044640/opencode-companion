@@ -123,9 +123,22 @@ export function buildOptimisticMessage(params: {
   }
 }
 
+function extractUserMessageText(msg: Message): string {
+  return msg.parts
+    .filter((pt): pt is TextPart => pt.type === 'text')
+    .map((pt) => pt.text)
+    .join('\n')
+    .trim()
+}
+
 /**
  * Resolves session message history against previous local state.
  * Prevents wiping active optimistic parts if backend history has not yet materialized them.
+ *
+ * CRITICAL INVARIANT:
+ * File parts from an older historical turn MUST NEVER be leaked into a subsequent
+ * user message turn. Only pending optimistic user messages that explicitly contain
+ * optimistic file parts may reconcile into their corresponding backend message.
  */
 export function reconcileHistoryWithOptimistic(
   history: Message[],
@@ -136,30 +149,96 @@ export function reconcileHistoryWithOptimistic(
     return prev
   }
 
-  // If backend returned history, merge optimistic file parts into the user message
-  // if backend hasn't populated them yet
-  if (history.length > 0 && prev.length > 0) {
-    const prevOptimistic = prev.find(
-      (p) => p.info.role === 'user' && p.parts.some((pt) => pt.type === 'file')
+  if (history.length === 0 || prev.length === 0) {
+    return history
+  }
+
+  // Identify only candidate messages in `prev` that contain active optimistic file parts.
+  // Historical settled messages (whose ID is already in backend history and have no optimistic parts)
+  // must NEVER donate their file parts to any other message.
+  const historyIds = new Set(history.map((h) => h.info.id))
+
+  interface PendingOptimisticFileDonor {
+    donorMsg: Message
+    fileParts: FilePart[]
+    text: string
+  }
+
+  const optimisticDonors: PendingOptimisticFileDonor[] = []
+
+  for (const prevMsg of prev) {
+    if (prevMsg.info.role !== 'user') continue
+
+    // A message is a donor only if it has file parts marked as optimistic,
+    // OR if its message ID is not yet in backend history (i.e. in-flight client-generated ID)
+    const isUnsettled = !historyIds.has(prevMsg.info.id)
+    const fileParts = prevMsg.parts.filter(
+      (pt): pt is FilePart =>
+        pt.type === 'file' && (Boolean((pt as any).isOptimistic) || isUnsettled)
     )
-    if (prevOptimistic) {
-      const fileParts = prevOptimistic.parts.filter((pt) => pt.type === 'file')
-      if (fileParts.length > 0) {
-        return history.map((hMsg) => {
-          if (hMsg.info.role === 'user' && !hMsg.parts.some((pt) => pt.type === 'file')) {
-            return {
-              ...hMsg,
-              parts: [
-                ...fileParts.map((fp) => ({ ...fp, messageID: hMsg.info.id })),
-                ...hMsg.parts,
-              ],
-            }
-          }
-          return hMsg
-        })
-      }
+
+    if (fileParts.length > 0) {
+      optimisticDonors.push({
+        donorMsg: prevMsg,
+        fileParts,
+        text: extractUserMessageText(prevMsg),
+      })
     }
   }
 
-  return history
+  if (optimisticDonors.length === 0) {
+    return history
+  }
+
+  // Map each history message to matching donor (at most one donor per history message)
+  const matchedDonorIndices = new Set<number>()
+
+  return history.map((hMsg) => {
+    if (hMsg.info.role !== 'user') return hMsg
+
+    // If backend message already has file parts populated, no reconciliation needed
+    const hasFiles = hMsg.parts.some((pt) => pt.type === 'file')
+    if (hasFiles) return hMsg
+
+    const hText = extractUserMessageText(hMsg)
+
+    // Find the matching donor:
+    // 1. Direct ID match (if prev optimistic message had the same ID)
+    // 2. Or text content match for an unsettled optimistic message
+    let matchedDonorIdx = -1
+
+    for (let i = 0; i < optimisticDonors.length; i++) {
+      if (matchedDonorIndices.has(i)) continue
+      const donor = optimisticDonors[i]
+
+      if (donor.donorMsg.info.id === hMsg.info.id) {
+        matchedDonorIdx = i
+        break
+      }
+
+      // If donor is unsettled (client temporary ID), match on exact text
+      // (or both empty for image-only prompts)
+      if (
+        !historyIds.has(donor.donorMsg.info.id) &&
+        donor.text === hText
+      ) {
+        matchedDonorIdx = i
+        break
+      }
+    }
+
+    if (matchedDonorIdx >= 0) {
+      matchedDonorIndices.add(matchedDonorIdx)
+      const donor = optimisticDonors[matchedDonorIdx]
+      return {
+        ...hMsg,
+        parts: [
+          ...donor.fileParts.map((fp) => ({ ...fp, messageID: hMsg.info.id })),
+          ...hMsg.parts,
+        ],
+      }
+    }
+
+    return hMsg
+  })
 }

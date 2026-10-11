@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   X,
   Plus,
@@ -12,6 +12,7 @@ import {
   Folder,
   BookmarkPlus,
   Network,
+  Check,
 } from 'lucide-react'
 import type { Message, Project, Session, SessionStatusPayload } from '../../types/opencode'
 import { CopyExportButton } from '../chat/CopyExportButton'
@@ -115,6 +116,65 @@ export function Header({
   } | null>(null)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [copiedTabId, setCopiedTabId] = useState<string | null>(null)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handleCopySessionId = async (
+    e: React.MouseEvent,
+    tabId: string,
+    sessionId: string
+  ) => {
+    e.stopPropagation()
+    e.preventDefault()
+    let copied = false
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(sessionId)
+        copied = true
+      }
+    } catch {
+      copied = false
+    }
+
+    if (!copied) {
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = sessionId
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-9999px'
+        textArea.style.top = '-9999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        copied = document.execCommand('copy')
+        document.body.removeChild(textArea)
+      } catch {
+        copied = false
+      }
+    }
+
+    setCopiedTabId(tabId)
+    if (copyTimeoutRef.current) {
+      clearTimeout(copyTimeoutRef.current)
+    }
+    copyTimeoutRef.current = setTimeout(() => {
+      setCopiedTabId(null)
+    }, 2000)
+
+    window.dispatchEvent(
+      new CustomEvent('opencode-toast', {
+        detail: { message: isZh ? '复制session id成功' : 'Session ID copied' },
+      })
+    )
+  }
   // 1. Dynamic Model Profile & Operational Context Ceiling
   // SSOT: C:\AICore\skills\OpenCodeDataControl\scripts\data\model_profiles.json
   const [modelProfiles, setModelProfiles] = useState<ModelProfilesData | null>(null)
@@ -205,6 +265,9 @@ export function Header({
             const projectBadge = session ? resolveSessionProject(session, projects) : null
             const tabBadge = isDraft ? '+' : (projectBadge?.abbreviation || 'OP')
             const isEditing = !isDraft && editingTabId === tabId
+            const sessionIdToCopy = isDraft ? 'draft' : (session?.id || tabId)
+            const isCopied = copiedTabId === tabId
+
             const handleCommitTitle = () => {
               const trimmed = editingTitle.trim()
               if (trimmed && trimmed !== title) {
@@ -253,13 +316,30 @@ export function Header({
                     : 'bg-[#121418]/80 text-[#8b949e] border-t-transparent hover:bg-[#181b20] hover:text-[#c9d1d9] border-x border-[#1a1d24]'
                 }`}
               >
-                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) */}
-                <span
-                  className="min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center select-none shadow-sm bg-amber-950/80 text-amber-400 border border-amber-800/40"
-                  title={projectBadge ? (isZh ? `所属工程: ${projectBadge.name}` : `Project: ${projectBadge.name}`) : undefined}
-                >
-                  {tabBadge}
-                </span>
+                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) - Click to copy session ID */}
+                <div className="relative inline-flex items-center shrink-0">
+                  <span
+                    onClick={(e) => handleCopySessionId(e, tabId, sessionIdToCopy)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center select-none shadow-sm cursor-pointer transition-all ${
+                      isCopied
+                        ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+                        : 'bg-amber-950/80 text-amber-400 border border-amber-800/40 hover:brightness-125 hover:border-amber-600/80 active:scale-95'
+                    }`}
+                    title={
+                      isZh
+                        ? `${projectBadge ? `所属工程: ${projectBadge.name}\n` : ''}点击复制会话ID: ${sessionIdToCopy}`
+                        : `${projectBadge ? `Project: ${projectBadge.name}\n` : ''}Click to copy session ID: ${sessionIdToCopy}`
+                    }
+                  >
+                    {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-300 stroke-[2.5]" /> : tabBadge}
+                  </span>
+                  {isCopied && (
+                    <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#16181f]/95 text-emerald-400 text-[10px] font-medium rounded-md shadow-xl border border-emerald-500/60 whitespace-nowrap z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-1">
+                      {isZh ? '复制session id成功' : 'Session ID copied'}
+                    </span>
+                  )}
+                </div>
 
                 {/* Unread marker (blue dot) */}
                 {!isDraft && Boolean(unreadSessionIds?.includes(tabId)) && (

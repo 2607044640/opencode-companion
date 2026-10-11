@@ -171,4 +171,205 @@ describe('Prompt Parts & Optimistic Message Resolvers', () => {
     assert.equal(merged[0].parts[0].messageID, 'usr_backend_1')
     assert.equal(merged[0].parts[1].type, 'text')
   })
+
+  test('reconcileHistoryWithOptimistic: NEVER leaks Turn 1 file parts into text-only Turn 2 user prompt (Regression: Figure 1 into Figure 2)', () => {
+    const prev: Message[] = [
+      // Turn 1 user message: has 4 attached images
+      {
+        info: { id: 'usr_turn_1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [
+          {
+            id: 'prt_t1_f1',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img1.png',
+            url: 'data:image/png;base64,1',
+          },
+          {
+            id: 'prt_t1_f2',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img2.png',
+            url: 'data:image/png;base64,2',
+          },
+          {
+            id: 'prt_t1_txt',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'text',
+            text: 'Turn 1 prompt with 4 images',
+          },
+        ],
+      },
+      // Turn 1 assistant reply
+      {
+        info: { id: 'ast_turn_1', sessionID: 'ses_1', role: 'assistant', time: { created: 110 } },
+        parts: [{ id: 'prt_ast_1', sessionID: 'ses_1', messageID: 'ast_turn_1', type: 'text', text: 'Turn 1 answer' }],
+      },
+      // Turn 2 user prompt: text-only (sent via send button, no attachments)
+      {
+        info: { id: 'usr_turn_2_opt', sessionID: 'ses_1', role: 'user', time: { created: 200 } },
+        parts: [
+          {
+            id: 'prt_t2_txt',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_2_opt',
+            type: 'text',
+            text: '认可不使用high而不是medium吗',
+            isOptimistic: true,
+          },
+        ],
+      },
+    ]
+
+    const history: Message[] = [
+      // Backend history has Turn 1 (with its file parts)
+      {
+        info: { id: 'usr_turn_1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [
+          {
+            id: 'prt_t1_f1',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img1.png',
+            url: 'data:image/png;base64,1',
+          },
+          {
+            id: 'prt_t1_f2',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img2.png',
+            url: 'data:image/png;base64,2',
+          },
+          {
+            id: 'prt_t1_txt',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'text',
+            text: 'Turn 1 prompt with 4 images',
+          },
+        ],
+      },
+      {
+        info: { id: 'ast_turn_1', sessionID: 'ses_1', role: 'assistant', time: { created: 110 } },
+        parts: [{ id: 'prt_ast_1', sessionID: 'ses_1', messageID: 'ast_turn_1', type: 'text', text: 'Turn 1 answer' }],
+      },
+      // Backend history has Turn 2 (text-only)
+      {
+        info: { id: 'usr_turn_2_backend', sessionID: 'ses_1', role: 'user', time: { created: 205 } },
+        parts: [
+          {
+            id: 'prt_t2_backend_txt',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_2_backend',
+            type: 'text',
+            text: '认可不使用high而不是medium吗',
+          },
+        ],
+      },
+    ]
+
+    const reconciled = reconcileHistoryWithOptimistic(history, prev)
+    assert.equal(reconciled.length, 3)
+
+    // Turn 1 retains its 2 file parts and 1 text part
+    assert.equal(reconciled[0].parts.filter((p) => p.type === 'file').length, 2)
+
+    // Turn 2 MUST NOT have any file parts from Turn 1!
+    const turn2Files = reconciled[2].parts.filter((p) => p.type === 'file')
+    assert.equal(turn2Files.length, 0, 'Turn 2 must NOT receive Turn 1 images')
+    assert.equal(reconciled[2].parts.length, 1)
+    assert.equal((reconciled[2].parts[0] as any).text, '认可不使用high而不是medium吗')
+  })
+
+  test('reconcileHistoryWithOptimistic: isolates optimistic attachments strictly to their own matching turn', () => {
+    const prev: Message[] = [
+      // Turn 1 user message: historical, has img1
+      {
+        info: { id: 'usr_turn_1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [
+          {
+            id: 'prt_t1_f1',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img1.png',
+            url: 'data:image/png;base64,1',
+          },
+          { id: 'prt_t1_txt', sessionID: 'ses_1', messageID: 'usr_turn_1', type: 'text', text: 'Question 1' },
+        ],
+      },
+      // Turn 2 user message: optimistic, has img2
+      {
+        info: { id: 'usr_turn_2_opt', sessionID: 'ses_1', role: 'user', time: { created: 200 } },
+        parts: [
+          {
+            id: 'prt_t2_f2',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_2_opt',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img2.png',
+            url: 'data:image/png;base64,2',
+            isOptimistic: true,
+          },
+          {
+            id: 'prt_t2_txt',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_2_opt',
+            type: 'text',
+            text: 'Question 2',
+            isOptimistic: true,
+          },
+        ],
+      },
+    ]
+
+    const history: Message[] = [
+      {
+        info: { id: 'usr_turn_1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [
+          {
+            id: 'prt_t1_f1',
+            sessionID: 'ses_1',
+            messageID: 'usr_turn_1',
+            type: 'file',
+            mime: 'image/png',
+            filename: 'img1.png',
+            url: 'data:image/png;base64,1',
+          },
+          { id: 'prt_t1_txt', sessionID: 'ses_1', messageID: 'usr_turn_1', type: 'text', text: 'Question 1' },
+        ],
+      },
+      {
+        info: { id: 'usr_turn_2_backend', sessionID: 'ses_1', role: 'user', time: { created: 205 } },
+        parts: [
+          { id: 'prt_t2_backend_txt', sessionID: 'ses_1', messageID: 'usr_turn_2_backend', type: 'text', text: 'Question 2' },
+        ],
+      },
+    ]
+
+    const reconciled = reconcileHistoryWithOptimistic(history, prev)
+    assert.equal(reconciled.length, 2)
+
+    // Turn 1 has img1
+    const t1Files = reconciled[0].parts.filter((p) => p.type === 'file')
+    assert.equal(t1Files.length, 1)
+    assert.equal((t1Files[0] as any).filename, 'img1.png')
+
+    // Turn 2 receives ONLY img2 (never img1)
+    const t2Files = reconciled[1].parts.filter((p) => p.type === 'file')
+    assert.equal(t2Files.length, 1)
+    assert.equal((t2Files[0] as any).filename, 'img2.png')
+    assert.equal((t2Files[0] as any).messageID, 'usr_turn_2_backend')
+  })
 })

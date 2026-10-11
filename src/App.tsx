@@ -1138,6 +1138,7 @@ export default function App() {
 
               <div className={isZenMode ? 'pointer-events-auto' : ''}>
                 <PromptInput
+                  activeSessionId={activeSessionId}
                   activeSession={activeSession}
                   onSend={handleSendPrompt}
                   onAbort={abort}

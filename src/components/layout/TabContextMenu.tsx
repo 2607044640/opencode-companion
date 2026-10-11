@@ -80,10 +80,16 @@ export function TabContextMenu({
     }
   }, [onClose])
 
-  const handleCopyId = async () => {
+  const handleCopyTitle = async () => {
+    const textToCopy = sessionTitle || tabId
     try {
-      await navigator.clipboard.writeText(tabId)
+      await navigator.clipboard.writeText(textToCopy)
       setCopied(true)
+      window.dispatchEvent(
+        new CustomEvent('opencode-toast', {
+          detail: { message: isZh ? '复制标题成功' : 'Title copied' },
+        })
+      )
       setTimeout(() => {
         setCopied(false)
         onClose()
@@ -200,21 +206,21 @@ export function TabContextMenu({
         </button>
       )}
 
-      {/* Copy Session ID */}
+      {/* Copy Session Title */}
       <button
         type="button"
-        onClick={handleCopyId}
+        onClick={handleCopyTitle}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
       >
         {copied ? (
           <>
             <Check className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-emerald-400">{isZh ? '已复制会话 ID' : 'Copied Session ID'}</span>
+            <span className="text-emerald-400">{isZh ? '已复制标题' : 'Copied Title'}</span>
           </>
         ) : (
           <>
             <Copy className="w-3.5 h-3.5 text-zinc-400" />
-            <span>{isZh ? '复制会话 ID' : 'Copy Session ID'}</span>
+            <span>{isZh ? '复制标题' : 'Copy Title'}</span>
           </>
         )}
       </button>
