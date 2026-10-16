@@ -35,6 +35,11 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel('obsidian', 'gemini-3.7-flash'), true)
     assert.equal(isCuratedModel('obsidian', 'flash-3.7'), true)
     assert.equal(isCuratedModel('obsidian', 'flash3.7'), true)
+
+    // 5. claude-opus-5 & claude-opus-5-5
+    assert.equal(isCuratedModel('obsidian', 'claude-opus-5'), true)
+    assert.equal(isCuratedModel('obsidian', 'claude-opus-5-5'), true)
+    assert.equal(isCuratedModel('custom', 'claude-opus-5', 'Claude Opus 5'), true)
   })
 
   test('BLOCKS all OpenCode Zen provider models', () => {
@@ -61,7 +66,6 @@ describe('Curated Model Filter Engine', () => {
     const unapproved = [
       'free-auto-cascade',
       'free-cascade',
-      'claude-opus-5',
       'qwen3.8-max',
       'kimi-k3',
       'gpt-4o',
@@ -84,11 +88,13 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel(undefined, undefined), false)
   })
 
-  test('canonical model IDs set contains the expected 5 IDs', () => {
-    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 5)
+  test('canonical model IDs set contains the expected 7 IDs', () => {
+    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 7)
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.7'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.6'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.5'))
+    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('claude-opus-5-5'))
+    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('claude-opus-5'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gemini-3.8-flash'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gemini-3.7-flash'))
   })

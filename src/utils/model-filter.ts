@@ -6,6 +6,8 @@ export const ALLOWED_CANONICAL_MODEL_IDS = new Set([
   'grok-4.7',
   'grok-4.6',
   'grok-4.5',
+  'claude-opus-5-5',
+  'claude-opus-5',
   'gemini-3.8-flash',
   'gemini-3.7-flash',
 ])
@@ -86,6 +88,19 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
     (id.includes('gemini') && id.includes('3.7')) ||
     name.includes('3.7 flash') ||
     name.includes('flash 3.7')
+  ) {
+    return true
+  }
+
+  // 5. Claude Opus 5 & 5.5
+  if (
+    id === 'claude-opus-5' ||
+    id === 'claude-opus-5-5' ||
+    id.includes('opus-5') ||
+    id.includes('opus5') ||
+    id.includes('claude-opus-5') ||
+    name.includes('opus 5') ||
+    name.includes('opus-5')
   ) {
     return true
   }
