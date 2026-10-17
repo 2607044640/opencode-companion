@@ -12,6 +12,8 @@ import { DiffDrawerProvider } from './components/diff/DiffDrawerContext'
 import { DiffSidebarDrawer } from './components/diff/DiffSidebarDrawer'
 import { useSessions, DRAFT_SESSION_ID } from './hooks/useSessions'
 import { useChatStream } from './hooks/useChatStream'
+import { useSideQuestion } from './hooks/useSideQuestion'
+import { SideQuestionCard } from './components/chat/SideQuestionCard'
 import { getShortcuts, matchesShortcut, type ShortcutsMap } from './utils/shortcuts'
 import { getNextTabId, getPrevTabId, getTabIdByIndex } from './utils/tab-navigation'
 import { api, canonicalizeDirectory } from './services/api'
@@ -169,6 +171,31 @@ export default function App() {
     unrevert,
     reverting,
   } = useChatStream(activeSessionId, updateSession, activeSession?.directory)
+
+  const {
+    currentSideQuestion,
+    currentIndex,
+    totalCount,
+    isCardOpen,
+    askSideQuestion,
+    closeCard,
+    toggleCard,
+    goToPrev,
+    goToNext,
+    deleteSideQuestion,
+    clearSessionSideQuestions,
+    migrateDraftSideQuestions,
+    sideQuestionModel,
+    setSideQuestionModel,
+    providers,
+  } = useSideQuestion(activeSessionId)
+
+  const handleSideQuestion = useCallback(
+    (question: string) => {
+      void askSideQuestion(question, messages, activeSession?.directory, sideQuestionModel)
+    },
+    [askSideQuestion, messages, activeSession?.directory, sideQuestionModel]
+  )
 
   // Programmatic draft injection into PromptInput on message revert / restore
   const [draftInjection, setDraftInjection] = useState<DraftInjection | null>(null)
@@ -655,6 +682,9 @@ export default function App() {
           // Mark human-initiated so completion triggers unread indicator
           markHumanInitiated(newSession.id)
 
+          // Migrate any draft side questions to the newly created session
+          migrateDraftSideQuestions(newSession.id)
+
           // Dispatch prompt into the newly created session via useChatStream
           await sendPrompt(text, options, newSession.id)
         } catch (err) {
@@ -998,6 +1028,7 @@ export default function App() {
             historyStack.current.remove(id)
             updateHistoryState()
             deleteSession(id)
+            clearSessionSideQuestions(id)
           }}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -1127,6 +1158,30 @@ export default function App() {
                   : 'flex flex-col shrink-0'
               }
             >
+              {isCardOpen && currentSideQuestion && (
+                <div
+                  className={
+                    isZenMode
+                      ? 'pointer-events-auto'
+                      : 'mx-auto w-full px-4 sm:px-6 lg:px-8 pb-2 max-w-4xl xl:max-w-5xl'
+                  }
+                >
+                  <SideQuestionCard
+                    data={currentSideQuestion}
+                    currentIndex={currentIndex}
+                    totalCount={totalCount}
+                    onPrev={goToPrev}
+                    onNext={goToNext}
+                    onClose={closeCard}
+                    onDelete={() => deleteSideQuestion()}
+                    isZenMode={isZenMode}
+                    selectedModel={sideQuestionModel}
+                    onSelectModel={setSideQuestionModel}
+                    providers={providers}
+                  />
+                </div>
+              )}
+
               <div className={isZenMode ? 'pointer-events-auto' : ''}>
                 <SessionRevertDock
                   activeSession={activeSession}
@@ -1141,6 +1196,9 @@ export default function App() {
                   activeSessionId={activeSessionId}
                   activeSession={activeSession}
                   onSend={handleSendPrompt}
+                  onSideQuestion={handleSideQuestion}
+                  sideQuestionCount={totalCount}
+                  onToggleSideQuestion={toggleCard}
                   onAbort={abort}
                   isBusy={runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry')}
                   runKnown={runKnown}

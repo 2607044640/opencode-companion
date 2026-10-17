@@ -6,7 +6,7 @@ export const ALLOWED_CANONICAL_MODEL_IDS = new Set([
   'grok-4.7',
   'grok-4.6',
   'grok-4.5',
-  'claude-opus-5-5',
+  'gpt-6-astra',
   'claude-opus-5',
   'gemini-3.8-flash',
   'gemini-3.7-flash',
@@ -92,16 +92,17 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
     return true
   }
 
-  // 5. Claude Opus 5 & 5.5
+  // 5. gpt 6 astra (replaces the retired opus 5.5 slot) and Claude Opus 5
   if (
-    id === 'claude-opus-5' ||
-    id === 'claude-opus-5-5' ||
-    id.includes('opus-5') ||
-    id.includes('opus5') ||
-    id.includes('claude-opus-5') ||
-    name.includes('opus 5') ||
-    name.includes('opus-5')
+    id === 'gpt-6-astra' ||
+    id.includes('gpt-6-astra') ||
+    id.includes('gpt6astra') ||
+    name.includes('gpt 6 astra') ||
+    name.includes('gpt-6-astra')
   ) {
+    return true
+  }
+  if (id === 'claude-opus-5' || name === 'claude opus 5' || name === 'opus 5') {
     return true
   }
 

@@ -163,10 +163,11 @@ export function useSessions() {
           : null)
       if (earlyTarget) api.prefetchMessages(earlyTarget)
 
-      const [projList, sessList] = await Promise.all([
+      const [projList, rawSessList] = await Promise.all([
         api.getProjects(),
         api.getSessions(),
       ])
+      const sessList = rawSessList.filter((s) => !s.title?.startsWith('[Side Question]'))
       setProjects(projList)
 
       const urlParams = new URLSearchParams(window.location.search)

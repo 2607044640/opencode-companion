@@ -13,6 +13,7 @@ import {
   Sliders,
   FileUp,
   Loader2,
+  HelpCircle,
 } from 'lucide-react'
 import type { AgentInfo, ProviderInfo, Session, CommandItem, SkillItem, Project, TodoItem } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
@@ -79,6 +80,9 @@ interface PromptInputProps {
   onNewProject?: (name: string, path: string) => Promise<void> | void
   sessions?: Session[]
   todos?: TodoItem[]
+  onSideQuestion?: (question: string) => void
+  sideQuestionCount?: number
+  onToggleSideQuestion?: () => void
 }
 
 export function PromptInput({
@@ -103,6 +107,9 @@ export function PromptInput({
   onNewProject,
   sessions,
   todos,
+  onSideQuestion,
+  sideQuestionCount = 0,
+  onToggleSideQuestion,
 }: PromptInputProps) {
   const { prefs } = usePreferences()
   const { t, lang } = useI18n()
@@ -407,8 +414,9 @@ export function PromptInput({
         const finalAgents = usableAgents.length > 0 ? usableAgents : agentList
         setAgents(finalAgents)
         setProviders(providerList)
-        // Merge built-in commands like compaction, summary, title (Image 4)
+        // Merge built-in commands like btw, compaction, summary, title (Image 4)
         const defaultCommands: CommandItem[] = [
+          { name: 'btw', description: 'Ask a quick question without interrupting the main conversation.' },
           { name: 'compaction', description: 'Compress and summarize context tokens' },
           { name: 'summary', description: 'Generate structured conversation summary' },
           { name: 'title', description: 'Auto-generate descriptive session title' },
@@ -893,6 +901,22 @@ export function PromptInput({
       },
     }
 
+    // Intercept /btw (Side Question): execute immediately in parallel without blocking main turn or queueing
+    const trimmed = text.trim()
+    const isBtw = trimmed.startsWith('/btw ') || trimmed === '/btw'
+    if (isBtw) {
+      const question = trimmed.replace(/^\/btw\s*/, '').trim()
+      if (question) {
+        if (onSideQuestion) {
+          onSideQuestion(question)
+        } else {
+          onSend(draft.text, draft.options)
+        }
+        clearComposer()
+        return
+      }
+    }
+
     // While the model is working, Enter queues instead of aborting.
     // The red stop button remains the only abort control.
     if (isBusy && onEnqueue) {
@@ -1231,6 +1255,25 @@ export function PromptInput({
                 </div>
               )}
             </div>
+
+            {/* Side Question Pill Button (Image 2) */}
+            {sideQuestionCount > 0 && (
+              <button
+                type="button"
+                onClick={onToggleSideQuestion}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1a1d24] hover:bg-[#232731] border border-orange-500/30 text-orange-200 text-xs transition-colors cursor-pointer group shadow-sm select-none"
+                title={
+                  isZh
+                    ? `查看 ${sideQuestionCount} 个侧边提问 (View ${sideQuestionCount} side question${sideQuestionCount > 1 ? 's' : ''})`
+                    : `View ${sideQuestionCount} side question${sideQuestionCount > 1 ? 's' : ''}`
+                }
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-orange-400 group-hover:scale-110 transition-transform" />
+                <span className="font-medium text-[11px]">
+                  {sideQuestionCount} Side Question{sideQuestionCount > 1 ? 's' : ''}
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Right Action Button (Send / Stop) */}

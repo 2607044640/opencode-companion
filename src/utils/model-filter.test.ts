@@ -36,10 +36,13 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel('obsidian', 'flash-3.7'), true)
     assert.equal(isCuratedModel('obsidian', 'flash3.7'), true)
 
-    // 5. claude-opus-5 & claude-opus-5-5
+    // 5. gpt-6-astra (retired opus 5.5 slot) & claude-opus-5
+    assert.equal(isCuratedModel('obsidian', 'gpt-6-astra'), true)
+    assert.equal(isCuratedModel('obsidian', 'gpt6astra'), true)
+    assert.equal(isCuratedModel('custom', 'gpt-6-astra', 'gpt 6 astra'), true)
     assert.equal(isCuratedModel('obsidian', 'claude-opus-5'), true)
-    assert.equal(isCuratedModel('obsidian', 'claude-opus-5-5'), true)
     assert.equal(isCuratedModel('custom', 'claude-opus-5', 'Claude Opus 5'), true)
+    assert.equal(isCuratedModel('obsidian', 'claude-opus-5-5'), false)
   })
 
   test('BLOCKS all OpenCode Zen provider models', () => {
@@ -93,7 +96,7 @@ describe('Curated Model Filter Engine', () => {
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.7'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.6'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.5'))
-    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('claude-opus-5-5'))
+    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gpt-6-astra'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('claude-opus-5'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gemini-3.8-flash'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gemini-3.7-flash'))
