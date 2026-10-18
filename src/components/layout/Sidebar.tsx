@@ -35,6 +35,7 @@ import {
   togglePinSessionId,
   isSessionPinned,
   reorderPinnedSessionIds,
+  sortProjectsByLatestActivity,
 } from '../../utils/pinning'
 import {
   getArchivedSessionIds,
@@ -192,13 +193,20 @@ export function Sidebar({
     return map
   }, [sessions])
 
-  // Pinned sessions list (strictly excluding archived)
+  // Pinned sessions list (strictly excluding archived; filtered by search query if any)
   const pinnedSessions = useMemo(() => {
-    return pinnedIds
+    const list = pinnedIds
       .filter((id) => !archivedIds.includes(id))
       .map((id) => sessionMap.get(id))
       .filter((s): s is Session => Boolean(s))
-  }, [pinnedIds, archivedIds, sessionMap])
+    if (!searchQuery.trim()) return list
+    const q = searchQuery.toLowerCase()
+    return list.filter(
+      (s) =>
+        (s.title || '').toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q)
+    )
+  }, [pinnedIds, archivedIds, sessionMap, searchQuery])
 
   // Archived sessions list
   const archivedSessions = useMemo(() => {
@@ -219,17 +227,38 @@ export function Sidebar({
     )
   }, [sessions, archivedIds, searchQuery])
 
-  // Map sessions into projects
+  // Sessions for project folders in accordion: strictly exclude pinned sessions so pinned sessions are not duplicated
+  const unpinnedFilteredSessions = useMemo(() => {
+    const pinnedSet = new Set(pinnedIds)
+    return filteredSessions.filter((s) => !pinnedSet.has(s.id))
+  }, [filteredSessions, pinnedIds])
+
+  // Map sessions into projects (strictly unpinned sessions, sorted by latest activity descending)
   const projectSessionsMap = useMemo(() => {
     const map = new Map<string, Session[]>()
     canonicalProjects.forEach((proj) => {
-      const matched = filteredSessions.filter((sess) =>
+      const matched = unpinnedFilteredSessions.filter((sess) =>
         doesSessionBelongToProject(sess, proj)
       )
+      // Sort sessions within project by timestamp descending
+      matched.sort((a, b) => {
+        const timeA = a.time?.updated || a.time?.created || 0
+        const timeB = b.time?.updated || b.time?.created || 0
+        return timeB - timeA
+      })
       map.set(proj.id, matched)
     })
     return map
-  }, [canonicalProjects, filteredSessions])
+  }, [canonicalProjects, unpinnedFilteredSessions])
+
+  // Sort project folders by the timestamp of their latest visible unpinned session (descending)
+  const sortedCanonicalProjects = useMemo(() => {
+    return sortProjectsByLatestActivity(
+      canonicalProjects,
+      projectSessionsMap,
+      (p) => matchCanonicalWorkspace(p.worktree, p.name)?.name || getProjectDisplayName(p)
+    )
+  }, [canonicalProjects, projectSessionsMap])
 
   useEffect(() => {
     setEditingSessionId(null)

@@ -132,3 +132,46 @@ export function reorderPinnedSessionIds(
   return next
 }
 
+/**
+ * Unpins a session ID explicitly if pinned.
+ */
+export function unpinSessionId(sessionId: string, storage?: Storage): string[] {
+  if (!sessionId) return getPinnedSessionIds(storage)
+  const current = getPinnedSessionIds(storage)
+  const updated = current.filter((id) => id !== sessionId)
+  if (updated.length !== current.length) {
+    savePinnedSessionIds(updated, storage)
+  }
+  return updated
+}
+
+/**
+ * Sorts project list descending by the timestamp of their latest visible unpinned session.
+ * Projects with newer visible sessions rank first.
+ * If pinned sessions are hidden from a project, its rank is determined solely by its remaining unpinned sessions.
+ */
+export function sortProjectsByLatestActivity<
+  P extends { id: string; name: string },
+  S extends { time?: { updated?: number; created?: number } }
+>(
+  projects: P[],
+  projectSessionsMap: Map<string, S[]>,
+  getDisplayName?: (p: P) => string
+): P[] {
+  return [...projects].sort((a, b) => {
+    const sessionsA = projectSessionsMap.get(a.id) || []
+    const sessionsB = projectSessionsMap.get(b.id) || []
+
+    const latestA = sessionsA.length > 0 ? (sessionsA[0].time?.updated || sessionsA[0].time?.created || 0) : 0
+    const latestB = sessionsB.length > 0 ? (sessionsB[0].time?.updated || sessionsB[0].time?.created || 0) : 0
+
+    if (latestB !== latestA) {
+      return latestB - latestA
+    }
+
+    const nameA = getDisplayName ? getDisplayName(a) : a.name
+    const nameB = getDisplayName ? getDisplayName(b) : b.name
+    return nameA.localeCompare(nameB)
+  })
+}
+
