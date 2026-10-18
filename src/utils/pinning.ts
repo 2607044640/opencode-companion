@@ -151,7 +151,7 @@ export function unpinSessionId(sessionId: string, storage?: Storage): string[] {
  * If pinned sessions are hidden from a project, its rank is determined solely by its remaining unpinned sessions.
  */
 export function sortProjectsByLatestActivity<
-  P extends { id: string; name: string },
+  P extends { id: string; name?: string },
   S extends { time?: { updated?: number; created?: number } }
 >(
   projects: P[],
@@ -169,8 +169,8 @@ export function sortProjectsByLatestActivity<
       return latestB - latestA
     }
 
-    const nameA = getDisplayName ? getDisplayName(a) : a.name
-    const nameB = getDisplayName ? getDisplayName(b) : b.name
+    const nameA = getDisplayName ? getDisplayName(a) : (a.name || a.id)
+    const nameB = getDisplayName ? getDisplayName(b) : (b.name || b.id)
     return nameA.localeCompare(nameB)
   })
 }

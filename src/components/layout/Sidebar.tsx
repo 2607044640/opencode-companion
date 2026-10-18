@@ -253,7 +253,7 @@ export function Sidebar({
 
   // Sort project folders by the timestamp of their latest visible unpinned session (descending)
   const sortedCanonicalProjects = useMemo(() => {
-    return sortProjectsByLatestActivity(
+    return sortProjectsByLatestActivity<Project, Session>(
       canonicalProjects,
       projectSessionsMap,
       (p) => matchCanonicalWorkspace(p.worktree, p.name)?.name || getProjectDisplayName(p)
@@ -684,9 +684,9 @@ export function Sidebar({
             </div>
           </div>
 
-          {/* Project Folders Accordion */}
+          {/* Project Folders Accordion (sorted dynamically by latest unpinned session) */}
           <div className="space-y-1.5">
-            {canonicalProjects.map((proj) => {
+            {sortedCanonicalProjects.map((proj) => {
               const canonical = matchCanonicalWorkspace(proj.worktree, proj.name)
               const projName = canonical?.name || getProjectDisplayName(proj)
               const isExpanded = expandedProjects[proj.id] ?? true

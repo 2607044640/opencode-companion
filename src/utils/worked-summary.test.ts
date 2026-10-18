@@ -763,4 +763,101 @@ describe('WorkedSummary Unit Tests (Prometheus T0 Specification)', () => {
     assert.ok(cmdGroup && cmdGroup.kind === 'command')
     assert.equal(cmdGroup.items[0].status, 'error')
   })
+
+  test('(q) turn with failed WebFetch or websearch has hasWarnings=true but hasRealError=false', () => {
+    const parts: MessagePart[] = [
+      {
+        id: 't_fetch_fail',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'webfetch',
+        state: {
+          status: 'error',
+          error: 'HTTP 404: Not Found',
+          input: { url: 'https://github.com/missing-page' },
+        },
+      },
+      {
+        id: 't_edit_ok',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'write',
+        state: {
+          status: 'completed',
+          input: { path: 'src/main.ts', content: 'export const ok = true' },
+        },
+      },
+    ]
+
+    const turn = partitionAssistantTurn(parts)
+    assert.equal(turn.hasWork, true)
+    // Non-fatal web fetch failure should be categorized as warning, NOT real error!
+    assert.equal(turn.hasWarnings, true)
+    assert.equal(turn.hasRealError, false)
+    assert.equal(turn.hasError, false)
+
+    const otherGroup = turn.groups.find((g) => g.kind === 'other')
+    assert.ok(otherGroup && otherGroup.kind === 'other')
+    assert.equal(otherGroup.items[0].tool, 'webfetch')
+    assert.equal(otherGroup.items[0].status, 'error')
+  })
+
+  test('(r) turn with failed WebFetch AND failed bash command still has hasRealError=true', () => {
+    const parts: MessagePart[] = [
+      {
+        id: 't_fetch_fail',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'websearch',
+        state: {
+          status: 'error',
+          error: 'Network timeout',
+          input: { query: 'comfyui api' },
+        },
+      },
+      {
+        id: 't_cmd_fail',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'bash',
+        state: {
+          status: 'error',
+          error: 'Command failed with exit code 1',
+          input: { command: 'git push' },
+        },
+      },
+    ]
+
+    const turn = partitionAssistantTurn(parts)
+    assert.equal(turn.hasWork, true)
+    assert.equal(turn.hasRealError, true)
+    assert.equal(turn.hasError, true)
+  })
+
+  test('(s) turn with unknown or custom tool failure keeps hasRealError=true (fail-closed)', () => {
+    const parts: MessagePart[] = [
+      {
+        id: 't_custom_fail',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        tool: 'custom_compiler',
+        state: {
+          status: 'error',
+          error: 'Syntax error in AST',
+          input: { target: 'engine.cpp' },
+        },
+      },
+    ]
+
+    const turn = partitionAssistantTurn(parts)
+    assert.equal(turn.hasWork, true)
+    // Unknown tools must fail-closed to avoid silencing genuine task failures
+    assert.equal(turn.hasRealError, true)
+    assert.equal(turn.hasError, true)
+  })
 })

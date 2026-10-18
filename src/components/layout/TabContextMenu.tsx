@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Copy, Check, RotateCcw, ArrowRightToLine, Layers, MapPin, Edit3 } from 'lucide-react'
+import { X, Copy, Check, RotateCcw, ArrowRightToLine, Layers, MapPin, Edit3, Pin } from 'lucide-react'
 import { useI18n } from '../../utils/i18n'
+import { togglePinSessionId, isSessionPinned, getPinnedSessionIds } from '../../utils/pinning'
 
 interface TabContextMenuProps {
   tabId: string
@@ -172,6 +173,23 @@ export function TabContextMenu({
       </button>
 
       <div className="h-px bg-zinc-800/60 my-1" />
+
+      {/* Pin / Unpin Tab */}
+      <button
+        type="button"
+        onClick={() => {
+          togglePinSessionId(tabId)
+          onClose()
+        }}
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+      >
+        <Pin className="w-3.5 h-3.5 text-orange-400" />
+        <span>
+          {isSessionPinned(tabId, getPinnedSessionIds())
+            ? (isZh ? '取消置顶' : 'Unpin Tab')
+            : (isZh ? '置顶会话' : 'Pin Tab')}
+        </span>
+      </button>
 
       {/* Rename */}
       {onRename && (

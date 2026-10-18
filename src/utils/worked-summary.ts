@@ -56,6 +56,70 @@ export function classifyTool(tool: string): Exclude<ToolKind, 'thought'> {
   return 'other'
 }
 
+export const NON_FATAL_TOOL_NAMES = new Set([
+  // Web search tools
+  'websearch',
+  'web_search',
+  'search_web',
+  'google_search',
+  'brave_search',
+  'bing_search',
+  'ddg_search',
+  'duckduckgo_search',
+  // Web fetch & scraping tools
+  'webfetch',
+  'web_fetch',
+  'fetch_web',
+  'read_url_content',
+  'read_url',
+  'url_fetch',
+  'fetch',
+  'browser',
+  'browse',
+  'browser_action',
+  'web_scrape',
+  'scrape',
+  // Documentation search & knowledge query tools
+  'doc_search',
+  'docs_search',
+  'search_docs',
+  'documentation_search',
+  'query_docs',
+  'api_docs',
+  'context_search',
+  // Diagnostic probes
+  'ping',
+  'check_status',
+  'health_check',
+])
+
+/**
+ * Determines whether a tool failure is exploratory / non-fatal (such as web search / fetch misses,
+ * doc search misses, or diagnostic probes) rather than a critical execution error.
+ */
+export function isNonFatalToolFailure(item: {
+  tool: string
+  rawPart?: ToolPart
+  error?: string
+}): boolean {
+  const toolLower = (item.tool || '').toLowerCase()
+  if (NON_FATAL_TOOL_NAMES.has(toolLower)) {
+    return true
+  }
+
+  // Check URL in input (e.g. custom web fetch tools)
+  const input = (item.rawPart?.state?.input || {}) as Record<string, any>
+  const urlCandidate = input.url || input.Url || input.uri || input.link
+  if (typeof urlCandidate === 'string') {
+    const trimmed = urlCandidate.trim().toLowerCase()
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export type ExploreWarningKind = 'not_found' | 'no_match' | 'blocked' | 'warning'
 
 export function classifyExploreIssue(item: {
@@ -785,8 +849,8 @@ export function partitionAssistantTurn(
     }
   }
 
-  // Differentiate true execution errors (crashes, failed commands, failed edits, other tool errors)
-  // from benign exploration warnings (file not found, 0 search matches, path miss).
+  // Differentiate true execution errors (crashes, failed commands, failed edits, other critical tool errors)
+  // from benign exploration warnings (file not found, 0 search matches, web search/fetch misses, doc query misses).
   const hasTurnError = Boolean(info?.error) && !isAborted
   const hasCommandError = groups.some(
     (g) => g.kind === 'command' && g.items.some((c) => c.status === 'error')
@@ -794,14 +858,23 @@ export function partitionAssistantTurn(
   const hasEditError = groups.some(
     (g) => g.kind === 'edit' && g.item.toolStatus === 'error'
   )
-  const hasOtherError = groups.some(
-    (g) => g.kind === 'other' && g.items.some((o) => o.status === 'error')
+  const hasOtherRealError = groups.some(
+    (g) =>
+      g.kind === 'other' &&
+      g.items.some((o) => o.status === 'error' && !isNonFatalToolFailure(o))
+  )
+  const hasNonFatalOtherIssue = groups.some(
+    (g) =>
+      g.kind === 'other' &&
+      g.items.some((o) => o.status === 'error' && isNonFatalToolFailure(o))
   )
 
-  const hasRealError = hasTurnError || hasCommandError || hasEditError || hasOtherError
-  const hasWarnings = groups.some(
-    (g) => g.kind === 'explore' && g.items.some((i) => i.status === 'error' || Boolean(i.warningKind))
-  )
+  const hasRealError = hasTurnError || hasCommandError || hasEditError || hasOtherRealError
+  const hasWarnings =
+    hasNonFatalOtherIssue ||
+    groups.some(
+      (g) => g.kind === 'explore' && g.items.some((i) => i.status === 'error' || Boolean(i.warningKind))
+    )
   const hasError = hasRealError
 
   let totalWorkItems = 0

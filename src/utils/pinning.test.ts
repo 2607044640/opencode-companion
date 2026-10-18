@@ -7,6 +7,8 @@ import {
   isSessionPinned,
   partitionPinnedSessions,
   reorderPinnedSessionIds,
+  unpinSessionId,
+  sortProjectsByLatestActivity,
   PINNED_SESSIONS_STORAGE_KEY,
 } from './pinning'
 
@@ -150,4 +152,66 @@ describe('Session Pinning Utilities (pinning.ts)', () => {
     const res3 = reorderPinnedSessionIds('x', 'unknown', storage)
     assert.deepEqual(res3, ['x', 'y', 'z'])
   })
+
+  it('unpins session explicitly using unpinSessionId', () => {
+    const storage = createMockStorage({
+      [PINNED_SESSIONS_STORAGE_KEY]: JSON.stringify(['p1', 'p2', 'p3']),
+    })
+
+    const updated = unpinSessionId('p2', storage)
+    assert.deepEqual(updated, ['p1', 'p3'])
+    assert.deepEqual(getPinnedSessionIds(storage), ['p1', 'p3'])
+
+    // No-op for non-existent session
+    const noop = unpinSessionId('non_existent', storage)
+    assert.deepEqual(noop, ['p1', 'p3'])
+  })
+
+  it('dynamically re-sorts projects when top session is pinned/hidden vs unpinned (User scenario)', () => {
+    const projAPISpace = { id: 'proj_api', name: 'APISpace' }
+    const projObsidian = { id: 'proj_obs', name: 'ObsidianDev' }
+    const projEmpty = { id: 'proj_empty', name: 'EmptyProject' }
+
+    const projects = [projAPISpace, projObsidian, projEmpty]
+
+    // Scenario:
+    // Session 1 (in APISpace): updated at 12:00 (timestamp 1200)
+    // Session 2 (in APISpace): updated at 08:00 (timestamp 800, 16h ago)
+    // Session 3 (in ObsidianDev): updated at 10:00 (timestamp 1000, 2h ago)
+    const s1_pinned = { id: 's1', time: { updated: 1200 } }
+    const s2_unpinned = { id: 's2', time: { updated: 800 } }
+    const s3_unpinned = { id: 's3', time: { updated: 1000 } }
+
+    // Case 1: When s1 is pinned, APISpace's visible sessions only include s2 (timestamp 800)
+    // ObsidianDev's visible sessions include s3 (timestamp 1000)
+    // Result: ObsidianDev (1000) MUST sort before APISpace (800)!
+    const mapWhenPinned = new Map<string, any[]>([
+      ['proj_api', [s2_unpinned]], // s1 is hidden because it is pinned
+      ['proj_obs', [s3_unpinned]],
+      ['proj_empty', []],
+    ])
+
+    const sortedWhenPinned = sortProjectsByLatestActivity(projects, mapWhenPinned)
+    assert.deepEqual(
+      sortedWhenPinned.map((p) => p.name),
+      ['ObsidianDev', 'APISpace', 'EmptyProject'],
+      'ObsidianDev must rank above APISpace when APISpace top session is pinned/hidden'
+    )
+
+    // Case 2: When s1 is unpinned, s1 returns to APISpace's visible sessions (timestamp 1200)
+    // Result: APISpace (1200) MUST jump back to rank above ObsidianDev (1000)!
+    const mapWhenUnpinned = new Map<string, any[]>([
+      ['proj_api', [s1_pinned, s2_unpinned]], // s1 returned to APISpace
+      ['proj_obs', [s3_unpinned]],
+      ['proj_empty', []],
+    ])
+
+    const sortedWhenUnpinned = sortProjectsByLatestActivity(projects, mapWhenUnpinned)
+    assert.deepEqual(
+      sortedWhenUnpinned.map((p) => p.name),
+      ['APISpace', 'ObsidianDev', 'EmptyProject'],
+      'APISpace must rank above ObsidianDev when top session is unpinned and returns'
+    )
+  })
 })
+
