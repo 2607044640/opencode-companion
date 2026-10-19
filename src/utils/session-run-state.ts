@@ -56,3 +56,23 @@ export function runChrome(runKnown: boolean, status: SessionStatusPayload | null
   if (!runKnown) return 'confirming'
   return isRunningStatus(status) ? 'running' : 'settled'
 }
+
+/**
+ * What an assistant bubble with no visible parts may paint.
+ * `interrupted` requires a terminal signal (finish, error, or completed).
+ * An empty shell that has not finished stays `loading`, including after F5
+ * once the daemon has answered idle. Never infer interruption from age.
+ */
+export type EmptyAssistantChrome = 'confirming' | 'loading' | 'thinking' | 'interrupted'
+
+export function emptyAssistantChrome(input: {
+  runKnown: boolean
+  isBusy: boolean
+  isLive: boolean
+  explicitlyDone: boolean
+}): EmptyAssistantChrome {
+  if (!input.runKnown) return 'confirming'
+  if (input.isBusy || input.isLive) return 'thinking'
+  if (!input.explicitlyDone) return 'loading'
+  return 'interrupted'
+}

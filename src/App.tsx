@@ -40,6 +40,7 @@ import {
   UNREAD_UPDATE_EVENT,
 } from './utils/session-unread'
 import { ScheduledTasksModal } from './components/tasks/ScheduledTasksModal'
+import { FloatingModelRouter } from './components/router/FloatingModelRouter'
 import { SessionHistoryStack } from './utils/session-history'
 import { getPreferences } from './utils/preferences'
 import {
@@ -73,6 +74,7 @@ export default function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
+  const [isModelRouterOpen, setIsModelRouterOpen] = useState(false)
   const [isZenMode, setIsZenMode] = useState(false)
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
   const { t, lang } = useI18n()
@@ -811,6 +813,11 @@ export default function App() {
           setIsSearchOpen(false)
           return
         }
+        if (isModelRouterOpen) {
+          e.preventDefault()
+          setIsModelRouterOpen(false)
+          return
+        }
         // If in Zen mode and no modal is open, exit Zen mode
         if (isZenMode) {
           e.preventDefault()
@@ -894,6 +901,20 @@ export default function App() {
         return
       }
 
+      // Fast-path: model router overlay. Must run before Ctrl+1..9, which also matches Digit3.
+      const isCtrlShift3 =
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        (e.key === '3' || e.code === 'Digit3' || e.keyCode === 51)
+
+      if (isCtrlShift3 || matchesShortcut(e, shortcuts.openModelRouter)) {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsModelRouterOpen((prev) => !prev)
+        return
+      }
+
       // Fast-path: Direct tab jump with Ctrl+1 ~ Ctrl+9 (Ctrl+9 jumps to last tab)
       const isDigit = e.key >= '1' && e.key <= '9'
       const isCtrlDigit = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && isDigit
@@ -972,6 +993,7 @@ export default function App() {
     isMapOpen,
     isSearchOpen,
     isFindOpen,
+    isModelRouterOpen,
     handleNewSession,
     toggleZenMode,
     toggleSidebar,
@@ -1094,6 +1116,7 @@ export default function App() {
             onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
             onShowInMap={handleAddSessionToMap}
             onOpenSettings={handleOpenSettings}
+            onOpenModelRouter={() => setIsModelRouterOpen(true)}
             onDaemonRestored={handleDaemonRestored}
             onDaemonLost={handleDaemonLost}
           />
@@ -1277,6 +1300,11 @@ export default function App() {
         onClose={() => setIsScheduledTasksOpen(false)}
         projects={projects}
         onRunTaskNow={handleRunScheduledTaskNow}
+      />
+
+      <FloatingModelRouter
+        isOpen={isModelRouterOpen}
+        onClose={() => setIsModelRouterOpen(false)}
       />
 
       {/* 6. Right-Side File Diff Drawer (Zero Layout Shift Overlay) */}

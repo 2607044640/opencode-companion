@@ -60,8 +60,10 @@ export interface TranslationDictionary {
   search: {
     placeholder: string
     modeTitles: string
+    modeSessionId: string
     modeMessages: string
     placeholderTitles: string
+    placeholderSessionId: string
     placeholderMessages: string
     searchingMessages: string
     noMessageHits: (query: string) => string
@@ -259,8 +261,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     search: {
       placeholder: '搜索会话标题 (按 ↑↓ 选择, Enter 打开, Esc 退出)...',
       modeTitles: '搜会话标题',
+      modeSessionId: '搜会话ID',
       modeMessages: '搜消息内容',
       placeholderTitles: '搜索会话标题 (按 ↑↓ 选择, Enter 打开, Esc 退出)...',
+      placeholderSessionId: '按会话ID检索 (例如 ses_... 或哈希片段)...',
       placeholderMessages: '全文字段搜索：输入消息内容、代码片段或错误词...',
       searchingMessages: '正在检索会话消息正文...',
       noMessageHits: (query: string) => `未在任何消息中找到匹配 “${query}” 的内容`,
@@ -456,8 +460,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     search: {
       placeholder: 'Search session titles (↑↓ navigate, Enter open, Esc exit)...',
       modeTitles: 'Search Titles',
+      modeSessionId: 'Search by ID',
       modeMessages: 'Search Messages',
       placeholderTitles: 'Search session titles (↑↓ navigate, Enter open, Esc exit)...',
+      placeholderSessionId: 'Search by session ID (e.g. ses_... or hash fragment)...',
       placeholderMessages: 'Full-text message search: type keywords, code, or errors...',
       searchingMessages: 'Searching message content across sessions...',
       noMessageHits: (query: string) => `No message content found matching "${query}"`,
@@ -653,8 +659,10 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
     search: {
       placeholder: 'Sitzungstitel suchen (↑↓ zum Navigieren, Enter zum Öffnen, Esc zum Schließen)...',
       modeTitles: 'Titel durchsuchen',
+      modeSessionId: 'Nach ID suchen',
       modeMessages: 'Nachrichten durchsuchen',
       placeholderTitles: 'Sitzungstitel suchen (↑↓ zum Navigieren, Enter zum Öffnen, Esc zum Schließen)...',
+      placeholderSessionId: 'Nach Sitzungs-ID suchen (z. B. ses_...)...',
       placeholderMessages: 'Volltextsuche: Nachrichteninhalte, Code oder Fehlermeldungen eingeben...',
       searchingMessages: 'Nachrichten werden durchsucht...',
       noMessageHits: (query: string) => `Keine Treffer für „${query}“ in den Nachrichten gefunden`,

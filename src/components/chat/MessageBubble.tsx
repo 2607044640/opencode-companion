@@ -27,6 +27,7 @@ import { ToolBatchCard } from './ToolBatchCard'
 import { ReasoningCard } from './ReasoningCard'
 import { WorkedSummaryCard } from './WorkedSummaryCard'
 import { partitionAssistantTurn } from '../../utils/worked-summary'
+import { emptyAssistantChrome } from '../../utils/session-run-state'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n, tr } from '../../utils/i18n'
 import { evaluatePromptCollapsing } from './quick-jump'
@@ -736,6 +737,26 @@ export function MessageBubble({
   const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
   const hasEdits = editGroups.length > 0
 
+  const isExplicitlyDone =
+    Boolean(message.info.time.completed) ||
+    Boolean(message.info.finish) ||
+    Boolean(message.info.error)
+
+  // Empty shell: confirming / loading / thinking / interrupted.
+  // Interrupted needs a terminal signal. Age is not a signal — daemon
+  // time.created is seconds, so comparing it to Date.now() is always stale.
+  const emptyChrome =
+    message.parts.length === 0
+      ? emptyAssistantChrome({
+          runKnown,
+          isBusy: Boolean(isBusy),
+          isLive: turn.isLive,
+          explicitlyDone: isExplicitlyDone,
+        })
+      : null
+
+  const isTurnGenerating = runKnown && (isBusy || turn.isLive)
+
   if (isUser) {
     return (
       <UserMessageBubble
@@ -816,15 +837,15 @@ export function MessageBubble({
             )}
 
             {/* Live Generating Pill */}
-            {runKnown && isBusy && (
+            {isTurnGenerating && (
               <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-600/70 text-[11px] text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
                 <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
                 <span>{tr('生成中…', 'Generating…', 'Generieren…')}</span>
               </span>
             )}
 
-            {/* Duration Tag (Only shown if no Worked bar is rendered) */}
-            {runKnown && !turn.hasWork && durationStr && (
+            {/* Duration Tag (Only shown if no Worked bar is rendered and not generating) */}
+            {runKnown && !isTurnGenerating && !turn.hasWork && durationStr && (
               <span
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900 text-[10px] font-mono text-zinc-400 border border-zinc-800"
                 title="Response elapsed time"
@@ -1030,7 +1051,34 @@ export function MessageBubble({
             // Fallback for turns without any tools or reasoning
             <>
             {message.parts.length === 0 && !errorMessage && (
-              (isBusy && turn.isLive) ? (
+              emptyChrome === 'confirming' || emptyChrome === 'loading' ? (
+                <div className="py-2.5 px-3.5 rounded-lg bg-zinc-900/60 border border-zinc-800 flex items-center gap-3.5 shadow-sm">
+                  <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700/60 shrink-0 text-zinc-300 shadow-inner">
+                    <Loader2 className="w-4 h-4 text-zinc-400 animate-spin" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-zinc-200">
+                        {emptyChrome === 'confirming'
+                          ? tr('正在确认状态…', 'Checking status…', 'Status wird geprüft…')
+                          : tr('加载中…', 'Loading…', 'Wird geladen…')}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      {tr(
+                        '正在同步后端执行状态与对话记录…',
+                        'Syncing execution status and conversation history…',
+                        'Synchronisiert Status und Verlauf…'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ) : emptyChrome === 'thinking' ? (
                 <div className="py-2.5 px-3.5 rounded-lg bg-purple-950/25 border border-purple-800/40 flex items-center gap-3.5 shadow-sm">
                   <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-purple-900/40 border border-purple-700/50 shrink-0 text-purple-300 shadow-inner">
                     <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
@@ -1051,7 +1099,7 @@ export function MessageBubble({
                     </p>
                   </div>
                 </div>
-              ) : (
+              ) : emptyChrome === 'interrupted' ? (
                 <div className="flex items-start gap-3 py-3.5 px-4 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-xs">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <div className="flex-1 space-y-1">
@@ -1076,7 +1124,7 @@ export function MessageBubble({
                     </button>
                   )}
                 </div>
-              )
+              ) : null
             )}
             {groupMessageParts(message.parts, prefs.collapseToolBatch).map((item, idx) => {
               if (item.type === 'tool-batch') {

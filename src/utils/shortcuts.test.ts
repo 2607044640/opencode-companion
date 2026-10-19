@@ -48,7 +48,7 @@ describe('shortcuts matching and registration', () => {
     }
 
     const generalKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'general')
-    assert.equal(generalKeys.length, 3)
+    assert.equal(generalKeys.length, 4)
     for (const k of generalKeys) {
       assert.equal(DEFAULT_SHORTCUTS[k].category, 'general')
     }

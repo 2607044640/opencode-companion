@@ -1,4 +1,4 @@
-export type SearchMode = 'titles' | 'messages'
+export type SearchMode = 'titles' | 'messages' | 'session_id'
 
 export interface CachedMessageDoc {
   id: string

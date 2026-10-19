@@ -13,6 +13,7 @@ import {
   BookmarkPlus,
   Network,
   Check,
+  Cpu,
 } from 'lucide-react'
 import type { Message, Project, Session, SessionStatusPayload } from '../../types/opencode'
 import { CopyExportButton } from '../chat/CopyExportButton'
@@ -64,6 +65,7 @@ interface HeaderProps {
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
   onOpenSettings?: (tab?: SettingsTab) => void
+  onOpenModelRouter?: () => void
   onDaemonRestored?: () => void
   onDaemonLost?: () => void
 }
@@ -101,6 +103,7 @@ export function Header({
   onUpdateSessionTitle,
   onShowInMap,
   onOpenSettings,
+  onOpenModelRouter,
   onDaemonRestored,
   onDaemonLost,
 }: HeaderProps) {
@@ -607,6 +610,18 @@ export function Header({
             aria-label="在蓝图地图中定位当前会话 (Ctrl+M)"
           >
             <Network className="w-4 h-4" />
+          </button>
+        )}
+
+        {onOpenModelRouter && (
+          <button
+            type="button"
+            onClick={onOpenModelRouter}
+            className="p-1.5 text-zinc-400 hover:text-violet-300 hover:bg-[#1a1d22] rounded transition-colors shrink-0"
+            title="模型路由悬浮面板 (Ctrl+Shift+3)"
+            aria-label="模型路由悬浮面板 (Ctrl+Shift+3)"
+          >
+            <Cpu className="w-4 h-4" />
           </button>
         )}
 

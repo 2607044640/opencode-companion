@@ -59,6 +59,7 @@ export interface ShortcutsMap {
   mapHome: ShortcutItem
   mapRearrange: ShortcutItem
   findInPage: ShortcutItem
+  openModelRouter: ShortcutItem
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsMap = {
@@ -235,6 +236,14 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     description: '整理蓝图拓扑 (Rearrange Graph)',
     label: 'Alt + R',
     category: 'map',
+  },
+  openModelRouter: {
+    key: '3',
+    ctrlKey: true,
+    shiftKey: true,
+    description: '打开模型路由悬浮面板 (Model Router)',
+    label: 'Ctrl + Shift + 3',
+    category: 'general',
   },
 }
 

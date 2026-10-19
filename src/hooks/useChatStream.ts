@@ -23,6 +23,7 @@ import {
 } from '../utils/prompt-parts'
 import { partitionAssistantTurn } from '../utils/worked-summary'
 import { isRunningStatus } from '../utils/session-run-state'
+import { decideGoOn, GO_ON_SILENCE_MS, GO_ON_TEXT, type GoOnActivity } from './go-on-fuse'
 
 import type {
   PromptAttachment,
@@ -69,6 +70,17 @@ export function useChatStream(
   const retryRef = useRef<() => Promise<void>>(async () => {})
   /** One abort per user send. A live copier must not keep the SSE socket open. */
   const repetitionArmedRef = useRef(false)
+  /** Last SSE or local send. A few quiet seconds are not a dead relay. */
+  const lastActivityAtRef = useRef(0)
+  /** How many automatic "go on" nudges this user turn already spent. */
+  const goOnSentRef = useRef(0)
+  const goOnFlightRef = useRef(false)
+  const todosRef = useRef<TodoItem[]>([])
+  const sessionStatusRef = useRef<SessionStatusPayload>({ type: 'idle' })
+  const runKnownRef = useRef(false)
+  const sendPromptRef = useRef<
+    (text: string, options?: { agent?: string; model?: { providerID: string; modelID: string } }) => Promise<void>
+  >(async () => {})
 
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
     if (!sessionBusyRef.current && kind === 'clean') return
@@ -80,8 +92,47 @@ export function useChatStream(
   const commitSessionStatus = useCallback((next: SessionStatusPayload, known = true) => {
     statusEpochRef.current += 1
     if (isRunningStatus(next)) sessionBusyRef.current = true
+    sessionStatusRef.current = next
     setSessionStatus(next)
-    if (known) setRunKnown(true)
+    if (known) {
+      runKnownRef.current = true
+      setRunKnown(true)
+    }
+  }, [])
+
+  const noteActivity = useCallback((_kind: GoOnActivity) => {
+    lastActivityAtRef.current = Date.now()
+  }, [])
+
+  /**
+   * Silence timer passes 'silence' so an idle-only verdict cannot fire early.
+   * Idle and error pass nothing: any send-verdict is already a hard stop.
+   */
+  const maybeSendGoOn = useCallback((only?: 'silence') => {
+    if (goOnFlightRef.current) return
+    const verdict = decideGoOn({
+      lastActivityAt: lastActivityAtRef.current,
+      now: Date.now(),
+      runKnown: runKnownRef.current,
+      daemonIdle: !isRunningStatus(sessionStatusRef.current),
+      userAborted: userAbortedRef.current,
+      sentThisTurn: goOnSentRef.current,
+      messages: messagesRef.current,
+      todos: todosRef.current,
+    })
+    if (verdict.act !== 'send') return
+    if (only && verdict.reason !== only) return
+    goOnFlightRef.current = true
+    goOnSentRef.current += 1
+    const last = [...messagesRef.current].reverse().find((m) => m.info.role === 'assistant')
+    void sendPromptRef.current(GO_ON_TEXT, {
+      agent: last?.info.agent,
+      model: last?.info.model
+        ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
+        : undefined,
+    }).finally(() => {
+      goOnFlightRef.current = false
+    })
   }, [])
 
   const stopRepetitionLoop = useCallback((messageId: string) => {
@@ -159,6 +210,7 @@ export function useChatStream(
         }
       }
       if (currentSessionIdRef.current === id && statusEpochRef.current === statusEpoch) {
+        runKnownRef.current = true
         setRunKnown(true)
       }
       setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
@@ -167,6 +219,7 @@ export function useChatStream(
       const initialTodos = await todosPromise
       if (currentSessionIdRef.current !== id) return
       setTodos(initialTodos || [])
+      todosRef.current = initialTodos || []
     } catch (err) {
       if (currentSessionIdRef.current !== id) return
       console.error('Failed to load session history:', err)
@@ -175,7 +228,10 @@ export function useChatStream(
       if (currentSessionIdRef.current === id) {
         setLoadedSessionId(id)
         setLoading(false)
-        if (statusEpochRef.current === statusEpoch) setRunKnown(true)
+        if (statusEpochRef.current === statusEpoch) {
+          runKnownRef.current = true
+          setRunKnown(true)
+        }
       }
     }
   }, [commitSessionStatus])
@@ -192,10 +248,14 @@ export function useChatStream(
 
     commitSessionStatus({ type: 'idle' }, false)
     sessionBusyRef.current = false
+    runKnownRef.current = false
     setRunKnown(false)
     setError(null)
     setTurnEnd(null)
     userAbortedRef.current = false
+    goOnSentRef.current = 0
+    goOnFlightRef.current = false
+    lastActivityAtRef.current = 0
 
     if (!sessionId || sessionId === '__draft__') {
       setMessages([])
@@ -219,6 +279,7 @@ export function useChatStream(
       if (!id || id === '__draft__') return
       statusEpochRef.current += 1
       sessionBusyRef.current = false
+      runKnownRef.current = false
       setRunKnown(false)
       setError(null)
       void loadSessionData(id)
@@ -229,6 +290,7 @@ export function useChatStream(
     const unsubDelta = sseManager.onPartDelta((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
+      noteActivity('delta')
 
       const known = messagesRef.current.find((m) => m.info.id === data.messageID)
       const done = Boolean(known?.info.time.completed || known?.info.finish || known?.info.error)
@@ -325,6 +387,7 @@ export function useChatStream(
     const unsubPartUpdated = sseManager.onPartUpdated((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
+      noteActivity('part')
       const cleanPart = normalizeMessagePart(data.part)
       console.warn('[CHAT_STREAM_DEBUG] ⚡ onPartUpdated received:', {
         partId: cleanPart.id,
@@ -392,6 +455,7 @@ export function useChatStream(
     const unsubMsgUpdated = sseManager.onMessageUpdated((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
+      noteActivity('message')
       const cleanInfo = normalizeMessageInfo(data.info)
 
       setMessages((prev) => {
@@ -429,6 +493,7 @@ export function useChatStream(
 
     const unsubStatus = sseManager.onSessionStatus((data) => {
       if (data.sessionID !== sessionId) return
+      noteActivity('status')
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
         noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
@@ -438,6 +503,7 @@ export function useChatStream(
     // SSE Error Fuse: break out of busy state immediately on backend errors
     const unsubError = sseManager.onSessionError((data) => {
       if (data.sessionID !== sessionId) return
+      noteActivity('error')
       commitSessionStatus({ type: 'idle' })
 
       // User-initiated or backend abort is not a relay failure
@@ -457,33 +523,27 @@ export function useChatStream(
       setError(errorMsg)
       noteTurnEnd('error')
 
-      // Attach error directly to the last assistant message so it renders inside the message bubble
-      setMessages((prev) => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        if (last.info.role === 'assistant' && !last.info.error) {
-          return [
-            ...prev.slice(0, -1),
-            {
-              ...last,
-              info: {
-                ...last.info,
-                error: {
-                  name: data.error?.name || 'SessionError',
-                  message: errorMsg,
-                  data: data.error?.data || {},
-                },
-              },
-            },
-          ]
-        }
-        return prev
+      const relayError = {
+        name: data.error?.name || 'SessionError',
+        message: errorMsg,
+        data: data.error?.data || {},
+      }
+      // Attach the error before the go-on decision. The decider reads the ref,
+      // and setMessages has not committed yet.
+      const stamped = messagesRef.current.map((msg, index, all) => {
+        if (index !== all.length - 1) return msg
+        if (msg.info.role !== 'assistant' || msg.info.error) return msg
+        return { ...msg, info: { ...msg.info, error: relayError } }
       })
+      messagesRef.current = stamped
+      setMessages(stamped)
+      queueMicrotask(() => maybeSendGoOn())
     })
 
     // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
       const unsubIdle = sseManager.onSessionIdle((data) => {
       if (data.sessionID !== sessionId) return
+      noteActivity('idle')
       commitSessionStatus({ type: 'idle' })
 
       const currentMsgs = messagesRef.current
@@ -511,6 +571,15 @@ export function useChatStream(
         autoRetriedTurnKeyRef.current = turnKey
         void retryRef.current()
         return
+      }
+      if (
+        !abortedByUser &&
+        fuse.kind !== 'user_abort' &&
+        fuse.kind !== 'repetition_loop' &&
+        fuse.kind !== 'empty_response' &&
+        fuse.kind !== 'system_abort'
+      ) {
+        queueMicrotask(() => maybeSendGoOn())
       }
       if (abortedByUser || fuse.kind === 'user_abort') {
         noteTurnEnd('user')
@@ -593,11 +662,32 @@ export function useChatStream(
 
     const unsubTodo = sseManager.on('todo.updated', (data: any) => {
       if (data?.sessionID === sessionId && Array.isArray(data?.todos)) {
+        todosRef.current = data.todos
         setTodos(data.todos)
       }
     })
 
+    // Ninety seconds of nothing. A 3s pause is a tool or a thought, not a death.
+    // Confirm with the daemon before nudging: a missed idle event must not
+    // send "go on" into a turn that already finished.
+    const silenceTimer = window.setInterval(() => {
+      if (!sessionId || sessionId === '__draft__') return
+      if (!isRunningStatus(sessionStatusRef.current)) return
+      if (goOnFlightRef.current) return
+      const quietFor = Date.now() - lastActivityAtRef.current
+      if (quietFor < GO_ON_SILENCE_MS) return
+      const askedAt = lastActivityAtRef.current
+      void api.getSessionStatus(sessionId).then((status) => {
+        if (!status || currentSessionIdRef.current !== sessionId) return
+        if (lastActivityAtRef.current !== askedAt) return
+        commitSessionStatus(status)
+        if (!isRunningStatus(status)) return
+        maybeSendGoOn('silence')
+      })
+    }, 5_000)
+
     return () => {
+      window.clearInterval(silenceTimer)
       window.removeEventListener('pageshow', onPageShow)
       unsubDelta()
       unsubPartUpdated()
@@ -608,7 +698,7 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop])
+  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop, noteActivity, maybeSendGoOn])
 
   const sendPrompt = useCallback(
     async (
@@ -646,6 +736,10 @@ export function useChatStream(
       pendingOptimisticIdRef.current = userMsg.info.id
       userAbortedRef.current = false
       repetitionArmedRef.current = false
+      noteActivity('send')
+      if (text.trim() !== GO_ON_TEXT) {
+        goOnSentRef.current = 0
+      }
       commitSessionStatus({ type: 'busy' })
       setError(null)
       setTurnEnd(null)
@@ -665,8 +759,12 @@ export function useChatStream(
         noteTurnEnd('error')
       }
     },
-    [sessionId, noteTurnEnd, commitSessionStatus]
+    [sessionId, noteTurnEnd, commitSessionStatus, noteActivity]
   )
+
+  useEffect(() => {
+    sendPromptRef.current = sendPrompt
+  }, [sendPrompt])
 
   const abort = useCallback(async (opts?: { preempt?: boolean }) => {
     if (!sessionId) return

@@ -13,6 +13,7 @@ import {
   Bot,
   Sparkles,
   Archive,
+  Hash,
 } from 'lucide-react'
 import type { Session, Project } from '../../types/opencode'
 import { matchCanonicalWorkspace, api } from '../../services/api'
@@ -31,6 +32,7 @@ import {
   queryAllCachedMessages,
   type SessionSearchTarget,
 } from './message-search'
+import { filterSessionsById } from './session-id-search'
 import {
   formatProjectPill,
   resolveSessionProject,
@@ -152,7 +154,7 @@ function FloatingSearchContent({
   const [searchMode, setSearchMode] = useState<SearchMode>(() => {
     try {
       const saved = sessionStorage.getItem('opencode_search_mode')
-      if (saved === 'messages' || saved === 'titles') {
+      if (saved === 'messages' || saved === 'titles' || saved === 'session_id') {
         return saved
       }
     } catch {
@@ -258,12 +260,19 @@ function FloatingSearchContent({
       const dirFolded = foldSearchText(s.directory)
       const agentFolded = foldSearchText(s.agent)
       const projFolded = foldSearchText(sessionProjectMap.get(s.id)?.name)
+      const idFolded = (s.id || '').toLowerCase()
 
       let score = 0
       if (titleFolded.startsWith(foldedQuery) || titleCompact.startsWith(compactQuery)) {
         score += 150
       } else if (titleFolded.includes(foldedQuery) || titleCompact.includes(compactQuery)) {
         score += 100
+      } else if (idFolded === foldedQuery) {
+        score += 400
+      } else if (idFolded.startsWith(foldedQuery)) {
+        score += 180
+      } else if (idFolded.includes(foldedQuery)) {
+        score += 90
       } else if (projFolded.includes(foldedQuery) || compactSearchText(projFolded).includes(compactQuery)) {
         score += 50
       } else if (dirFolded.includes(foldedQuery) || compactSearchText(dirFolded).includes(compactQuery)) {
@@ -278,6 +287,8 @@ function FloatingSearchContent({
         for (const token of tokens) {
           if (titleFolded.includes(token)) {
             wordScore += titleFolded.startsWith(token) ? 40 : 25
+          } else if (idFolded.includes(token)) {
+            wordScore += 30
           } else if (projFolded.includes(token)) {
             wordScore += 15
           } else if (dirFolded.includes(token)) {
@@ -290,7 +301,7 @@ function FloatingSearchContent({
           }
         }
         if (allWordsMatched && textMatchesTokens(
-          `${titleFolded} ${projFolded} ${dirFolded} ${agentFolded}`,
+          `${titleFolded} ${idFolded} ${projFolded} ${dirFolded} ${agentFolded}`,
           tokens
         )) {
           score += wordScore
@@ -313,6 +324,11 @@ function FloatingSearchContent({
 
     return scored.map((item) => item.session)
   }, [projectFilteredSessions, query, sessionProjectMap])
+
+  // Session ID mode: Filtered & Ranked specifically by Session ID
+  const filteredSessionIds = useMemo(() => {
+    return filterSessionsById(projectFilteredSessions, query)
+  }, [projectFilteredSessions, query])
 
   const messageCorpusKey = projectFilteredSessions
     .map((session) => `${session.id}:${session.time?.updated ?? 0}`)
@@ -404,7 +420,12 @@ function FloatingSearchContent({
   }, [searchMode, query, indexedTargets])
 
   // Total items in current active mode
-  const currentItemCount = searchMode === 'titles' ? filteredSessions.length : messageHits.length
+  const currentItemCount =
+    searchMode === 'titles'
+      ? filteredSessions.length
+      : searchMode === 'session_id'
+        ? filteredSessionIds.length
+        : messageHits.length
   const safeIndex = currentItemCount > 0 ? Math.min(Math.max(0, selectedIndex), currentItemCount - 1) : 0
 
   // Scroll active item into view smoothly without stealing DOM focus
@@ -425,9 +446,10 @@ function FloatingSearchContent({
   )
 
   const handleSelectCurrent = useCallback(() => {
-    if (searchMode === 'titles') {
-      if (filteredSessions.length > 0 && filteredSessions[safeIndex]) {
-        handleSelectSessionAction(filteredSessions[safeIndex].id)
+    if (searchMode === 'titles' || searchMode === 'session_id') {
+      const list = searchMode === 'titles' ? filteredSessions : filteredSessionIds
+      if (list.length > 0 && list[safeIndex]) {
+        handleSelectSessionAction(list[safeIndex].id)
       }
     } else {
       if (messageHits.length > 0 && messageHits[safeIndex]) {
@@ -435,7 +457,7 @@ function FloatingSearchContent({
         handleSelectSessionAction(hit.sessionId, hit.messageId)
       }
     }
-  }, [searchMode, filteredSessions, messageHits, safeIndex, handleSelectSessionAction])
+  }, [searchMode, filteredSessions, filteredSessionIds, messageHits, safeIndex, handleSelectSessionAction])
 
   const handleSwitchMode = (mode: SearchMode) => {
     setSearchMode(mode)
@@ -680,7 +702,9 @@ function FloatingSearchContent({
             placeholder={
               searchMode === 'titles'
                 ? t.search.placeholderTitles
-                : t.search.placeholderMessages
+                : searchMode === 'session_id'
+                  ? t.search.placeholderSessionId
+                  : t.search.placeholderMessages
             }
             className="a1-search-input w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-orange-500/80 transition-colors placeholder:text-zinc-500"
           />
@@ -699,7 +723,7 @@ function FloatingSearchContent({
           )}
         </div>
 
-        {/* Search Mode Segmented Control (Titles vs Messages) */}
+        {/* Search Mode Segmented Control (Titles vs Session ID vs Messages) */}
         <div className="flex items-center bg-[#16181e] p-0.5 rounded-md border border-[#272a31] shrink-0">
           <button
             type="button"
@@ -713,6 +737,19 @@ function FloatingSearchContent({
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>{t.search.modeTitles}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('session_id')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-all ${
+              searchMode === 'session_id'
+                ? 'bg-[#252830] text-orange-400 font-medium shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26]'
+            }`}
+            title="按会话 ID 检索 (如 ses_...)"
+          >
+            <Hash className="w-3.5 h-3.5" />
+            <span>{t.search.modeSessionId}</span>
           </button>
           <button
             type="button"
@@ -755,9 +792,11 @@ function FloatingSearchContent({
           </div>
 
           {/* Result count badge */}
-          {searchMode === 'titles' ? (
+          {searchMode === 'titles' || searchMode === 'session_id' ? (
             <div className="px-2.5 py-1 bg-[#16181e] text-[11px] font-mono text-zinc-400 rounded-md border border-[#272a31] shrink-0">
-              <strong className="text-zinc-200">{filteredSessions.length}</strong> / {sessions.length}
+              <strong className="text-zinc-200">
+                {searchMode === 'titles' ? filteredSessions.length : filteredSessionIds.length}
+              </strong> / {sessions.length}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#16181e] text-[11px] font-mono text-zinc-400 rounded-md border border-[#272a31] shrink-0">
@@ -784,9 +823,9 @@ function FloatingSearchContent({
         className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-[#0c0d0e]"
         onMouseDown={handleNonInteractiveMouseDown}
       >
-        {searchMode === 'titles' ? (
-          // Titles Mode rendering
-          filteredSessions.length === 0 ? (
+        {searchMode === 'titles' || searchMode === 'session_id' ? (
+          // Titles or Session ID Mode rendering
+          (searchMode === 'titles' ? filteredSessions : filteredSessionIds).length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 space-y-2">
               <Search className="w-8 h-8 text-zinc-600 mb-1" />
               <div className="text-sm font-medium text-zinc-400">
@@ -797,7 +836,7 @@ function FloatingSearchContent({
               </div>
             </div>
           ) : (
-            filteredSessions.map((session, index) => {
+            (searchMode === 'titles' ? filteredSessions : filteredSessionIds).map((session, index) => {
               const isActive = index === safeIndex
               const projMeta = sessionProjectMap.get(session.id) || FALLBACK_SEARCH_BADGE
               const projectPill = formatProjectPill(projMeta.name)
@@ -876,12 +915,29 @@ function FloatingSearchContent({
                         </span>
                       </div>
 
-                      {displayDir && (
-                        <span className="truncate text-[11px] text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
-                          <Folder className="w-2.5 h-2.5 text-zinc-600 shrink-0" />
-                          <span className="truncate">{displayDir}</span>
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 mt-0.5 min-w-0 flex-wrap">
+                        {(searchMode === 'session_id' ||
+                          (query.trim() && session.id.toLowerCase().includes(query.trim().toLowerCase()))) && (
+                          <span
+                            className="inline-flex items-center gap-1 font-mono text-[10px] text-zinc-400 bg-[#16181e] border border-zinc-700/60 px-1.5 py-0.5 rounded shrink-0 max-w-[320px] truncate"
+                            title={`Session ID: ${session.id}`}
+                          >
+                            <Hash className="w-2.5 h-2.5 text-orange-400/80 shrink-0" />
+                            <HighlightedText
+                              text={session.id}
+                              query={query}
+                              preset="orange"
+                            />
+                          </span>
+                        )}
+
+                        {displayDir && (
+                          <span className="truncate text-[11px] text-zinc-500 font-mono flex items-center gap-1">
+                            <Folder className="w-2.5 h-2.5 text-zinc-600 shrink-0" />
+                            <span className="truncate">{displayDir}</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 

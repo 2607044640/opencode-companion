@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { isRunningStatus, pickSessionRunStatus, runChrome, sessionStatusFromTable } from './session-run-state'
+import { emptyAssistantChrome, isRunningStatus, pickSessionRunStatus, runChrome, sessionStatusFromTable } from './session-run-state'
 
 describe('pickSessionRunStatus', () => {
   const table = {
@@ -46,5 +46,43 @@ describe('pickSessionRunStatus', () => {
     assert.equal(runChrome(true, { type: 'busy' }), 'running')
     assert.equal(runChrome(true, { type: 'retry', attempt: 1, message: 'x' }), 'running')
     assert.equal(runChrome(true, { type: 'idle' }), 'settled')
+  })
+})
+
+describe('emptyAssistantChrome', () => {
+  it('stays confirming until the daemon answers, even if the shell looks finished', () => {
+    assert.equal(
+      emptyAssistantChrome({ runKnown: false, isBusy: false, isLive: false, explicitlyDone: true }),
+      'confirming'
+    )
+  })
+
+  it('shows thinking while the session is running or the turn is live', () => {
+    assert.equal(
+      emptyAssistantChrome({ runKnown: true, isBusy: true, isLive: false, explicitlyDone: false }),
+      'thinking'
+    )
+    assert.equal(
+      emptyAssistantChrome({ runKnown: true, isBusy: false, isLive: true, explicitlyDone: false }),
+      'thinking'
+    )
+  })
+
+  it('shows loading for an empty shell with no terminal signal, including a settled idle reload', () => {
+    assert.equal(
+      emptyAssistantChrome({ runKnown: true, isBusy: false, isLive: false, explicitlyDone: false }),
+      'loading'
+    )
+  })
+
+  it('shows interrupted only after a terminal signal on a settled turn', () => {
+    assert.equal(
+      emptyAssistantChrome({ runKnown: true, isBusy: false, isLive: false, explicitlyDone: true }),
+      'interrupted'
+    )
+    assert.equal(
+      emptyAssistantChrome({ runKnown: true, isBusy: true, isLive: false, explicitlyDone: true }),
+      'thinking'
+    )
   })
 })
