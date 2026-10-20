@@ -43,7 +43,6 @@ import { useI18n, type LanguagePreference } from '../../utils/i18n'
 import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
 import type { ProviderInfo } from '../../types/opencode'
 import { ManageModelsContent } from '../models/ManageModelsModal'
-import { RelayHubSettings } from './RelayHubSettings'
 import { ArchivedSessionsSettings } from './ArchivedSessionsSettings'
 
 export type SettingsTab =
@@ -828,7 +827,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
             {/* 4.5 RELAY HUB TAB */}
             {activeTab === 'relays' && (
-              <RelayHubSettings />
+              <div className="space-y-3 text-sm text-zinc-300">
+                <p>中转站额度、Key 和兑换地址已并入模型路由悬浮面板（Ctrl+Shift+3）的「中转额度」页。</p>
+                <p className="text-xs text-zinc-500">顶栏金币按钮的设置入口也会打开那一页。这里不再单独维护一份。</p>
+              </div>
             )}
 
             {/* 5. CUSTOMIZATIONS TAB (Shortcuts Manager) */}

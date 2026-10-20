@@ -75,6 +75,7 @@ export default function App() {
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
   const [isModelRouterOpen, setIsModelRouterOpen] = useState(false)
+  const [modelRouterTab, setModelRouterTab] = useState<'workflow' | 'relay'>('workflow')
   const [isZenMode, setIsZenMode] = useState(false)
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
   const { t, lang } = useI18n()
@@ -1116,7 +1117,14 @@ export default function App() {
             onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
             onShowInMap={handleAddSessionToMap}
             onOpenSettings={handleOpenSettings}
-            onOpenModelRouter={() => setIsModelRouterOpen(true)}
+            onOpenRelayHub={() => {
+              setModelRouterTab('relay')
+              setIsModelRouterOpen(true)
+            }}
+            onOpenModelRouter={() => {
+              setModelRouterTab('workflow')
+              setIsModelRouterOpen(true)
+            }}
             onDaemonRestored={handleDaemonRestored}
             onDaemonLost={handleDaemonLost}
           />
@@ -1304,6 +1312,7 @@ export default function App() {
 
       <FloatingModelRouter
         isOpen={isModelRouterOpen}
+        initialTab={modelRouterTab}
         onClose={() => setIsModelRouterOpen(false)}
       />
 

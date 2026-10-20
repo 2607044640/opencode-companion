@@ -368,22 +368,66 @@ export function resolveModelProfiles(customPath = null) {
   }
 }
 
-export function resolveRoutingConfig(customPath = null) {
-  const candidatePaths = customPath ? [customPath] : ROUTING_SSOT_PATHS
-  let targetPath = null
-  for (const p of candidatePaths) {
-    if (fs.existsSync(p)) {
-      targetPath = p
-      break
+export function writeRoutingDocument(document, baseRevision, customPath = null) {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) {
+    return { ok: false, status: 400, error: 'document must be an object' }
+  }
+  if (!Array.isArray(document.standaloneModels)) {
+    return { ok: false, status: 400, error: 'standaloneModels must be an array' }
+  }
+  const located = locateRoutingFile(customPath)
+  if (!located.ok) return located
+  let current = {}
+  try {
+    current = JSON.parse(located.content)
+  } catch (err) {
+    return { ok: false, status: 400, error: err instanceof Error ? err.message : String(err) }
+  }
+  if (typeof baseRevision === 'number' && current.revision !== baseRevision) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'revision conflict',
+      revision: current.revision,
+      document: current,
     }
   }
-
-  if (!targetPath) {
-    return { ok: false, error: 'routing config not found' }
+  const next = {
+    ...current,
+    ...document,
+    groups: Array.isArray(current.groups) ? current.groups : [],
+    activeGroupIds: Array.isArray(current.activeGroupIds) ? current.activeGroupIds : [],
+    revision: (typeof current.revision === 'number' ? current.revision : 0) + 1,
+    updatedAt: new Date().toISOString(),
   }
+  const text = `${JSON.stringify(next, null, 2)}\n`
+  const tmp = `${located.path}.tmp`
+  fs.writeFileSync(tmp, text, 'utf8')
+  fs.renameSync(tmp, located.path)
+  return { ok: true, path: located.path, revision: next.revision, document: next }
+}
+
+function locateRoutingFile(customPath = null) {
+  const candidatePaths = customPath ? [customPath] : ROUTING_SSOT_PATHS
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      try {
+        return { ok: true, path: candidate, content: fs.readFileSync(candidate, 'utf8') }
+      } catch (err) {
+        return { ok: false, status: 500, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  }
+  return { ok: false, status: 404, error: 'routing config not found' }
+}
+
+export function resolveRoutingConfig(customPath = null) {
+  const located = locateRoutingFile(customPath)
+  if (!located.ok) return located
+  const targetPath = located.path
 
   try {
-    const content = fs.readFileSync(targetPath, 'utf8')
+    const content = located.content
     const data = JSON.parse(content)
 
     let target = data.selectedActiveTarget || null
@@ -425,6 +469,8 @@ export function resolveRoutingConfig(customPath = null) {
       selectedActiveTarget: target,
       seniorModel,
       activeStandaloneModelIds: data.activeStandaloneModelIds || [],
+      revision: typeof data.revision === 'number' ? data.revision : 0,
+      document: data,
       subagents: data.subagents || {},
       modelProfiles: modelProfiles.ok ? modelProfiles : undefined,
     }
@@ -455,12 +501,23 @@ export async function handleHostApi(req, res) {
   }
 
   if (url === '/api/routing-config') {
-    if (req.method !== 'GET') {
-      sendJson(res, 405, { error: 'method not allowed' })
+    if (req.method === 'GET') {
+      const result = resolveRoutingConfig()
+      sendJson(res, result.ok ? 200 : 404, result)
       return true
     }
-    const result = resolveRoutingConfig()
-    sendJson(res, result.ok ? 200 : 404, result)
+    if (req.method === 'PUT') {
+      try {
+        const raw = await readBody(req)
+        const body = raw ? JSON.parse(raw) : {}
+        const result = writeRoutingDocument(body.document, body.baseRevision)
+        sendJson(res, result.ok ? 200 : result.status || 400, result)
+      } catch (err) {
+        sendJson(res, 400, { ok: false, error: err instanceof Error ? err.message : String(err) })
+      }
+      return true
+    }
+    sendJson(res, 405, { error: 'method not allowed' })
     return true
   }
 

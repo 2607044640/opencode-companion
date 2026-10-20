@@ -28,6 +28,7 @@ export interface ModelItem {
   overriddenGroups?: OverriddenGroup[]
 }
 
+/** @deprecated Model groups are hidden. The field stays so an old file still parses. */
 export interface ModelGroup {
   id: string
   name: string
@@ -516,6 +517,53 @@ export function serializeSSOT(
   return { jsonString, hash: fastHash(jsonString) }
 }
 
+export async function fetchRouterDocument(): Promise<{ settings: RoutingSettings; revision: number; path?: string } | null> {
+  try {
+    const res = await fetch('/api/routing-config', { headers: { Accept: 'application/json' } })
+    if (!res.ok) return null
+    const body = await res.json() as { ok?: boolean; document?: unknown; revision?: number; path?: string }
+    if (!body?.ok || !body.document || typeof body.document !== 'object') return null
+    return {
+      settings: normalizeSettings(body.document as Record<string, unknown>),
+      revision: typeof body.revision === 'number' ? body.revision : 0,
+      path: body.path,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function putRouterDocument(
+  settings: RoutingSettings,
+  baseRevision: number,
+): Promise<{ ok: true; revision: number; settings: RoutingSettings } | { ok: false; conflict?: RoutingSettings; error: string }> {
+  const res = await fetch('/api/routing-config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ document: settings, baseRevision }),
+  })
+  const body = await res.json().catch(() => ({})) as {
+    ok?: boolean
+    revision?: number
+    document?: unknown
+    error?: string
+  }
+  if (res.status === 409 && body.document && typeof body.document === 'object') {
+    return {
+      ok: false,
+      error: body.error || 'revision conflict',
+      conflict: normalizeSettings(body.document as Record<string, unknown>),
+    }
+  }
+  if (!res.ok || !body.ok) {
+    return { ok: false, error: body.error || `save failed (${res.status})` }
+  }
+  const saved = body.document && typeof body.document === 'object'
+    ? normalizeSettings(body.document as Record<string, unknown>)
+    : settings
+  return { ok: true, revision: typeof body.revision === 'number' ? body.revision : baseRevision + 1, settings: saved }
+}
+
 export function loadRouterSettings(): RoutingSettings {
   try {
     if (typeof localStorage !== 'undefined') {
@@ -554,6 +602,26 @@ export function clampPriority(value: number): number {
 export function clampTimeout(value: number): number {
   if (!Number.isFinite(value)) return 25
   return Math.max(5, Math.min(300, Math.round(value)))
+}
+
+/** Raise one standalone model above the others and record it as the live primary. */
+export function makePrimary(settings: RoutingSettings, modelId: string): RoutingSettings {
+  const bare = modelId.replace(/^model:/, '')
+  const others = settings.standaloneModels.filter((model) => model.id !== bare)
+  const highest = others.reduce((max, model) => Math.max(max, model.priority), 0)
+  const priority = highest >= 100 ? 100 : Math.max(highest + 1, 1)
+  return {
+    ...settings,
+    selectedActiveTarget: bare,
+    activeStandaloneModelIds: [...new Set([...settings.activeStandaloneModelIds, bare])],
+    standaloneModels: settings.standaloneModels
+      .map((model) => {
+        if (model.id === bare) return { ...model, enabled: true, priority }
+        if (priority === 100 && model.priority >= 100) return { ...model, priority: 99 }
+        return model
+      })
+      .sort((a, b) => b.priority - a.priority),
+  }
 }
 
 export function chainForSelection(settings: RoutingSettings, now = Date.now()): ModelItem[] {

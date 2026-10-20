@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
   buildCompositeChain,
   clampPriority,
   clampTimeout,
+  fetchRouterDocument,
   getModelRemainingSeconds,
   isModelCooling,
   loadRouterSettings,
+  makePrimary,
   parseSSOT,
+  putRouterDocument,
   recordFailure,
   resetAllCircuitBreakers,
   saveRouterSettings,
@@ -16,16 +19,17 @@ import {
   type RoutingSettings,
   type SubagentBinding,
 } from '../../utils/model-router'
+import { RelayHubSettings } from '../settings/RelayHubSettings'
 
-type TabId = 'workflow' | 'groups' | 'standalone' | 'subagents' | 'queue' | 'ssot'
+type TabId = 'workflow' | 'standalone' | 'subagents' | 'queue' | 'relay' | 'ssot'
 
 const TABS: { id: TabId; label: (settings: RoutingSettings, chainLength: number) => string }[] = [
-  { id: 'workflow', label: () => '活跃工作流组合' },
-  { id: 'groups', label: (s) => `模型分组 (${s.groups.length})` },
-  { id: 'standalone', label: (s) => `独立模型 (${s.standaloneModels.length})` },
-  { id: 'subagents', label: () => 'Subagent 矩阵 (Prometheus/Atlas)' },
-  { id: 'queue', label: (_s, n) => `优先级实时降序队列 (${n})` },
-  { id: 'ssot', label: () => 'SSOT 与 JSON 配置' },
+  { id: 'workflow', label: () => '活跃工作流' },
+  { id: 'standalone', label: (s) => `模型 (${s.standaloneModels.length})` },
+  { id: 'subagents', label: () => 'Subagent 矩阵' },
+  { id: 'queue', label: (_s, n) => `降级队列 (${n})` },
+  { id: 'relay', label: () => '中转额度' },
+  { id: 'ssot', label: () => 'JSON' },
 ]
 
 const SUBAGENT_ORDER = ['prometheus', 'atlas', 'researcher', 'explore', 'librarian', 'scout']
@@ -33,27 +37,54 @@ const SUBAGENT_ORDER = ['prometheus', 'atlas', 'researcher', 'explore', 'librari
 export interface FloatingModelRouterProps {
   readonly isOpen: boolean
   readonly onClose: () => void
+  readonly initialTab?: TabId
 }
 
-export function FloatingModelRouter({ isOpen, onClose }: FloatingModelRouterProps) {
+export function FloatingModelRouter({ isOpen, onClose, initialTab = 'workflow' }: FloatingModelRouterProps) {
   const [settings, setSettings] = useState<RoutingSettings>(() => loadRouterSettings())
-  const [tab, setTab] = useState<TabId>('workflow')
+  const [, setRevision] = useState(0)
+  const [sourcePath, setSourcePath] = useState('')
+  const [tab, setTab] = useState<TabId>(initialTab)
   const [now, setNow] = useState(() => Date.now())
   const [notice, setNotice] = useState<string | null>(null)
   const [jsonText, setJsonText] = useState('')
   const [jsonDirty, setJsonDirty] = useState(false)
+  const saveLock = useRef(false)
+  const revisionRef = useRef(0)
 
   const chain = useMemo(() => buildCompositeChain(settings, now), [settings, now])
   const cooling = chain.some((model) => isModelCooling(model, now))
 
+  const applyLoaded = (loaded: RoutingSettings, nextRevision: number, path = '') => {
+    setSettings(loaded)
+    setRevision(nextRevision)
+    revisionRef.current = nextRevision
+    if (path) setSourcePath(path)
+    if (!jsonDirty) setJsonText(JSON.stringify(loaded, null, 2))
+  }
+
   useEffect(() => {
     if (!isOpen) return
-    const loaded = loadRouterSettings()
-    setSettings(loaded)
-    setJsonText(JSON.stringify(loaded, null, 2))
+    setTab(initialTab)
     setJsonDirty(false)
-    setTab('workflow')
-  }, [isOpen])
+    let stop = false
+    void fetchRouterDocument().then((remote) => {
+      if (stop) return
+      if (remote) applyLoaded(remote.settings, remote.revision, remote.path)
+      else applyLoaded(loadRouterSettings(), 0)
+    })
+    const timer = window.setInterval(() => {
+      if (saveLock.current || jsonDirty) return
+      void fetchRouterDocument().then((remote) => {
+        if (!remote || remote.revision === revisionRef.current) return
+        applyLoaded(remote.settings, remote.revision, remote.path)
+      })
+    }, 4000)
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+    }
+  }, [isOpen, initialTab])
 
   useEffect(() => {
     if (!isOpen || !cooling) return
@@ -90,6 +121,21 @@ export function FloatingModelRouter({ isOpen, onClose }: FloatingModelRouterProp
     saveRouterSettings(stamped)
     if (!jsonDirty) setJsonText(JSON.stringify(stamped, null, 2))
     if (message) setNotice(message)
+    if (revisionRef.current <= 0) return
+    saveLock.current = true
+    void putRouterDocument(stamped, revisionRef.current).then((result) => {
+      saveLock.current = false
+      if (result.ok) {
+        applyLoaded(result.settings, result.revision, sourcePath)
+        return
+      }
+      if (result.conflict) {
+        applyLoaded(result.conflict, revisionRef.current, sourcePath)
+        setNotice('文件刚被别的写入更新，已重新载入')
+        return
+      }
+      setNotice(result.error)
+    })
   }
 
   if (!isOpen) return null
@@ -142,14 +188,15 @@ export function FloatingModelRouter({ isOpen, onClose }: FloatingModelRouterProp
           {tab === 'workflow' && (
             <WorkflowTab settings={settings} chain={chain} now={now} cooling={cooling} onCommit={commit} />
           )}
-          {tab === 'groups' && <GroupsTab settings={settings} chain={chain} now={now} onCommit={commit} />}
           {tab === 'standalone' && <StandaloneTab settings={settings} now={now} onCommit={commit} />}
+          {tab === 'relay' && <RelayHubSettings />}
           {tab === 'subagents' && <SubagentTab settings={settings} onCommit={commit} />}
           {tab === 'queue' && (
             <QueueTab settings={settings} chain={chain} now={now} onCommit={commit} />
           )}
           {tab === 'ssot' && (
             <SsotTab
+              sourcePath={sourcePath}
               jsonText={jsonText}
               onChange={(value) => {
                 setJsonText(value)
@@ -205,20 +252,23 @@ function WorkflowTab({
           onChange={(event) => onCommit(applyWorkflowSelection(settings, event.target.value))}
           className="min-w-[280px] flex-1 rounded-md border border-[#323848] bg-[#0e1117] px-2 py-1.5 text-sm"
         >
-          <option value="all-active">联合复合模式 (按权重自动排序)</option>
-          <optgroup label="单目标专注模式">
-            {settings.groups.map((group) => (
-              <option key={group.id} value={`group:${group.id}`}>
-                [组] {group.name} (P:{group.priority})
-              </option>
-            ))}
-            {settings.standaloneModels.map((model) => (
-              <option key={model.id} value={`model:${model.id}`}>
-                [单] {model.name} (P:{model.priority})
-              </option>
-            ))}
-          </optgroup>
+          <option value="all-active">按优先级自动降级</option>
+          {settings.standaloneModels.map((model) => (
+            <option key={model.id} value={`model:${model.id}`}>
+              {model.name} (P:{model.priority})
+            </option>
+          ))}
         </select>
+        <button
+          type="button"
+          onClick={() => {
+            if (!selected.startsWith('model:')) return
+            onCommit(makePrimary(settings, selected), '已设为主力')
+          }}
+          className="rounded-md border border-violet-400/50 px-3 py-1.5 text-xs text-violet-100 hover:bg-violet-500/10"
+        >
+          设为主力
+        </button>
         <button
           type="button"
           onClick={() => onCommit(resetAllCircuitBreakers(settings), '已重置所有熔断')}
@@ -230,30 +280,6 @@ function WorkflowTab({
         >
           重置所有熔断
         </button>
-      </div>
-
-      <div>
-        <div className="mb-2 text-xs text-zinc-400">选择参与联合级联的组：</div>
-        <div className="flex flex-wrap gap-2">
-          {settings.groups.length === 0 && <span className="text-xs text-zinc-500">还没有模型分组</span>}
-          {settings.groups.map((group) => {
-            const active = settings.activeGroupIds.includes(group.id)
-            return (
-              <button
-                key={group.id}
-                type="button"
-                onClick={() => onCommit(toggleGroupActive(settings, group.id))}
-                className={`rounded-full border px-2.5 py-1 text-xs ${
-                  active
-                    ? 'border-violet-400/60 bg-violet-500/15 text-violet-100'
-                    : 'border-[#323848] text-zinc-400'
-                } ${group.enabled ? '' : 'opacity-50'}`}
-              >
-                {active ? '✓' : '+'} {group.name} <span className="text-zinc-500">P:{group.priority}</span>
-              </button>
-            )
-          })}
-        </div>
       </div>
 
       <div className="rounded-lg border border-[#2a3140] bg-[#0e1117] p-3">
@@ -293,7 +319,8 @@ function WorkflowTab({
   )
 }
 
-function GroupsTab({
+/** @deprecated Group editor is not mounted. Stored groups still round-trip through JSON. */
+export function GroupsTab({
   settings,
   chain,
   now,
@@ -657,20 +684,11 @@ function SubagentTab({
               onChange={(event) => onCommit(bindSubagent(settings, agent.role, event.target.value))}
               className="min-w-0 flex-1 rounded border border-[#323848] bg-[#0e1117] px-2 py-1"
             >
-              <optgroup label="智能模型分组">
-                {settings.groups.map((group) => (
-                  <option key={group.id} value={`group:${group.id}`}>
-                    [组] {group.name}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="单个指定模型">
-                {settings.standaloneModels.map((model) => (
-                  <option key={model.id} value={`model:${model.id}`}>
-                    [单] {model.name}
-                  </option>
-                ))}
-              </optgroup>
+              {settings.standaloneModels.map((model) => (
+                <option key={model.id} value={`model:${model.id}`}>
+                  {model.name}
+                </option>
+              ))}
             </select>
           </label>
         </article>
@@ -769,11 +787,13 @@ function QueueTab({
 }
 
 function SsotTab({
+  sourcePath,
   jsonText,
   onChange,
   onCopy,
   onImport,
 }: {
+  sourcePath: string
   jsonText: string
   onChange: (value: string) => void
   onCopy: () => void
@@ -785,7 +805,7 @@ function SsotTab({
         <div>
           <div className="text-sm font-medium">OpenCode 单一事实来源 (SSOT JSON)</div>
           <p className="mt-1 text-xs text-zinc-500">
-            配置保存在本地 localStorage（opencode_model_router_settings）。导入前会校验 JSON 结构。
+            写入 {sourcePath || 'opencode-routing.json'}。导入前会校验 JSON。模型分组字段已停用，文件里原样保留。
           </p>
         </div>
         <div className="flex gap-2">
@@ -991,13 +1011,7 @@ function toggleGroupEnabled(settings: RoutingSettings, groupId: string): Routing
   }
 }
 
-function toggleGroupActive(settings: RoutingSettings, groupId: string): RoutingSettings {
-  const active = new Set(settings.activeGroupIds)
-  if (active.has(groupId)) active.delete(groupId)
-  else active.add(groupId)
-  return { ...settings, activeGroupIds: [...active], selectedActiveTarget: 'all-active' }
-}
-
+/** @deprecated Groups stay in the file and are not offered in the panel. */
 function addGroup(settings: RoutingSettings): RoutingSettings {
   const id = `group-${Date.now()}`
   const group: ModelGroup = {

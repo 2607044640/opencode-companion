@@ -66,6 +66,7 @@ interface HeaderProps {
   onShowInMap?: (sessionId: string) => void
   onOpenSettings?: (tab?: SettingsTab) => void
   onOpenModelRouter?: () => void
+  onOpenRelayHub?: () => void
   onDaemonRestored?: () => void
   onDaemonLost?: () => void
 }
@@ -104,6 +105,7 @@ export function Header({
   onShowInMap,
   onOpenSettings,
   onOpenModelRouter,
+  onOpenRelayHub,
   onDaemonRestored,
   onDaemonLost,
 }: HeaderProps) {
@@ -635,7 +637,7 @@ export function Header({
         )}
 
         {/* Real-Time Relay Quota & Billing Hub Capsule (中转站额度与账单监视器) */}
-        <RelayHubDropdown onOpenSettings={() => onOpenSettings?.('relays')} />
+        <RelayHubDropdown onOpenSettings={() => (onOpenRelayHub ? onOpenRelayHub() : onOpenSettings?.('relays'))} />
 
         {/* Realtime Ambient Status Indicator with Instant Tooltip */}
         <div className="relative group/status flex items-center shrink-0">
