@@ -2,7 +2,7 @@ import type { Message, Session } from '../types/opencode'
 import type { RollbackAction } from './revert-classify'
 import { collectRollbackActions } from './revert-rollback'
 
-export const REVERT_TIMEOUT_MS = 8000
+export const REVERT_TIMEOUT_MS = 30000
 
 export type RevertMode = 'both' | 'conversation_only' | 'code_only' | 'summarize'
 
@@ -61,6 +61,7 @@ async function runRevertPipeline(
   port: RevertDaemonPort
 ): Promise<RevertExecuteResult> {
   const { sessionId, messageId, mode, partID, messages, sessionDir } = input
+  if (partID) throw new Error('Partial tool revert is not supported by full-call snapshots')
   console.log(`[Revert:Engine] runRevertPipeline starting:`, {
     sessionId,
     messageId,
@@ -82,7 +83,6 @@ async function runRevertPipeline(
 
   if (mode === 'code_only') {
     console.log(`[Revert:Engine] Mode is code_only. Calling revertSession and rollbackFiles...`)
-    await port.revertSession(sessionId, messageId, { files: true, partID })
     if (actions.length > 0) {
       const rolled = await port.rollbackFiles(actions)
       if (!rolled.ok) {
@@ -91,15 +91,12 @@ async function runRevertPipeline(
         return { ok: false, error: errMsg }
       }
     }
-    const cleared = await port.unrevertSession(sessionId)
-    port.onSessionUpdate?.(sessionId, { revert: undefined })
     await port.reloadSession(sessionId)
-    return { ok: true, session: cleared }
+    return { ok: true }
   }
 
   console.log(`[Revert:Engine] Calling daemon revertSession(sessionId=${sessionId}, messageId=${messageId})...`)
-  const updated = await port.revertSession(sessionId, messageId, { files, partID })
-  console.log(`[Revert:Engine] daemon revertSession succeeded. Result:`, updated)
+  // Validate snapshot coverage before touching conversation state; restore files first.
 
   if (actions.length > 0) {
     console.log(`[Revert:Engine] Calling port.rollbackFiles for ${actions.length} action(s)...`)
@@ -111,6 +108,8 @@ async function runRevertPipeline(
       return { ok: false, error: errMsg }
     }
   }
+
+  const updated = await port.revertSession(sessionId, messageId, { files: false, partID })
 
   const revertPatch = updated?.revert || { messageID: messageId }
   console.log(`[Revert:Engine] Applying onSessionUpdate patch:`, revertPatch)

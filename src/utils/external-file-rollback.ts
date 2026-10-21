@@ -13,7 +13,9 @@ export function collectExternalRollbackActions(
   messages: readonly Message[],
   targetMsgId: string
 ): ExternalRollbackAction[] {
+  // Legacy external actions are disabled; snapshot actions use the unified pipeline.
+  if (!messages.slice(messages.findIndex((m) => m.info.id === targetMsgId)).some((m) => m.parts.some((p: any) => p.state?.metadata?.revertSnapshot))) return []
   return collectRollbackActions(messages, targetMsgId).filter((action) =>
-    isExternalToolPath(action.path)
+    action.kind !== 'snapshot' && isExternalToolPath(action.path)
   )
 }

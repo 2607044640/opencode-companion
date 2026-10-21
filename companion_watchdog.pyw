@@ -30,6 +30,10 @@ LOCK_PORT = 51739
 
 _last_gateway_restart = 0.0
 GATEWAY_RESTART_COOLDOWN = 15.0  # seconds between restart attempts to prevent flapping
+_last_comfy_restart = 0.0
+_last_bridge_restart = 0.0
+COMFY_RESTART_COOLDOWN = 60.0
+BRIDGE_RESTART_COOLDOWN = 60.0
 
 def log(msg):
     try:
@@ -160,6 +164,68 @@ def ensure_companion_server():
     except Exception as e:
         log(f"Failed to start companion server: {e}")
 
+def ensure_comfyui():
+    global _last_comfy_restart
+    if is_port_listening(8188, timeout=0.3):
+        return
+
+    now = time.time()
+    if now - _last_comfy_restart < COMFY_RESTART_COOLDOWN:
+        return
+    _last_comfy_restart = now
+
+    log("ComfyUI not listening on port 8188. Starting silently...")
+    comfy_dir = r"C:\AI_Art\ComfyUI\ComfyUI_windows_portable"
+    python_exe = os.path.join(comfy_dir, "python_embeded", "python.exe")
+    if not os.path.exists(python_exe):
+        log(f"ComfyUI python not found at {python_exe}")
+        return
+
+    flags = 0x00000008 | 0x00000200 | 0x08000000
+    try:
+        subprocess.Popen(
+            [python_exe, "-s", r"ComfyUI\main.py", "--windows-standalone-build", "--listen", "127.0.0.1"],
+            cwd=comfy_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True
+        )
+        log("ComfyUI started silently in background.")
+    except Exception as e:
+        log(f"Failed to start ComfyUI: {e}")
+
+def ensure_comfy_bridge():
+    global _last_bridge_restart
+    if not is_port_listening(8188, timeout=0.3):
+        return
+    if is_port_listening(51738, timeout=0.3):
+        return
+
+    now = time.time()
+    if now - _last_bridge_restart < BRIDGE_RESTART_COOLDOWN:
+        return
+    _last_bridge_restart = now
+
+    log("ComfyUI bridge not listening on guard port 51738. Starting silently...")
+    bridge_script = r"C:\AI_Art\ComfyUI\comfy_win_bridge.py"
+    python_sys = r"C:\Users\26070\AppData\Local\Programs\Python\Python38\pythonw.exe"
+    flags = 0x00000008 | 0x00000200 | 0x08000000
+    try:
+        subprocess.Popen(
+            [python_sys, bridge_script],
+            cwd=r"C:\AI_Art\ComfyUI",
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True
+        )
+        log("ComfyUI bridge started silently in background.")
+    except Exception as e:
+        log(f"Failed to start ComfyUI bridge: {e}")
+
 def main():
     log("Companion Watchdog starting...")
     _lock = acquire_single_instance_lock()
@@ -170,9 +236,11 @@ def main():
             ensure_gateway()
             ensure_wsl_daemon()
             ensure_companion_server()
+            ensure_comfyui()
+            ensure_comfy_bridge()
         except Exception as e:
             log(f"Main loop error: {e}")
-        time.sleep(4.0)
+        time.sleep(3.0)
 
 if __name__ == '__main__':
     main()

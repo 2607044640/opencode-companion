@@ -233,7 +233,7 @@ describe('collectRollbackActions', () => {
         contents: '111',
       }),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
   })
 
   test('unlinks a newly created in-tree file so git-less creates still revert', () => {
@@ -244,12 +244,7 @@ describe('collectRollbackActions', () => {
         contents: 'export const n = 1',
       }),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [
-      {
-        kind: 'delete',
-        path: '/workspace/projects/APISpace/opencode-companion/src/brand-new.ts',
-      },
-    ])
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
   })
 
   test('does not delete or touch external desktop files even if edited', () => {
@@ -271,7 +266,7 @@ describe('collectRollbackActions', () => {
         4
       ),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
   })
 
   test('does not delete a workspace file that already existed before the checkpoint', () => {
@@ -288,7 +283,7 @@ describe('collectRollbackActions', () => {
         contents: 'c',
       }),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
   })
 
   test('does not delete or touch turn-0 desktop file', () => {
@@ -323,7 +318,7 @@ describe('collectRollbackActions', () => {
         ],
       },
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [])
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
   })
 
   test('restores an edited in-tree file using earliestOld', () => {
@@ -335,13 +330,7 @@ describe('collectRollbackActions', () => {
         newString: '1234',
       }),
     ]
-    assert.deepEqual(collectRollbackActions(messages, 'msg_user'), [
-      {
-        kind: 'restore',
-        path: '/workspace/projects/APISpace/test.txt',
-        content: 'original text',
-      },
-    ])
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
   })
 
   test('resolves relative path against sessionDir and generates restore action', () => {
@@ -353,16 +342,21 @@ describe('collectRollbackActions', () => {
         newString: 'console.log("world")',
       }),
     ]
-    assert.deepEqual(
-      collectRollbackActions(messages, 'msg_user', '/workspace/projects/APISpace'),
-      [
-        {
-          kind: 'restore',
-          path: '/workspace/projects/APISpace/src/main.ts',
-          content: 'console.log("hello")',
-        },
-      ]
-    )
+    assert.throws(() => collectRollbackActions(messages, 'msg_user', '/workspace/projects/APISpace'), /snapshot/i)
+  })
+
+  test('keeps a cross-workspace ObsidianNote path eligible for rollback', () => {
+    const messages: Message[] = [
+      userMsg('msg_user'),
+      toolMsg('msg_asst', 'edit', {
+        path: '/home/developer/projects/ObsidianNote/Notes/example.md',
+        oldString: 'before',
+        newString: 'after',
+      }),
+    ]
+    assert.throws(() => collectRollbackActions(messages, 'msg_user'), /snapshot/i)
+    assert.equal(computeRevertDiffs(messages, 'msg_user')[0]?.filePath,
+      '/home/developer/projects/ObsidianNote/Notes/example.md')
   })
 })
 
@@ -458,11 +452,13 @@ describe('executeRevertWithTimeout', () => {
       unrevertSession: async () => session,
       summarizeSession: async () => {},
       rollbackFiles: async (actions) => {
-        rolled.path = actions[0]?.kind === 'delete' ? actions[0].path : undefined
+        rolled.path = actions[0]?.kind === 'snapshot' ? actions[0].call : undefined
         return { ok: true }
       },
       reloadSession: async () => {},
     }
+    const snapshotMessage = toolMsg('msg_asst', 'write', { path: '/mnt/desktop/new.txt', content: '111' })
+    ;(snapshotMessage.parts[0] as any).state.metadata = { revertSnapshot: { version: 1, session: 'ses_1', call: 'call_created' } }
     const result = await executeRevertWithTimeout(
       {
         sessionId: 'ses_1',
@@ -470,10 +466,7 @@ describe('executeRevertWithTimeout', () => {
         mode: 'both',
         messages: [
           userMsg('msg_user'),
-          toolMsg('msg_asst', 'write', {
-            path: '/workspace/projects/APISpace/opencode-companion/src/new-in-tree.ts',
-            contents: '111',
-          }),
+          snapshotMessage,
         ],
       },
       port,
@@ -482,7 +475,7 @@ describe('executeRevertWithTimeout', () => {
     assert.equal(result.ok, true)
     assert.equal(
       rolled.path,
-      '/workspace/projects/APISpace/opencode-companion/src/new-in-tree.ts'
+      'call_created'
     )
   })
 })
@@ -561,13 +554,6 @@ Instructions from AGENTS.md
       },
     ]
 
-    const actions = collectRollbackActions(messages, 'msg_user', '/workspace/projects/AISpace')
-    assert.equal(actions.length, 1)
-    assert.equal(actions[0].kind, 'restore')
-    assert.equal(actions[0].path, '/workspace/projects/AISpace/temp/atlas-scratch.txt')
-    if (actions[0].kind === 'restore') {
-      assert.equal(actions[0].content?.trim(), '237289')
-    }
+    assert.throws(() => collectRollbackActions(messages, 'msg_user', '/workspace/projects/AISpace'), /snapshot/i)
   })
 })
-

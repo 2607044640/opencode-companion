@@ -1,5 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import {
   isSensitiveGitPath,
   isAllowedExternalPath,
@@ -7,6 +8,7 @@ import {
   normalizeRollbackPath,
   parsePorcelainPaths,
   resolveHostDirectory,
+  resolveRollbackDiskPath,
   resolveRoutingConfig,
   resolveModelProfiles,
   handleHostApi,
@@ -59,6 +61,57 @@ describe('host-api directory and desktop allowlist', () => {
     )
     assert.equal(isAllowedRollbackPath('/workspace/projects/APISpace/.env'), false)
     assert.equal(isAllowedRollbackPath('/tmp/evil.txt'), false)
+  })
+
+  test('allows rollback paths in configured standard workspaces', () => {
+    assert.equal(
+      isAllowedRollbackPath('/home/developer/projects/ObsidianNote/Notes/example.md'),
+      true
+    )
+    assert.equal(isAllowedRollbackPath('/home/developer/projects/ObsidianNote/.env'), false)
+    assert.equal(isAllowedRollbackPath('/home/developer/projects/ObsidianNotebook/Notes/example.md'), false)
+  })
+
+  test('discovers newly added workspaces under supported roots dynamically', () => {
+    const options = {
+      configuredRoots: [],
+      candidateBases: ['C:/', 'C:/Godot', 'C:/ObsidianPublish'],
+      listDirectories: (base: string) =>
+        base === 'C:/' ? ['NewWorkspace'] :
+          base === 'C:/Godot' ? ['NewGame'] : ['PublishVault'],
+      directoryExists: () => true,
+    }
+    assert.equal(
+      resolveRollbackDiskPath('/home/developer/projects/NewWorkspace/src/file.ts', options),
+      path.resolve('C:/NewWorkspace/src/file.ts')
+    )
+    assert.equal(
+      resolveRollbackDiskPath('/home/developer/projects/NewGame/scripts/main.gd', options),
+      path.resolve('C:/Godot/NewGame/scripts/main.gd')
+    )
+    assert.equal(
+      resolveRollbackDiskPath('/home/developer/projects/PublishVault/Notes/page.md', options),
+      path.resolve('C:/ObsidianPublish/PublishVault/Notes/page.md')
+    )
+  })
+
+  test('does not resolve removed workspaces or Windows paths outside discovered roots', () => {
+    const options = {
+      configuredRoots: [],
+      candidateBases: ['C:/Godot'],
+      listDirectories: () => [],
+      directoryExists: () => false,
+    }
+    assert.equal(resolveRollbackDiskPath('/home/developer/projects/RemovedGame/file.gd', options), null)
+    assert.equal(resolveRollbackDiskPath('C:/Unlisted/file.txt', options), null)
+    assert.equal(
+      resolveRollbackDiskPath('/home/developer/projects/NewGame/../.env', {
+        ...options,
+        listDirectories: () => ['NewGame'],
+        directoryExists: () => true,
+      }),
+      null
+    )
   })
 })
 
@@ -203,4 +256,3 @@ describe('host-api open-external endpoints and path launcher', () => {
     assert.match(payload.error, /通配符/)
   })
 })
-

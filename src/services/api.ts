@@ -963,7 +963,7 @@ export const api = {
   ): Promise<Session> {
     const opts: RevertSessionOptions = typeof options === 'string' ? { partID: options } : options || {}
 
-    // When files: false is specified, try modern v2 stage endpoint first to avoid touching disk files
+    // When files: false is specified, try modern v2 stage endpoint first if available; fall back to standard revert
     if (opts.files === false) {
       try {
         const rawV2 = await request<any>(`/api/session/${sessionID}/revert/stage`, {
@@ -974,8 +974,9 @@ export const api = {
         if (data?.revert) {
           return normalizeSession(data)
         }
+        return normalizeSession(await request<any>(`/session/${sessionID}`))
       } catch (err) {
-        console.warn('v2 revert/stage failed, falling back to standard revert:', err)
+        console.warn('v2 revert/stage unsupported or failed, falling back to standard revert:', err)
       }
     }
 

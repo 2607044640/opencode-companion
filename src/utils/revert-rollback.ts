@@ -1,10 +1,6 @@
-import type { Message } from '../types/opencode'
+import type { Message, ToolPart } from '../types/opencode'
 import {
-  accumulateRange,
   displayName,
-  fileExistedAtCheckpoint,
-  lastContentBeforeCheckpoint,
-  toRollbackPath,
   type RevertFileDiff,
   type RevertFileStatus,
   type RollbackAction,
@@ -68,54 +64,22 @@ export function mergeRevertDiffs(
 export function collectRollbackActions(
   messages: readonly Message[],
   targetMsgId: string,
-  sessionDir?: string
+  _sessionDir?: string
 ): RollbackAction[] {
   const targetIndex = messages.findIndex((m) => m.info.id === targetMsgId)
-  if (targetIndex === -1) return []
-  const files = accumulateRange(messages, targetIndex)
+  if (targetIndex === -1) throw new Error('Revert target message is not loaded')
   const actions: RollbackAction[] = []
-  console.log(`[Revert:Rollback] Scanning ${files.size} modified files for targetMsgId: ${targetMsgId} (index: ${targetIndex})`)
-
-  for (const acc of files.values()) {
-    let rawPath = acc.path
-    if (!rawPath.startsWith('/') && !/^[a-zA-Z]:[\\/]/.test(rawPath) && sessionDir) {
-      rawPath = `${sessionDir.replace(/\\/g, '/').replace(/\/+$/, '')}/${rawPath}`
-    }
-    const path = toRollbackPath(rawPath)
-    const existedBefore = fileExistedAtCheckpoint(messages, targetMsgId, acc.path, acc)
-
-    const isProject = path.startsWith('/workspace/projects/') || path.startsWith('/projects/') || /^[a-zA-Z]:[\\/]/.test(path)
-    if (!isProject) {
-      console.warn(`[Revert:Rollback] Skipping non-project path: ${path} (raw: ${rawPath})`)
-      continue
-    }
-
-    if (acc.createdInRange && !existedBefore) {
-      const action: RollbackAction = { kind: 'delete', path }
-      console.log(`[Revert:Rollback] Action generated (delete newly created file):`, action)
-      actions.push(action)
-      continue
-    }
-
-    if (existedBefore || acc.editedInRange || acc.mutatedInRange) {
-      const restoreContent =
-        acc.earliestOld ??
-        acc.earliestReadOutput ??
-        lastContentBeforeCheckpoint(messages, targetIndex, acc.path)
-
-      const action: RollbackAction = {
-        kind: 'restore',
-        path,
-        content: restoreContent,
+  for (const message of messages.slice(targetIndex)) {
+    for (const rawPart of message.parts) {
+      const part = rawPart as ToolPart
+      if (part.type !== 'tool' || !['edit', 'write', 'apply_patch', 'patch', 'write_to_file', 'replace_file_content', 'create'].includes(String(part.tool))) continue
+      if (part.state?.status !== 'completed') throw new Error('Revert cannot proceed while a mutation is unfinished or failed; inspect its snapshot first')
+      const snapshot = part.state?.metadata?.revertSnapshot
+      if (!snapshot || snapshot.version !== 1 || snapshot.session !== message.info.sessionID || typeof snapshot.call !== 'string') {
+        throw new Error('Complete pre-mutation snapshot unavailable. Historical tool text and Git HEAD cannot safely restore this change.')
       }
-      console.log(
-        `[Revert:Rollback] Action generated (restore file):`,
-        action.path,
-        restoreContent !== undefined ? `(content length: ${restoreContent.length})` : '(will use git fallback)'
-      )
-      actions.push(action)
+      actions.push({ kind: 'snapshot', session: snapshot.session, call: snapshot.call })
     }
   }
-  console.log(`[Revert:Rollback] Total rollback actions: ${actions.length}`)
   return actions
 }

@@ -13,6 +13,7 @@ export type RevertFileDiff = {
 }
 
 export type RollbackAction =
+  | { readonly kind: 'snapshot'; readonly session: string; readonly call: string }
   | { readonly kind: 'delete'; readonly path: string }
   | { readonly kind: 'restore'; readonly path: string; readonly content?: string }
 

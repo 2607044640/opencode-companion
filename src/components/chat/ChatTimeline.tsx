@@ -205,7 +205,6 @@ export function ChatTimeline({
       const targetMsg = messages.find((m) => m.info.id === confirmTargetMessageId)
       if (targetMsg && onDraftInject && mode !== 'code_only') {
         const draft = extractDraftFromMessage(targetMsg)
-        console.log(`[Revert:UI] Injected draft text into PromptInput:`, draft.text)
         onDraftInject({
           text: draft.text,
           attachments: draft.attachments,
