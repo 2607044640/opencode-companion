@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Search, Check, Sparkles, ChevronDown } from 'lucide-react'
 import type { ProviderInfo } from '../../types/opencode'
 import { isModelVisible } from '../../utils/model-filter'
+import { usePreferences } from '../../utils/preferences'
 
 export interface SideQuestionModel {
   providerID: string
@@ -15,16 +16,41 @@ export interface SideQuestionModelSelectorProps {
   providers: ProviderInfo[]
 }
 
+export function calculateDropdownPlacement(
+  rect: { top: number; bottom: number },
+  windowHeight: number
+): 'top' | 'bottom' {
+  const spaceBelow = windowHeight - rect.bottom
+  const spaceAbove = rect.top
+  const dropdownEstimatedHeight = 260
+  // Pop downwards if space below is sufficient or greater than space above
+  if (spaceBelow >= dropdownEstimatedHeight || spaceBelow > spaceAbove) {
+    return 'bottom'
+  }
+  return 'top'
+}
+
 export function SideQuestionModelSelector({
   selectedModel,
   onSelectModel,
   providers,
 }: SideQuestionModelSelectorProps) {
+  const { prefs } = usePreferences()
   const [isOpen, setIsOpen] = useState(false)
+  const [placement, setPlacement] = useState<'top' | 'bottom'>('top')
   const [searchQuery, setSearchQuery] = useState('')
 
   const buttonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const handleToggle = () => {
+    if (!isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      const direction = calculateDropdownPlacement(rect, window.innerHeight || 800)
+      setPlacement(direction)
+    }
+    setIsOpen((prev) => !prev)
+  }
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -58,7 +84,13 @@ export function SideQuestionModelSelector({
 
       Object.entries(p.models || {}).forEach(([mId, mObj]) => {
         const name = (mObj as any)?.name || mId
-        const visible = isModelVisible(p.id, mId, name)
+        const visible = isModelVisible(
+          p.id,
+          mId,
+          name,
+          prefs.modelVisibility,
+          prefs.providerVisibility
+        )
         if (!visible) return
 
         if (q) {
@@ -81,7 +113,7 @@ export function SideQuestionModelSelector({
     })
 
     return groups
-  }, [providers, searchQuery])
+  }, [providers, searchQuery, prefs.modelVisibility, prefs.providerVisibility])
 
   const displayName = selectedModel?.name || selectedModel?.modelID || '选择模型'
 
@@ -90,7 +122,7 @@ export function SideQuestionModelSelector({
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={handleToggle}
         className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#181a20] hover:bg-[#22252e] border border-purple-500/30 text-purple-200 text-xs font-medium cursor-pointer transition-colors shadow-sm"
         title="切换 Side Question 模型 (Switch Side Question model)"
       >
@@ -108,7 +140,9 @@ export function SideQuestionModelSelector({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute right-0 top-full mt-1.5 w-64 bg-[#14161d] border border-[#2b303b] rounded-lg shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100"
+          className={`absolute right-0 w-64 bg-[#14161d] border border-[#2b303b] rounded-lg shadow-2xl p-1 z-50 animate-in fade-in zoom-in-95 duration-100 ${
+            placement === 'bottom' ? 'top-full mt-1.5' : 'bottom-full mb-1.5'
+          }`}
         >
           {/* Search Input (Matches Image 3) */}
           <div className="p-1 pb-1.5">

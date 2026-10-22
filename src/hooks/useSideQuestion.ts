@@ -57,11 +57,18 @@ function loadStoredData(): StoredSideQuestionData {
         }
       }
     }
+    let selectedModel = parsed.selectedModel
+    if (selectedModel && typeof selectedModel === 'object') {
+      const mId = (selectedModel.modelID || '').toLowerCase()
+      if (mId === 'claude-opus-5-5' || mId.includes('5-5') || mId.includes('opus-5.5')) {
+        selectedModel = undefined
+      }
+    }
     return {
       questionsBySession,
       currentIndexBySession: parsed.currentIndexBySession || {},
       cardOpenBySession: parsed.cardOpenBySession || {},
-      selectedModel: parsed.selectedModel,
+      selectedModel,
     }
   } catch (err) {
     console.warn('[useSideQuestion] Failed to parse stored side questions:', err)
@@ -83,9 +90,12 @@ export function useSideQuestion(activeSessionId?: string | null) {
   )
   const [sideQuestionModel, setSideQuestionModel] = useState<SideQuestionModelConfig>(() => {
     if (initialData.selectedModel && initialData.selectedModel.modelID) {
-      return initialData.selectedModel
+      const mId = initialData.selectedModel.modelID.toLowerCase()
+      if (mId !== 'claude-opus-5-5' && !mId.includes('5-5') && !mId.includes('opus-5.5')) {
+        return initialData.selectedModel
+      }
     }
-    return { providerID: 'obsidian', modelID: 'grok-4.7', name: 'grok-4.7' }
+    return { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'gpt-6.1-sol' }
   })
 
   // Providers list for model dropdown
@@ -96,6 +106,39 @@ export function useSideQuestion(activeSessionId?: string | null) {
     api.getProviders().then((res) => {
       if (mounted && Array.isArray(res) && res.length > 0) {
         setProviders(res)
+        // Self-heal: ensure selectedModel exists in active providers and is not obsolete
+        setSideQuestionModel((curr) => {
+          const mId = (curr?.modelID || '').toLowerCase()
+          const isObsolete = mId === 'claude-opus-5-5' || mId.includes('5-5') || mId.includes('opus-5.5')
+          const provider = res.find((p) => p.id === curr?.providerID)
+          const modelExists = provider && provider.models && Boolean(provider.models[curr.modelID])
+
+          if (!modelExists || isObsolete) {
+            const obsidian = res.find((p) => p.id === 'obsidian')
+            if (obsidian?.models && obsidian.models['gpt-6.1-sol']) {
+              return {
+                providerID: 'obsidian',
+                modelID: 'gpt-6.1-sol',
+                name: (obsidian.models['gpt-6.1-sol'] as any)?.name || 'gpt-6.1-sol',
+              }
+            }
+            if (obsidian?.models && obsidian.models['grok-4.7']) {
+              return {
+                providerID: 'obsidian',
+                modelID: 'grok-4.7',
+                name: (obsidian.models['grok-4.7'] as any)?.name || 'grok-4.7',
+              }
+            }
+            for (const p of res) {
+              const keys = Object.keys(p.models || {})
+              if (keys.length > 0) {
+                const k = keys[0]
+                return { providerID: p.id, modelID: k, name: (p.models[k] as any)?.name || k }
+              }
+            }
+          }
+          return curr
+        })
       }
     }).catch(() => {})
     return () => {
@@ -315,7 +358,15 @@ export function useSideQuestion(activeSessionId?: string | null) {
       const parentKey = targetSessionId !== undefined ? (targetSessionId || '__draft__') : currentSessionKey
       const now = Date.now()
       const newItemId = `side_${now}`
-      const activeModel = modelOverride || sideQuestionModelRef.current
+      const rawModel = modelOverride || sideQuestionModelRef.current
+      const isObsoleteModel =
+        rawModel &&
+        (rawModel.modelID === 'claude-opus-5-5' ||
+          rawModel.modelID.includes('5-5') ||
+          rawModel.modelID.includes('opus-5.5'))
+      const activeModel: SideQuestionModelConfig = isObsoleteModel
+        ? { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'gpt-6.1-sol' }
+        : rawModel
 
       const newItem: SideQuestionItem = {
         id: newItemId,

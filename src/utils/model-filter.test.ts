@@ -36,7 +36,11 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel('obsidian', 'flash-3.7'), true)
     assert.equal(isCuratedModel('obsidian', 'flash3.7'), true)
 
-    // 5. gpt-6-astra (retired opus 5.5 slot) & claude-opus-5
+    // 5. gpt-6.1-sol
+    assert.equal(isCuratedModel('obsidian', 'gpt-6.1-sol'), true)
+    assert.equal(isCuratedModel('custom', 'gpt-6.1-sol', 'gpt-6.1-sol'), true)
+
+    // 6. gpt-6-astra (retired opus 5.5 slot) & claude-opus-5
     assert.equal(isCuratedModel('obsidian', 'gpt-6-astra'), true)
     assert.equal(isCuratedModel('obsidian', 'gpt6astra'), true)
     assert.equal(isCuratedModel('custom', 'gpt-6-astra', 'gpt 6 astra'), true)
@@ -91,8 +95,9 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel(undefined, undefined), false)
   })
 
-  test('canonical model IDs set contains the expected 7 IDs', () => {
-    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 7)
+  test('canonical model IDs set contains the expected 8 IDs', () => {
+    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 8)
+    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gpt-6.1-sol'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.7'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.6'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.5'))

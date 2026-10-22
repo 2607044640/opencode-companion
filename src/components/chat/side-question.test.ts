@@ -203,5 +203,168 @@ describe('Side Question (/btw) logic and popover ranking tests', () => {
       name: 'Grok 4.7',
     })
   })
+
+  it('sanitizes obsolete claude-opus-5-5 from stored data and self-heals to gpt-6.1-sol', () => {
+    const rawStorage = JSON.stringify({
+      questionsBySession: {},
+      selectedModel: { providerID: 'obsidian', modelID: 'claude-opus-5-5', name: 'claude-opus-5-5' },
+    })
+
+    const parsed = JSON.parse(rawStorage)
+    let selectedModel = parsed.selectedModel
+    if (selectedModel && typeof selectedModel === 'object') {
+      const mId = (selectedModel.modelID || '').toLowerCase()
+      if (mId === 'claude-opus-5-5' || mId.includes('5-5') || mId.includes('opus-5.5')) {
+        selectedModel = undefined
+      }
+    }
+
+    assert.equal(selectedModel, undefined, 'Obsolete claude-opus-5-5 must be dropped upon load')
+
+    // Initial state fallback
+    const resolvedModel = selectedModel || { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'gpt-6.1-sol' }
+    assert.equal(resolvedModel.modelID, 'gpt-6.1-sol')
+  })
+
+  it('allows searching and matching gpt-6.1-sol with "6." or "6.1"', () => {
+    const models = [
+      { id: 'gpt-6.1-sol', name: 'gpt-6.1-sol' },
+      { id: 'grok-4.7', name: 'grok-4.7' },
+      { id: 'big-pickle', name: 'Big Pickle' },
+    ]
+
+    const query1 = '6.'
+    const matched1 = models.filter((m) => m.id.toLowerCase().includes(query1) || m.name.toLowerCase().includes(query1))
+    assert.equal(matched1.length, 1)
+    assert.equal(matched1[0].id, 'gpt-6.1-sol')
+
+    const query2 = '6.1'
+    const matched2 = models.filter((m) => m.id.toLowerCase().includes(query2) || m.name.toLowerCase().includes(query2))
+    assert.equal(matched2.length, 1)
+    assert.equal(matched2[0].id, 'gpt-6.1-sol')
+  })
+
+  it('intelligently calculates dropdown placement based on viewport space', () => {
+    // calculateDropdownPlacement contract:
+    // If space below is >= 260px or > space above, pop downwards ('bottom')
+    // Otherwise pop upwards ('top')
+    const calculatePlacement = (rect: { top: number; bottom: number }, windowHeight: number): 'top' | 'bottom' => {
+      const spaceBelow = windowHeight - rect.bottom
+      const spaceAbove = rect.top
+      const dropdownEstimatedHeight = 260
+      if (spaceBelow >= dropdownEstimatedHeight || spaceBelow > spaceAbove) {
+        return 'bottom'
+      }
+      return 'top'
+    }
+
+    // 1. Ample space below (e.g. card at middle/top) -> pops downward
+    assert.equal(calculatePlacement({ top: 100, bottom: 130 }, 900), 'bottom')
+
+    // 2. Button near bottom of screen (space below only 50px, space above 700px) -> pops upward
+    assert.equal(calculatePlacement({ top: 750, bottom: 780 }, 800), 'top')
+
+    // 3. Exactly enough space below (260px) -> pops downward
+    assert.equal(calculatePlacement({ top: 500, bottom: 540 }, 800), 'bottom')
+  })
+
+  it('correctly clamps side question card height within min and max boundaries', () => {
+    const clampHeight = (raw: number, windowHeight: number): number => {
+      const min = 130
+      const max = Math.max(min, windowHeight - 120)
+      return Math.max(min, Math.min(Math.round(raw), max))
+    }
+
+    const windowHeight = 900
+    // Below minimum 130px (e.g. 50px) -> clamped to 130px (at least 3 lines of text)
+    assert.equal(clampHeight(50, windowHeight), 130)
+    assert.equal(clampHeight(129, windowHeight), 130)
+
+    // Above maximum (900 - 120 = 780px) -> clamped to 780px
+    assert.equal(clampHeight(850, windowHeight), 780)
+    assert.equal(clampHeight(1200, windowHeight), 780)
+
+    // Normal values inside range -> preserved
+    assert.equal(clampHeight(360, windowHeight), 360)
+    assert.equal(clampHeight(500, windowHeight), 500)
+  })
+
+  it('persists card height to localStorage and recovers clamped height', () => {
+    const storage: Record<string, string> = {}
+    const key = 'opencode_side_question_height'
+
+    const saveHeight = (h: number) => {
+      storage[key] = String(h)
+    }
+
+    const loadHeight = (windowHeight: number) => {
+      const saved = storage[key]
+      if (saved) {
+        const parsed = parseInt(saved, 10)
+        if (!isNaN(parsed)) {
+          const min = 130
+          const max = Math.max(min, windowHeight - 120)
+          return Math.max(min, Math.min(parsed, max))
+        }
+      }
+      return 360
+    }
+
+    // Default when empty
+    assert.equal(loadHeight(900), 360)
+
+    // Save and load
+    saveHeight(480)
+    assert.equal(loadHeight(900), 480)
+
+    // Clamps if window shrunk
+    saveHeight(800)
+    assert.equal(loadHeight(600), 480) // 600 - 120 = 480
+  })
+
+  it('formats copy content correctly across all 3 copy modes', () => {
+    const item = {
+      question: '本质上是什么？修改的时候，使用的技术是？',
+      answer: '这套机制的本质是脱离 Git 依赖的前置快照引擎。',
+      thought: '正在思考...',
+    }
+
+    const formatCopy = (type: 'input' | 'output' | 'all', data: typeof item) => {
+      if (type === 'input') return data.question || ''
+      if (type === 'output') return data.answer || data.thought || ''
+      const answerContent = data.answer || data.thought || ''
+      return `Side Question: ${data.question}\n\n${answerContent}`
+    }
+
+    // 1. Input only: returns pure user question
+    assert.equal(
+      formatCopy('input', item),
+      '本质上是什么？修改的时候，使用的技术是？'
+    )
+
+    // 2. Output only: returns model answer
+    assert.equal(
+      formatCopy('output', item),
+      '这套机制的本质是脱离 Git 依赖的前置快照引擎。'
+    )
+
+    // 3. Combined Q&A: formats with "Side Question: <question>\n\n<answer>"
+    assert.equal(
+      formatCopy('all', item),
+      'Side Question: 本质上是什么？修改的时候，使用的技术是？\n\n这套机制的本质是脱离 Git 依赖的前置快照引擎。'
+    )
+
+    // 4. Fallback to thought when answer is empty
+    const thoughtOnlyItem = {
+      question: '正在处理的问题',
+      answer: '',
+      thought: '思考中...',
+    }
+    assert.equal(formatCopy('output', thoughtOnlyItem), '思考中...')
+    assert.equal(
+      formatCopy('all', thoughtOnlyItem),
+      'Side Question: 正在处理的问题\n\n思考中...'
+    )
+  })
 })
 

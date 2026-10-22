@@ -3,6 +3,7 @@
 // while hiding unwanted models, legacy free cascade, and all OpenCode Zen bloat.
 
 export const ALLOWED_CANONICAL_MODEL_IDS = new Set([
+  'gpt-6.1-sol',
   'grok-4.7',
   'grok-4.6',
   'grok-4.5',
@@ -92,7 +93,18 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
     return true
   }
 
-  // 5. gpt 6 astra (replaces the retired opus 5.5 slot) and Claude Opus 5
+  // 5. gpt-6.1-sol / gpt 6.1
+  if (
+    id === 'gpt-6.1-sol' ||
+    id.includes('gpt-6.1') ||
+    id.includes('6.1-sol') ||
+    name.includes('gpt 6.1') ||
+    name.includes('gpt-6.1')
+  ) {
+    return true
+  }
+
+  // 6. gpt 6 astra (replaces the retired opus 5.5 slot) and Claude Opus 5
   if (
     id === 'gpt-6-astra' ||
     id.includes('gpt-6-astra') ||
@@ -156,6 +168,7 @@ export function getModelPriorityScore(_providerId?: string, modelId?: string, mo
   const id = (modelId || '').toLowerCase().trim()
   const name = (modelName || '').toLowerCase().trim()
 
+  if (id.includes('6.1') || name.includes('6.1')) return 1050
   if (id.includes('grok-4.7') || id.includes('grok4.7') || name.includes('grok 4.7')) return 1000
   if (id.includes('grok-4.6') || id.includes('grok4.6') || name.includes('grok 4.6')) return 900
   if (id.includes('grok-4.5') || id.includes('grok4.5') || name.includes('grok 4.5')) return 800
