@@ -240,22 +240,21 @@ export function useChatStream(
     currentSessionIdRef.current = sessionId
 
     // If an in-flight prompt initiated this session switch, preserve optimistic messages and status!
-    if (transitioningSessionIdRef.current === sessionId && sessionId) {
+    const isTransitioning = transitioningSessionIdRef.current === sessionId && Boolean(sessionId)
+    if (isTransitioning) {
       transitioningSessionIdRef.current = null
-      loadSessionData(sessionId)
-      return
+    } else {
+      commitSessionStatus({ type: 'idle' }, false)
+      sessionBusyRef.current = false
+      runKnownRef.current = false
+      setRunKnown(false)
+      setError(null)
+      setTurnEnd(null)
+      userAbortedRef.current = false
+      goOnSentRef.current = 0
+      goOnFlightRef.current = false
+      lastActivityAtRef.current = 0
     }
-
-    commitSessionStatus({ type: 'idle' }, false)
-    sessionBusyRef.current = false
-    runKnownRef.current = false
-    setRunKnown(false)
-    setError(null)
-    setTurnEnd(null)
-    userAbortedRef.current = false
-    goOnSentRef.current = 0
-    goOnFlightRef.current = false
-    lastActivityAtRef.current = 0
 
     if (!sessionId || sessionId === '__draft__') {
       setMessages([])
@@ -266,9 +265,11 @@ export function useChatStream(
       return
     }
 
-    setLoading(true)
-    setMessages([])
-    setTodos([])
+    if (!isTransitioning) {
+      setLoading(true)
+      setMessages([])
+      setTodos([])
+    }
     loadSessionData(sessionId)
 
     // Ctrl+W then Ctrl+Shift+T restores a frozen page (bfcache). The painted
@@ -284,7 +285,9 @@ export function useChatStream(
       setError(null)
       void loadSessionData(id)
     }
-    window.addEventListener('pageshow', onPageShow)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pageshow', onPageShow)
+    }
 
     // Subscribe to SSE events
     const unsubDelta = sseManager.onPartDelta((data) => {
@@ -492,7 +495,8 @@ export function useChatStream(
     })
 
     const unsubStatus = sseManager.onSessionStatus((data) => {
-      if (data.sessionID !== sessionId) return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
       noteActivity('status')
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
@@ -502,7 +506,8 @@ export function useChatStream(
 
     // SSE Error Fuse: break out of busy state immediately on backend errors
     const unsubError = sseManager.onSessionError((data) => {
-      if (data.sessionID !== sessionId) return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
       noteActivity('error')
       commitSessionStatus({ type: 'idle' })
 
@@ -541,10 +546,22 @@ export function useChatStream(
     })
 
     // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
-      const unsubIdle = sseManager.onSessionIdle((data) => {
-      if (data.sessionID !== sessionId) return
+    const unsubIdle = sseManager.onSessionIdle((data) => {
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
       noteActivity('idle')
       commitSessionStatus({ type: 'idle' })
+
+      // Authoritative background history reconciliation to merge any parts that might have been missed over the network
+      void api
+        .getMessages(activeId)
+        .then((history) => {
+          if (currentSessionIdRef.current !== activeId) return
+          setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
+        })
+        .catch((err) => {
+          console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
+        })
 
       const currentMsgs = messagesRef.current
       const lastMsg = currentMsgs[currentMsgs.length - 1]
@@ -555,7 +572,7 @@ export function useChatStream(
       const abortedByUser = userAbortedRef.current
       userAbortedRef.current = false
       if (fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
-        void maybeCommitGitCheckpoint(sessionId, currentMsgs)
+        void maybeCommitGitCheckpoint(activeId, currentMsgs)
       }
       const turnKey = userTurnKey(currentMsgs)
       const auto =
@@ -656,12 +673,14 @@ export function useChatStream(
 
     // Subscribe to message.removed to synchronize deletions
     const unsubRemoved = sseManager.onMessageRemoved((data) => {
-      if (data.sessionID !== sessionId) return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data.sessionID !== activeId) return
       setMessages((prev) => prev.filter((m) => m.info.id !== data.messageID))
     })
 
     const unsubTodo = sseManager.on('todo.updated', (data: any) => {
-      if (data?.sessionID === sessionId && Array.isArray(data?.todos)) {
+      const activeId = currentSessionIdRef.current || sessionId
+      if (data?.sessionID === activeId && Array.isArray(data?.todos)) {
         todosRef.current = data.todos
         setTodos(data.todos)
       }
@@ -671,24 +690,40 @@ export function useChatStream(
     // Confirm with the daemon before nudging: a missed idle event must not
     // send "go on" into a turn that already finished.
     const silenceTimer = window.setInterval(() => {
-      if (!sessionId || sessionId === '__draft__') return
+      const activeId = currentSessionIdRef.current || sessionId
+      if (!activeId || activeId === '__draft__') return
       if (!isRunningStatus(sessionStatusRef.current)) return
       if (goOnFlightRef.current) return
       const quietFor = Date.now() - lastActivityAtRef.current
       if (quietFor < GO_ON_SILENCE_MS) return
       const askedAt = lastActivityAtRef.current
-      void api.getSessionStatus(sessionId).then((status) => {
-        if (!status || currentSessionIdRef.current !== sessionId) return
+      void api.getSessionStatus(activeId).then((status) => {
+        if (!status || currentSessionIdRef.current !== activeId) return
         if (lastActivityAtRef.current !== askedAt) return
         commitSessionStatus(status)
-        if (!isRunningStatus(status)) return
+        if (!isRunningStatus(status)) {
+          // Backend has transitioned to idle while silence timer was running.
+          // Trigger history reconciliation to recover from missed SSE idle events.
+          void api
+            .getMessages(activeId)
+            .then((history) => {
+              if (currentSessionIdRef.current !== activeId) return
+              setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
+            })
+            .catch(() => {})
+          return
+        }
         maybeSendGoOn('silence')
       })
     }, 5_000)
 
     return () => {
-      window.clearInterval(silenceTimer)
-      window.removeEventListener('pageshow', onPageShow)
+      if (typeof window !== 'undefined') {
+        window.clearInterval(silenceTimer)
+        window.removeEventListener('pageshow', onPageShow)
+      } else {
+        clearInterval(silenceTimer as any)
+      }
       unsubDelta()
       unsubPartUpdated()
       unsubMsgUpdated()
