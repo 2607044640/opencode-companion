@@ -503,7 +503,7 @@ function UserMessageBubble({
             {onRevertToMessage && (
               <button
                 onClick={() => onRevertToMessage(message.info.id)}
-                disabled={isBusy || isReverting}
+                disabled={isReverting}
                 className="hover:text-zinc-200 text-zinc-400 hover:bg-zinc-800 transition-colors p-0.5 rounded disabled:opacity-40"
                 title={t.chat.undoUpToThisPoint}
               >

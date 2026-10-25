@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Play, Sparkles, MessageSquare, Loader2, Cpu } from 'lucide-react'
+import { AlertTriangle, Play, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw } from 'lucide-react'
 import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
 import { MessageBubble, getAgentBadge } from './MessageBubble'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
@@ -264,6 +264,12 @@ export function ChatTimeline({
     running && sessionStatus.type === 'busy' && isLastItemUser
 
   const lastUserMsg = messages.length > 0 ? messages[messages.length - 1] : null
+  const latestUserMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].info.role === 'user') return messages[i]
+    }
+    return null
+  }, [messages])
   const targetAgent = lastUserMsg?.info?.agent || activeSession?.agent || 'build'
   const targetModelId = lastUserMsg?.info?.modelID || activeSession?.model?.id || ''
 
@@ -774,13 +780,26 @@ export function ChatTimeline({
                   </div>
                 </div>
 
-                <button
-                  onClick={onRetry}
-                  className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded transition-colors flex items-center gap-1.5 shrink-0 shadow-sm"
-                >
-                  <Play className="w-3 h-3" />
-                  <span>重试 / 继续</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {latestUserMessage && onRevertToMessage && (
+                    <button
+                      onClick={() => handleInitiateRevert(latestUserMessage.info.id)}
+                      disabled={isReverting}
+                      className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white text-xs font-medium rounded transition-colors flex items-center gap-1.5 shadow-sm border border-zinc-700 disabled:opacity-50"
+                      title="撤回此轮提示词与更改"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>撤回此轮</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={onRetry}
+                    className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded transition-colors flex items-center gap-1.5 shrink-0 shadow-sm"
+                  >
+                    <Play className="w-3 h-3" />
+                    <span>重试 / 继续</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

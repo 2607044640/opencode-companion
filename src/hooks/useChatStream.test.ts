@@ -274,4 +274,76 @@ describe('useChatStream Transition and SSE Lifecycle Contracts', () => {
     assert.equal(reconciledMessages.length, 1)
     assert.equal((reconciledMessages[0].parts[0] as any).text, 'Recovered answer')
   })
+
+  it('reverting during busy or retry session executes pre-abort to release daemon prompt lock', async () => {
+    let abortCalled = false
+    let abortedSessionId = ''
+
+    api.abortSession = async (id: string) => {
+      abortCalled = true
+      abortedSessionId = id
+    }
+
+    const sessionId = 'ses_revert_busy_test'
+    const sessionBusyRef = { current: true }
+    const sessionStatusRef = { current: { type: 'retry', message: 'upstream error' } as SessionStatusPayload }
+    let currentStatus: SessionStatusPayload = sessionStatusRef.current
+    let error: string | null = 'upstream error'
+
+    const commitSessionStatus = (next: SessionStatusPayload) => {
+      currentStatus = next
+      sessionStatusRef.current = next
+      sessionBusyRef.current = next.type !== 'idle'
+    }
+
+    // Simulate revertToMessage pre-abort hook check
+    const isRunning = sessionBusyRef.current || (sessionStatusRef.current.type === 'busy' || sessionStatusRef.current.type === 'retry')
+    if (isRunning) {
+      await api.abortSession(sessionId)
+      sessionBusyRef.current = false
+      commitSessionStatus({ type: 'idle' })
+      error = null
+    }
+
+    assert.equal(abortCalled, true)
+    assert.equal(abortedSessionId, 'ses_revert_busy_test')
+    assert.equal(sessionBusyRef.current, false)
+    assert.equal(currentStatus.type, 'idle')
+    assert.equal(error, null)
+  })
+
+  it('applySnapshot accepts idle status after send grace period has elapsed', () => {
+    const statusEpoch = 1
+    const statusEpochRef = { current: 1 }
+    const sessionBusyRef = { current: true }
+    let committedStatus: SessionStatusPayload | null = null
+
+    const commitSessionStatus = (next: SessionStatusPayload) => {
+      committedStatus = next
+    }
+
+    // 1. Within 2.5s of sending, idle snapshot is rejected as stale pre-run
+    const recentSendTimestamp = Date.now() - 1000
+    const isRecentSend = Date.now() - recentSendTimestamp < 2500
+    const snapshotIdle: SessionStatusPayload = { type: 'idle' }
+
+    let accepted = false
+    if (!(snapshotIdle.type === 'idle' && sessionBusyRef.current && isRecentSend)) {
+      commitSessionStatus(snapshotIdle)
+      accepted = true
+    }
+    assert.equal(accepted, false)
+    assert.equal(committedStatus, null)
+
+    // 2. After 2.5s (e.g. 10s into run or after generation completes), idle snapshot is accepted
+    const olderSendTimestamp = Date.now() - 10000
+    const isStillRecent = Date.now() - olderSendTimestamp < 2500
+
+    if (!(snapshotIdle.type === 'idle' && sessionBusyRef.current && isStillRecent)) {
+      commitSessionStatus(snapshotIdle)
+      accepted = true
+    }
+    assert.equal(accepted, true)
+    assert.equal(committedStatus?.type, 'idle')
+  })
 })

@@ -64,6 +64,7 @@ export function useChatStream(
   const transitioningSessionIdRef = useRef<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(sessionId)
   const sessionBusyRef = useRef(false)
+  const lastSendTimestampRef = useRef(0)
   /** Bumps on every status write so a late /session/status snapshot cannot clobber SSE, send, or abort. */
   const statusEpochRef = useRef(0)
   const autoRetriedTurnKeyRef = useRef<string | null>(null)
@@ -91,7 +92,11 @@ export function useChatStream(
 
   const commitSessionStatus = useCallback((next: SessionStatusPayload, known = true) => {
     statusEpochRef.current += 1
-    if (isRunningStatus(next)) sessionBusyRef.current = true
+    if (isRunningStatus(next)) {
+      sessionBusyRef.current = true
+    } else {
+      sessionBusyRef.current = false
+    }
     sessionStatusRef.current = next
     setSessionStatus(next)
     if (known) {
@@ -177,8 +182,10 @@ export function useChatStream(
       if (currentSessionIdRef.current !== id) return false
       if (statusEpochRef.current !== statusEpoch) return false
       if (!status) return false
-      // A send/restore that already marked this session running wins over a stale idle snapshot.
-      if (status.type === 'idle' && sessionBusyRef.current) {
+      // A send that already marked this session running wins over an immediate stale idle snapshot
+      // (only within the first 2.5s of dispatching prompt before backend records busy).
+      const isRecentSend = Date.now() - lastSendTimestampRef.current < 2500
+      if (status.type === 'idle' && sessionBusyRef.current && isRecentSend) {
         setRunKnown(true)
         return false
       }
@@ -501,6 +508,16 @@ export function useChatStream(
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
         noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
+        // Authoritative background history reconciliation on status idle
+        void api
+          .getMessages(activeId, { fresh: true })
+          .then((history) => {
+            if (currentSessionIdRef.current !== activeId) return
+            setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
+          })
+          .catch((err) => {
+            console.warn('[useChatStream] History reconciliation on status idle failed:', err)
+          })
       }
     })
 
@@ -554,7 +571,7 @@ export function useChatStream(
 
       // Authoritative background history reconciliation to merge any parts that might have been missed over the network
       void api
-        .getMessages(activeId)
+        .getMessages(activeId, { fresh: true })
         .then((history) => {
           if (currentSessionIdRef.current !== activeId) return
           setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
@@ -686,26 +703,26 @@ export function useChatStream(
       }
     })
 
-    // Ninety seconds of nothing. A 3s pause is a tool or a thought, not a death.
-    // Confirm with the daemon before nudging: a missed idle event must not
-    // send "go on" into a turn that already finished.
+    // Periodic status poll & silence watchdog (every 5s when actively generating)
+    // Confirms daemon state so a completed turn is never stuck waiting for F5 or SSE events.
     const silenceTimer = window.setInterval(() => {
       const activeId = currentSessionIdRef.current || sessionId
       if (!activeId || activeId === '__draft__') return
       if (!isRunningStatus(sessionStatusRef.current)) return
       if (goOnFlightRef.current) return
-      const quietFor = Date.now() - lastActivityAtRef.current
-      if (quietFor < GO_ON_SILENCE_MS) return
-      const askedAt = lastActivityAtRef.current
+
+      // Don't poll daemon within the first 2.5s of a new prompt send
+      if (Date.now() - lastSendTimestampRef.current < 2500) return
+
       void api.getSessionStatus(activeId).then((status) => {
         if (!status || currentSessionIdRef.current !== activeId) return
-        if (lastActivityAtRef.current !== askedAt) return
-        commitSessionStatus(status)
         if (!isRunningStatus(status)) {
           // Backend has transitioned to idle while silence timer was running.
-          // Trigger history reconciliation to recover from missed SSE idle events.
+          // Trigger authoritative history reconciliation to recover from missed SSE idle events.
+          commitSessionStatus(status)
+          noteTurnEnd('clean')
           void api
-            .getMessages(activeId)
+            .getMessages(activeId, { fresh: true })
             .then((history) => {
               if (currentSessionIdRef.current !== activeId) return
               setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
@@ -713,7 +730,13 @@ export function useChatStream(
             .catch(() => {})
           return
         }
-        maybeSendGoOn('silence')
+
+        // Backend is still running; check if quiet for GO_ON_SILENCE_MS before triggering maybeSendGoOn
+        const quietFor = Date.now() - lastActivityAtRef.current
+        if (quietFor >= GO_ON_SILENCE_MS) {
+          commitSessionStatus(status)
+          maybeSendGoOn('silence')
+        }
       })
     }, 5_000)
 
@@ -771,6 +794,7 @@ export function useChatStream(
       pendingOptimisticIdRef.current = userMsg.info.id
       userAbortedRef.current = false
       repetitionArmedRef.current = false
+      lastSendTimestampRef.current = Date.now()
       noteActivity('send')
       if (text.trim() !== GO_ON_TEXT) {
         goOnSentRef.current = 0
@@ -910,6 +934,20 @@ export function useChatStream(
         return { ok: false, error: 'No active session' }
       }
       setReverting(true)
+
+      // If session is actively generating or retrying, abort it first so the daemon releases the session prompt lock
+      if (sessionBusyRef.current || isRunningStatus(sessionStatusRef.current)) {
+        console.log('[Revert:Hook] Active prompt/retry in flight during revert, aborting session first:', sessionId)
+        try {
+          await api.abortSession(sessionId)
+        } catch (err) {
+          console.warn('[Revert:Hook] Pre-revert abort warning:', err)
+        }
+        sessionBusyRef.current = false
+        commitSessionStatus({ type: 'idle' })
+        setError(null)
+      }
+
       const effectiveDir = sessionDir || messagesRef.current[0]?.info.path?.cwd
       console.log('[Revert:Hook] revertToMessage called:', {
         sessionId,
