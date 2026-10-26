@@ -28,6 +28,9 @@ LOG_FILE = os.path.join(COMPANION_DIR, 'watchdog.log')
 # Single instance guard using socket
 LOCK_PORT = 51739
 
+# Feature toggles
+ENABLE_COMFYUI = False  # Set to True to re-enable ComfyUI and its bridge auto-start
+
 _last_gateway_restart = 0.0
 GATEWAY_RESTART_COOLDOWN = 15.0  # seconds between restart attempts to prevent flapping
 _last_comfy_restart = 0.0
@@ -165,6 +168,8 @@ def ensure_companion_server():
         log(f"Failed to start companion server: {e}")
 
 def ensure_comfyui():
+    if not ENABLE_COMFYUI:
+        return
     global _last_comfy_restart
     if is_port_listening(8188, timeout=0.3):
         return
@@ -197,6 +202,8 @@ def ensure_comfyui():
         log(f"Failed to start ComfyUI: {e}")
 
 def ensure_comfy_bridge():
+    if not ENABLE_COMFYUI:
+        return
     global _last_bridge_restart
     if not is_port_listening(8188, timeout=0.3):
         return
