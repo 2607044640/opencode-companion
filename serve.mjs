@@ -742,12 +742,12 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             .split(',')
             .map((m) => m.trim())
             .filter(Boolean)
-          const bound = modelList.find((m) => m.toLowerCase() === 'grok-4.7') || modelList[0] || ''
+          const bound = modelList.find((m) => m.toLowerCase() === 'gpt-6.1-sol') || modelList[0] || ''
           let name = c.name || '中转站'
           if (id === 'relay_wending') {
-            name = '稳定中转-Grok (grok-4.7)'
+            name = '稳定中转'
           } else if (id === 'relay_llmfree') {
-            name = 'LLMFree-Grok (grok-4.7)'
+            name = 'LLMFree'
           } else if (bound && !name.includes('(')) {
             name = `${name} (${bound})`
           }
@@ -792,7 +792,7 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
           presets.push(
             {
               id: 'relay_llmfree',
-              name: 'LLMFree-Grok (grok-4.7)',
+              name: 'TokenFree (gpt-6.1-sol)',
               baseUrl: 'https://llmfree.work',
               redeemUrl: 'https://llmfree.work/redeem',
               currency: 'USD',
@@ -801,7 +801,7 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             },
             {
               id: 'relay_wending',
-              name: '稳定中转-Grok (grok-4.7)',
+              name: 'Portdan-GPT6-Astra (gpt-6-astra)',
               baseUrl: 'https://xn--fiq104an1x80s.com',
               redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
               currency: 'USD',

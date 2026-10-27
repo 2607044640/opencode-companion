@@ -4,7 +4,6 @@
 
 export const ALLOWED_CANONICAL_MODEL_IDS = new Set([
   'gpt-6.1-sol',
-  'grok-4.7',
   'grok-4.6',
   'grok-4.5',
   'gpt-6-astra',
@@ -33,18 +32,7 @@ export function isCuratedModel(providerId?: string, modelId?: string, modelName?
   // 1. Direct canonical match
   if (ALLOWED_CANONICAL_MODEL_IDS.has(id)) return true
 
-  // 2. Grok 4.7, Grok 4.6 & Grok 4.5
-  if (
-    id === 'grok-4.7' ||
-    id === 'grok4.7' ||
-    id.includes('grok-4.7') ||
-    id.includes('grok4.7') ||
-    name.includes('grok 4.7') ||
-    name.includes('grok-4.7')
-  ) {
-    return true
-  }
-
+  // 2. Grok 4.6 & Grok 4.5
   if (
     id === 'grok-4.6' ||
     id === 'grok4.6' ||
@@ -169,7 +157,6 @@ export function getModelPriorityScore(_providerId?: string, modelId?: string, mo
   const name = (modelName || '').toLowerCase().trim()
 
   if (id.includes('6.1') || name.includes('6.1')) return 1050
-  if (id.includes('grok-4.7') || id.includes('grok4.7') || name.includes('grok 4.7')) return 1000
   if (id.includes('grok-4.6') || id.includes('grok4.6') || name.includes('grok 4.6')) return 900
   if (id.includes('grok-4.5') || id.includes('grok4.5') || name.includes('grok 4.5')) return 800
   if (id.includes('grok') || name.includes('grok')) return 750
