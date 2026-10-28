@@ -131,5 +131,48 @@ describe('Path Resolver Utilities (path-resolver.ts)', () => {
         'C:\\APISpace\\package.json'
       )
     })
+
+    it('strips tool banner and git status prefix (Bug 1 & Bug 2 regression fix)', () => {
+      const bannerInput =
+        'Success. Updated the following files:\nM home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+
+      // 1. cleanRawPath strips banner, git status prefix 'M ', and restores leading slash
+      assert.equal(
+        cleanRawPath(bannerInput),
+        '/home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+      )
+
+      // 2. toWindowsPath resolves correctly to Windows native path
+      assert.equal(
+        toWindowsPath(bannerInput),
+        'C:\\AICore\\opencode-jail\\instructions\\opencode-agent.md'
+      )
+
+      // 3. toLinuxPath resolves correctly to POSIX jail path
+      assert.equal(
+        toLinuxPath(bannerInput),
+        '/home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+      )
+    })
+
+    it('symmetrically converts Windows path back to Linux path', () => {
+      const winPath = 'C:\\AICore\\opencode-jail\\instructions\\opencode-agent.md'
+      assert.equal(
+        toLinuxPath(winPath),
+        '/home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+      )
+    })
+
+    it('handles paths missing leading slash seamlessly', () => {
+      const missingSlash = 'home/developer/projects/APISpace/package.json'
+      assert.equal(toWindowsPath(missingSlash), 'C:\\APISpace\\package.json')
+      assert.equal(toLinuxPath(missingSlash), '/home/developer/projects/APISpace/package.json')
+    })
+
+    it('handles direct workspace root names', () => {
+      const directWs = 'AICore/skills/AICtl/SKILL.md'
+      assert.equal(toWindowsPath(directWs), 'C:\\AICore\\skills\\AICtl\\SKILL.md')
+      assert.equal(toLinuxPath(directWs), '/home/developer/projects/AICore/skills/AICtl/SKILL.md')
+    })
   })
 })

@@ -199,7 +199,7 @@ export function DiffSidebarDrawer() {
 
       <div className="flex items-center gap-1.5 shrink-0">
         <CopyDiffButton copied={copied} onClick={handleCopyDiffAll} />
-        {payload?.filePath && <FileActionMenu filePath={toWindowsPath(payload.filePath)} />}
+        {payload?.filePath && <FileActionMenu filePath={payload.filePath} />}
         <button
           onClick={close}
           className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors cursor-pointer ml-0.5"
@@ -277,7 +277,7 @@ export function DiffSidebarDrawer() {
                   )}
                 </button>
                 <div onClick={(e) => e.stopPropagation()}>
-                  <FileActionMenu filePath={toWindowsPath(file.filePath)} />
+                  <FileActionMenu filePath={file.filePath} />
                 </div>
                 {isCollapsed ? (
                   <ChevronRight className="w-4 h-4 text-zinc-400" />

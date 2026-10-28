@@ -31,20 +31,21 @@ describe('Token Limit & Model Profile Resolution', () => {
     assert.equal(getTokenLimit('gemini-3.7-flash'), 800000)
   })
 
-  test('getTokenThreshold enforces strict color rules: >=80% Red, >=50% Yellow, other Green', () => {
+  test('getTokenThreshold enforces strict color rules: >=75% Red, >=50% Yellow, other Green', () => {
     // Green (< 50%)
     assert.equal(getTokenThreshold(0), 'green')
     assert.equal(getTokenThreshold(10), 'green')
     assert.equal(getTokenThreshold(29.98), 'green')
     assert.equal(getTokenThreshold(49.99), 'green')
 
-    // Yellow (>= 50% and < 80%)
+    // Yellow (>= 50% and < 75%)
     assert.equal(getTokenThreshold(50), 'yellow')
     assert.equal(getTokenThreshold(50.01), 'yellow')
-    assert.equal(getTokenThreshold(75), 'yellow')
-    assert.equal(getTokenThreshold(79.99), 'yellow')
+    assert.equal(getTokenThreshold(74.99), 'yellow')
 
-    // Red (>= 80%)
+    // Red (>= 75%)
+    assert.equal(getTokenThreshold(75), 'red')
+    assert.equal(getTokenThreshold(75.01), 'red')
     assert.equal(getTokenThreshold(80), 'red')
     assert.equal(getTokenThreshold(80.01), 'red')
     assert.equal(getTokenThreshold(95), 'red')

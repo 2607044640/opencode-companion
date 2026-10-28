@@ -860,4 +860,38 @@ describe('WorkedSummary Unit Tests (Prometheus T0 Specification)', () => {
     assert.equal(turn.hasRealError, true)
     assert.equal(turn.hasError, true)
   })
+
+  test('(t) normalizePath and extractEditItem cleanly sanitize multiline tool banner strings', () => {
+    const bannerPath =
+      'Success. Updated the following files:\nM home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+
+    const norm = normalizePath(bannerPath)
+    assert.equal(norm.fileName, 'opencode-agent.md')
+    assert.equal(
+      norm.filePath,
+      '/home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+    )
+    assert.equal(norm.relativeDir, 'opencode-jail/instructions')
+
+    const editPart: ToolPart = {
+      id: 'tool_patch_1',
+      sessionID: 'ses_1',
+      messageID: 'msg_1',
+      type: 'tool',
+      tool: 'apply_patch',
+      state: {
+        status: 'completed',
+        title: bannerPath,
+        input: {},
+      },
+    }
+
+    const item = extractEditItem(editPart)
+    assert.equal(item.fileName, 'opencode-agent.md')
+    assert.equal(
+      item.filePath,
+      '/home/developer/projects/AICore/opencode-jail/instructions/opencode-agent.md'
+    )
+    assert.equal(item.relativeDir, 'opencode-jail/instructions')
+  })
 })

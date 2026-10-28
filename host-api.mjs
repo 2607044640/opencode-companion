@@ -307,6 +307,9 @@ export const ROUTING_SSOT_PATHS = [
 ]
 
 export const MODEL_PROFILE_PATHS = [
+  'C:\\AIModelRegistry\\registry.json',
+  'C:/AIModelRegistry/registry.json',
+  '/mnt/c/AIModelRegistry/registry.json',
   'C:\\AICore\\skills\\OpenCodeDataControl\\scripts\\data\\model_profiles.json',
   'C:/AICore/skills/OpenCodeDataControl/scripts/data/model_profiles.json',
   '/mnt/c/AICore/skills/OpenCodeDataControl/scripts/data/model_profiles.json',
@@ -330,13 +333,37 @@ export function resolveModelProfiles(customPath = null) {
   try {
     const content = fs.readFileSync(targetPath, 'utf8')
     const data = JSON.parse(content)
+    let profiles = data.profiles || {}
+    let aliases = data.aliases || {}
+    let defaultModelId = data.default_model_id || 'unknown'
+
+    if (data.models && typeof data.models === 'object') {
+      profiles = {}
+      aliases = {}
+      for (const [mid, mdata] of Object.entries(data.models)) {
+        if (mdata && mdata.context) {
+          profiles[mid] = {
+            display_name: mdata.display_name || mid,
+            family: mdata.family || 'unknown',
+            ...mdata.context,
+          }
+        }
+        if (mdata && Array.isArray(mdata.aliases)) {
+          for (const alias of mdata.aliases) {
+            aliases[alias] = mid
+          }
+        }
+      }
+      defaultModelId = (data.roles?.default_model || 'unknown').split('/').pop() || 'unknown'
+    }
+
     return {
       ok: true,
       path: targetPath,
       version: data.version || 1,
-      default_model_id: data.default_model_id || 'unknown',
-      aliases: data.aliases || {},
-      profiles: data.profiles || {},
+      default_model_id: defaultModelId,
+      aliases,
+      profiles,
     }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

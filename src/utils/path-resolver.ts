@@ -17,21 +17,53 @@ export const WORKSPACE_PATH_MAPPINGS = [
 ]
 
 /**
- * Strips file:// schemes, quotes, URI encodings, and trailing line numbers (:42, #L42)
+ * Strips file:// schemes, quotes, URI encodings, trailing line numbers (:42, #L42),
+ * tool execution banners (e.g. "Success. Updated the following files:"), and Git status prefixes (M, A, D, etc.).
+ * Also ensures jail POSIX paths have leading slashes so mapping matches reliably.
  */
 export function cleanRawPath(raw: string): string {
   if (!raw) return ''
-  let clean = raw.trim()
+  let clean = String(raw).trim()
 
-  // 1. Strip surrounding quotes first
+  // 1. If input has multiple lines, isolate the line containing the actual file path
+  if (clean.includes('\n')) {
+    const lines = clean.split('\n').map((l) => l.trim()).filter(Boolean)
+    const candidate = lines.find((l) => {
+      // Skip pure banner/header lines like "Success. Updated the following files:"
+      if (
+        /^(?:success|updated|created|deleted|modified|applied|saved|error|failed)/i.test(l) &&
+        /(?:files?|following|patch)/i.test(l)
+      ) {
+        return false
+      }
+      return l.includes('/') || l.includes('\\') || /\.[a-zA-Z0-9_-]+$/.test(l)
+    })
+    if (candidate) {
+      clean = candidate
+    } else {
+      clean = lines[lines.length - 1]
+    }
+  }
+
+  // 2. Strip banner phrases if present on the single line (e.g. "Success. Updated the following files: M home/...")
+  clean = clean.replace(
+    /^(?:success[.:!]?\s*)?(?:updated|created|deleted|modified|applied|saved)\s+(?:the\s+following\s+files?|file|files?|patch\s+to)?[.:]\s*/i,
+    ''
+  )
+
+  // 3. Strip git/patch status prefix (e.g. "M ", "A ", "D ", "R ", "C ", "U ", "?? ", "* ", "+ ", "- ")
+  clean = clean.replace(/^(?:[MADRCU\?*+-]+\s+)/, '')
+
+  // 4. Strip surrounding quotes first
   if (
     (clean.startsWith('"') && clean.endsWith('"')) ||
-    (clean.startsWith("'") && clean.endsWith("'"))
+    (clean.startsWith("'") && clean.endsWith("'")) ||
+    (clean.startsWith('`') && clean.endsWith('`'))
   ) {
     clean = clean.slice(1, -1).trim()
   }
 
-  // 2. Strip file:/// or file://
+  // 5. Strip file:/// or file://
   if (clean.startsWith('file:///')) {
     clean = clean.slice(7)
     if (/^\/[a-zA-Z]:[/\\\\]/.test(clean)) {
@@ -41,25 +73,36 @@ export function cleanRawPath(raw: string): string {
     clean = clean.slice(7)
   }
 
-  // 3. Strip surrounding quotes again if wrapped
+  // 6. Strip surrounding quotes again if wrapped
   if (
     (clean.startsWith('"') && clean.endsWith('"')) ||
-    (clean.startsWith("'") && clean.endsWith("'"))
+    (clean.startsWith("'") && clean.endsWith("'")) ||
+    (clean.startsWith('`') && clean.endsWith('`'))
   ) {
     clean = clean.slice(1, -1).trim()
   }
 
-  // 4. Decode URI components (%20, etc.)
+  // 7. Decode URI components (%20, etc.)
   try {
     if (clean.includes('%')) {
       clean = decodeURIComponent(clean)
     }
   } catch {}
 
-  // 5. Strip trailing line number or range (e.g. :42, :42:5, #L42, (42))
+  // 8. Strip trailing line number or range (e.g. :42, :42:5, #L42, (42))
   clean = clean.replace(/#L\d+(?:-\d+)?$/i, '')
   clean = clean.replace(/:\d+(?::\d+)?$/, '')
   clean = clean.replace(/\(\d+(?:,\s*\d+)?\)$/, '')
+
+  // 9. Normalize leading slash for jail/POSIX paths
+  // e.g. "home/developer/projects/..." -> "/home/developer/projects/..."
+  // e.g. "workspace/projects/..." -> "/workspace/projects/..."
+  // e.g. "projects/..." -> "/projects/..."
+  // e.g. "mnt/c/..." -> "/mnt/c/..."
+  const slashNormalized = clean.replace(/\\/g, '/')
+  if (/^(?:home\/developer|workspace\/projects|projects|mnt\/[a-zA-Z])\//i.test(slashNormalized)) {
+    clean = '/' + slashNormalized.replace(/^\/+/, '')
+  }
 
   return clean.trim()
 }
@@ -107,6 +150,19 @@ export function toWindowsPath(posixPath: string): string {
     return `${base}${rest}`
   }
 
+  // 5. Direct workspace name without root prefix (e.g. AICore/..., APISpace/...)
+  const directWsMatch = cleaned.match(/^(aicore|apispace|aispace|obsidiannote|obsidiandev)(?:\/(.*))?$/i)
+  if (directWsMatch) {
+    const wsName = directWsMatch[1].toLowerCase()
+    const rest = directWsMatch[2] ? '\\' + directWsMatch[2].replace(/\//g, '\\') : ''
+    let base = 'C:\\APISpace'
+    if (wsName === 'aicore') base = 'C:\\AICore'
+    else if (wsName === 'aispace') base = 'C:\\Godot\\AISpace'
+    else if (wsName === 'obsidiannote') base = 'C:\\ObsidianNote'
+    else if (wsName === 'obsidiandev') base = 'C:\\ObsidianDev'
+    return `${base}${rest}`
+  }
+
   return cleaned.replace(/\//g, '\\')
 }
 
@@ -145,6 +201,19 @@ export function toLinuxPath(rawPath: string): string {
       return `/home/developer/projects/ObsidianDev${rest.slice('obsidiandev'.length)}`
     }
     return `/mnt/${drive}/${rest}`
+  }
+
+  // Handle bare workspace paths without drive letter (e.g. AICore/...)
+  const directWsMatch = trimmed.match(/^(aicore|apispace|aispace|obsidiannote|obsidiandev)(?:\/(.*))?$/i)
+  if (directWsMatch) {
+    const wsName = directWsMatch[1].toLowerCase()
+    const rest = directWsMatch[2] ? `/${directWsMatch[2]}` : ''
+    let canonical = 'APISpace'
+    if (wsName === 'aicore') canonical = 'AICore'
+    else if (wsName === 'aispace') canonical = 'AISpace'
+    else if (wsName === 'obsidiannote') canonical = 'ObsidianNote'
+    else if (wsName === 'obsidiandev') canonical = 'ObsidianDev'
+    return `/home/developer/projects/${canonical}${rest}`
   }
 
   return trimmed

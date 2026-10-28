@@ -31,7 +31,7 @@ export type TokenThreshold = 'green' | 'yellow' | 'red'
 
 /**
  * Built-in fallback baseline if server request is pending or disconnected.
- * Grok 4.7 is strictly 500k (500,000) effective operational ceiling.
+ * Operational ceiling derived from SSOT.
  */
 export const DEFAULT_MODEL_PROFILES: ModelProfilesData = {
   version: 1,
@@ -154,7 +154,7 @@ export function resolveCanonicalModelId(
     return mergedAliases[lower]
   }
 
-  // 3. Strip provider prefix (e.g. 'obsidian/grok-4.7' -> 'grok-4.7')
+  // 3. Strip provider prefix (e.g. 'obsidian/gpt-6.1-sol' -> 'gpt-6.1-sol')
   if (lower.includes('/')) {
     const afterSlash = lower.split('/').pop() || ''
     if (mergedAliases[afterSlash]) {
@@ -166,7 +166,7 @@ export function resolveCanonicalModelId(
     }
   }
 
-  // 4. Dot/dash normalization (e.g. 'grok-4-7' <-> 'grok-4.7' <-> 'grok4.7')
+  // 4. Dot/dash normalization (e.g. 'gpt-6-1-sol' <-> 'gpt-6.1-sol' <-> 'gpt6.1sol')
   const dashNormalized = lower.replace(/\./g, '-')
   if (mergedAliases[dashNormalized]) {
     return mergedAliases[dashNormalized]
@@ -189,7 +189,6 @@ export function resolveCanonicalModelId(
 /**
  * Retrieves the operational token context ceiling for a given model ID.
  * Returns effective_context_tokens or reset_tokens or api_context_tokens.
- * Grok 4.7 strictly returns 500,000 (500k).
  */
 export function getTokenLimit(
   modelId: string | undefined | null,
@@ -217,12 +216,12 @@ export function getTokenLimit(
 
 /**
  * Calculates threshold status based on active window token usage percentage:
- * - >= 80%: 'red' (红色)
- * - >= 50%: 'yellow' (黄色)
- * - < 50%: 'green' (绿色)
+ * - >= 75%: 'red' (超过3/4变红)
+ * - >= 50%: 'yellow' (超过一半变黄)
+ * - < 50%: 'green' (其他是绿)
  */
 export function getTokenThreshold(percent: number): TokenThreshold {
-  if (percent >= 80) return 'red'
+  if (percent >= 75) return 'red'
   if (percent >= 50) return 'yellow'
   return 'green'
 }

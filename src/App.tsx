@@ -63,6 +63,13 @@ export default function App() {
     } catch {}
     return true
   })
+  const [isHeaderVisible, setIsHeaderVisible] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('opencode_header_visible')
+      if (saved !== null) return saved === 'true'
+    } catch {}
+    return true
+  })
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined)
 
@@ -120,6 +127,25 @@ export default function App() {
       unsubStatus()
     }
   }, [])
+
+  const toggleHeader = useCallback((force?: boolean) => {
+    setIsHeaderVisible((prev) => {
+      const next = typeof force === 'boolean' ? force : !prev
+      try {
+        localStorage.setItem('opencode_header_visible', String(next))
+      } catch {}
+      window.dispatchEvent(
+        new CustomEvent('opencode-toast', {
+          detail: {
+            message: next
+              ? (isZh ? '已显示上方栏 (Ctrl+Shift+B)' : 'Top bar visible (Ctrl+Shift+B)')
+              : (isZh ? '已隐藏上方栏 (Ctrl+Shift+B)' : 'Top bar hidden (Ctrl+Shift+B)'),
+          },
+        })
+      )
+      return next
+    })
+  }, [isZh])
 
   const toggleSidebar = useCallback((force?: boolean) => {
     setIsSidebarOpen((prev) => {
@@ -827,6 +853,20 @@ export default function App() {
         }
       }
 
+      // Fast-path: Instant Top Bar / Header Toggle (Ctrl+Shift+B)
+      const isCtrlShiftB =
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        e.shiftKey &&
+        ((e.key && e.key.toLowerCase() === 'b') || e.code === 'KeyB' || e.keyCode === 66)
+
+      if (!isZenMode && isCtrlShiftB) {
+        e.preventDefault()
+        e.stopPropagation()
+        toggleHeader()
+        return
+      }
+
       // 0. Fast-path: Instant Sidebar Toggle (Ctrl+B) with high priority and capture
       const isCtrlB =
         (e.ctrlKey || e.metaKey) &&
@@ -998,6 +1038,7 @@ export default function App() {
     handleNewSession,
     toggleZenMode,
     toggleSidebar,
+    toggleHeader,
     closeTab,
     reopenClosedTab,
     selectSession,
@@ -1063,6 +1104,31 @@ export default function App() {
           canGoForward={canGoForward}
           onHistoryBack={handleHistoryBack}
           onHistoryForward={handleHistoryForward}
+          messages={messages}
+          activeSession={activeSession}
+          sessionStatus={sessionStatus}
+          runKnown={runKnown}
+          onOpenMapAndLocate={handleOpenMapAndLocate}
+          onAddSessionToMap={handleAddSessionToMap}
+          onOpenModelRouter={() => {
+            setModelRouterTab('workflow')
+            setIsModelRouterOpen(true)
+          }}
+          onOpenRelayHub={() => {
+            setModelRouterTab('relay')
+            setIsModelRouterOpen(true)
+          }}
+          onGetSessionJson={
+            activeSessionId
+              ? () => api.getAllMessagesRaw(activeSessionId)
+              : undefined
+          }
+          onToggleZenMode={() => toggleZenMode(true)}
+          onOpenFind={() => setIsFindOpen(true)}
+          isHeaderVisible={isHeaderVisible}
+          onToggleHeader={toggleHeader}
+          onDaemonRestored={handleDaemonRestored}
+          onDaemonLost={handleDaemonLost}
           onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
           onShowInMap={handleAddSessionToMap}
         />
@@ -1080,7 +1146,7 @@ export default function App() {
         }}
       >
         {/* Top Header Bar */}
-        {!isZenMode && (
+        {!isZenMode && isHeaderVisible && (
           <Header
             projects={projects}
             sessions={sessions}

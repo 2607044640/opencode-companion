@@ -6,6 +6,14 @@
 
 export const OPEN_TABS_STORAGE_KEY = 'opencode_open_tabs'
 export const ACTIVE_TAB_STORAGE_KEY = 'opencode_active_tab'
+export const TAB_TITLES_STORAGE_KEY = 'opencode_tab_titles'
+
+export interface CachedTabInfo {
+  title: string
+  directory?: string
+  projectID?: string
+  time?: { created?: number; updated?: number }
+}
 
 /**
  * Safely resolves the storage instance (window.localStorage by default)
@@ -88,6 +96,40 @@ export function saveStoredActiveTab(activeId: string | null, storage?: Storage):
     }
   } catch (err) {
     console.error('Failed to save active tab to storage:', err)
+  }
+}
+
+/**
+ * Reads stored tab metadata (titles, directory, projectID) from localStorage.
+ */
+export function getStoredTabTitles(storage?: Storage): Record<string, CachedTabInfo> {
+  try {
+    const store = resolveStorage(storage)
+    if (!store) return {}
+    const raw = store.getItem(TAB_TITLES_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return parsed
+  } catch (err) {
+    console.error('Failed to parse tab titles from storage:', err)
+    return {}
+  }
+}
+
+/**
+ * Persists tab metadata safely to localStorage.
+ */
+export function saveStoredTabTitles(
+  tabTitles: Record<string, CachedTabInfo>,
+  storage?: Storage
+): void {
+  try {
+    const store = resolveStorage(storage)
+    if (!store) return
+    store.setItem(TAB_TITLES_STORAGE_KEY, JSON.stringify(tabTitles))
+  } catch (err) {
+    console.error('Failed to save tab titles to storage:', err)
   }
 }
 

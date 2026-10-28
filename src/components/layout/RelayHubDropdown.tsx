@@ -20,9 +20,15 @@ import {
 
 interface RelayHubDropdownProps {
   onOpenSettings?: () => void
+  compact?: boolean
+  popoverPlacement?: 'right' | 'top' | 'bottom'
 }
 
-export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettings }) => {
+export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
+  onOpenSettings,
+  compact = false,
+  popoverPlacement = 'bottom',
+}) => {
   const [providers, setProviders] = useState<RelayProvider[]>(() => getRelayProviders())
   const [isOpen, setIsOpen] = useState(false)
   const [isRefreshingAll, setIsRefreshingAll] = useState(false)
@@ -234,50 +240,90 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({ onOpenSettin
     return `${Math.floor(diff / 3600)} 小时前`
   }
 
+  const popoverStyle: React.CSSProperties =
+    popoverPlacement === 'right'
+      ? { left: '100%', bottom: '0', marginLeft: '10px' }
+      : popoverPlacement === 'top'
+      ? { bottom: '100%', left: '0', marginBottom: '8px' }
+      : { top: '100%', right: '0', marginTop: '8px' }
+
   return (
     <div className="relative shrink-0" ref={dropdownRef}>
-      {/* Top Header Capsule Button */}
-      <button
-        type="button"
-        onClick={() => {
-          reloadProviders()
-          setIsOpen((prev) => !prev)
-        }}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono select-none transition-all cursor-pointer shadow-sm ${
-          isOpen
-            ? 'bg-[#1e222a] border-zinc-500 text-white'
-            : 'bg-[#14161c] hover:bg-[#1c1f26] border-[#272a31] hover:border-zinc-600 text-zinc-300 hover:text-white'
-        }`}
-        title="中转站额度与账单监视器 (Relay Hub)"
-        aria-expanded={isOpen}
-      >
-        <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-        <span className="font-medium truncate max-w-[140px]">
-          {summary.hasProviders ? summary.totalFormatted : '中转额度'}
-        </span>
-
-        {/* Dynamic Status Indicator */}
-        {summary.hasProviders && (
-          <span className="relative flex h-1.5 w-1.5 ml-0.5">
-            {summary.isLoading ? (
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-            ) : null}
+      {compact ? (
+        <button
+          type="button"
+          onClick={() => {
+            reloadProviders()
+            setIsOpen((prev) => !prev)
+          }}
+          className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none relative ${
+            isOpen
+              ? 'bg-[#1e222a] border border-zinc-500 text-amber-300'
+              : 'bg-[#14161c] hover:bg-[#1c1f26] border border-[#272a31] text-zinc-300 hover:text-white'
+          }`}
+          title={`中转站额度与账单监视器: ${summary.hasProviders ? summary.totalFormatted : '中转额度'}`}
+          aria-expanded={isOpen}
+        >
+          <Coins className="w-4 h-4 text-amber-400" />
+          {summary.hasProviders && (
             <span
-              className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+              className={`absolute top-2 right-2 w-1.5 h-1.5 rounded-full ${
                 summary.hasError
                   ? 'bg-rose-500'
                   : summary.isLoading
-                  ? 'bg-amber-400'
+                  ? 'bg-amber-400 animate-ping'
                   : 'bg-emerald-400'
               }`}
             />
+          )}
+        </button>
+      ) : (
+        /* Top Header Capsule Button */
+        <button
+          type="button"
+          onClick={() => {
+            reloadProviders()
+            setIsOpen((prev) => !prev)
+          }}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono select-none transition-all cursor-pointer shadow-sm ${
+            isOpen
+              ? 'bg-[#1e222a] border-zinc-500 text-white'
+              : 'bg-[#14161c] hover:bg-[#1c1f26] border-[#272a31] hover:border-zinc-600 text-zinc-300 hover:text-white'
+          }`}
+          title="中转站额度与账单监视器 (Relay Hub)"
+          aria-expanded={isOpen}
+        >
+          <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="font-medium truncate max-w-[140px]">
+            {summary.hasProviders ? summary.totalFormatted : '中转额度'}
           </span>
-        )}
-      </button>
+
+          {/* Dynamic Status Indicator */}
+          {summary.hasProviders && (
+            <span className="relative flex h-1.5 w-1.5 ml-0.5">
+              {summary.isLoading ? (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              ) : null}
+              <span
+                className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                  summary.hasError
+                    ? 'bg-rose-500'
+                    : summary.isLoading
+                    ? 'bg-amber-400'
+                    : 'bg-emerald-400'
+                }`}
+              />
+            </span>
+          )}
+        </button>
+      )}
 
       {/* Floating Popover Card */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-80 rounded-xl border border-[#2a2e38] bg-[#12141a]/95 backdrop-blur-md p-3.5 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-150">
+        <div
+          style={popoverStyle}
+          className="absolute z-50 w-80 rounded-xl border border-[#2a2e38] bg-[#12141a]/98 backdrop-blur-md p-3.5 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-150 text-xs select-none"
+        >
           {/* Header Row */}
           <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-[#242832]">
             <div className="flex items-center gap-1.5">

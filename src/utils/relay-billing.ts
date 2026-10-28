@@ -350,11 +350,11 @@ export async function syncRelayPresets(
 
     // Auto-normalize model labels in existing provider names
     for (const p of current) {
-      if (p.baseUrl.includes('llmfree.work') && p.name.includes('grok-4.7')) {
+      if (p.baseUrl.includes('llmfree.work') && !p.name.includes('gpt-6.1-sol')) {
         p.name = 'TokenFree (gpt-6.1-sol)'
         modified = true
       }
-      if (p.baseUrl.includes('xn--fiq104an1x80s.com') && p.name.includes('grok-4.7')) {
+      if (p.baseUrl.includes('xn--fiq104an1x80s.com') && p.name.includes('(')) {
         p.name = '稳定中转'
         modified = true
       }

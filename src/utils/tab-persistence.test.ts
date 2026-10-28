@@ -5,9 +5,12 @@ import {
   saveStoredOpenTabs,
   getStoredActiveTab,
   saveStoredActiveTab,
+  getStoredTabTitles,
+  saveStoredTabTitles,
   resolveInitialTabsState,
   OPEN_TABS_STORAGE_KEY,
   ACTIVE_TAB_STORAGE_KEY,
+  TAB_TITLES_STORAGE_KEY,
 } from './tab-persistence'
 
 function createMockStorage(initialData: Record<string, string> = {}): Storage {
@@ -81,6 +84,46 @@ describe('Tab Persistence Utilities (tab-persistence.ts)', () => {
       const storage = createMockStorage({ [ACTIVE_TAB_STORAGE_KEY]: 'sess-1' })
       saveStoredActiveTab(null, storage)
       assert.equal(getStoredActiveTab(storage), null)
+    })
+  })
+
+  describe('getStoredTabTitles & saveStoredTabTitles', () => {
+    it('returns empty object when storage is empty', () => {
+      const storage = createMockStorage()
+      assert.deepEqual(getStoredTabTitles(storage), {})
+    })
+
+    it('returns empty object when stored data is invalid JSON', () => {
+      const storage = createMockStorage({ [TAB_TITLES_STORAGE_KEY]: 'not json{' })
+      assert.deepEqual(getStoredTabTitles(storage), {})
+    })
+
+    it('persists and restores tab titles and metadata across sessions', () => {
+      const storage = createMockStorage()
+      const mockTitles = {
+        'ses_1': { title: '背包元设计', directory: '/projects/AICore', projectID: 'aicore' },
+        'ses_2': { title: '重构API', directory: '/projects/APISpace', projectID: 'apispace' },
+      }
+      saveStoredTabTitles(mockTitles, storage)
+      assert.deepEqual(getStoredTabTitles(storage), mockTitles)
+    })
+
+    it('allows incremental updates preserving other tab titles', () => {
+      const storage = createMockStorage()
+      saveStoredTabTitles({
+        'ses_1': { title: 'Tab 1', directory: '/home/developer/projects/APISpace' },
+        'ses_2': { title: 'Tab 2', directory: '/home/developer/projects/AICore' },
+      }, storage)
+
+      const existing = getStoredTabTitles(storage)
+      existing['ses_3'] = { title: 'Tab 3', directory: '/home/developer/projects/AISpace' }
+      saveStoredTabTitles(existing, storage)
+
+      const updated = getStoredTabTitles(storage)
+      assert.equal(Object.keys(updated).length, 3)
+      assert.equal(updated['ses_1'].title, 'Tab 1')
+      assert.equal(updated['ses_2'].title, 'Tab 2')
+      assert.equal(updated['ses_3'].title, 'Tab 3')
     })
   })
 

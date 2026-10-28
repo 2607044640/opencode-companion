@@ -6,6 +6,7 @@ import type {
   TextPart,
   FilePart,
 } from '../types/opencode'
+import { cleanRawPath } from './path-resolver'
 
 export type ToolKind = 'explore' | 'edit' | 'command' | 'thought' | 'other'
 
@@ -298,7 +299,8 @@ export function formatWorkedLabel(
 }
 
 /**
- * Normalizes a file path into fileName and directory
+ * Normalizes a file path into fileName and directory, stripping tool execution banners,
+ * git status prefixes, and URI artifacts.
  */
 export function normalizePath(rawPath?: string): {
   filePath: string
@@ -308,7 +310,8 @@ export function normalizePath(rawPath?: string): {
   if (!rawPath) {
     return { filePath: '', fileName: 'Unknown file', relativeDir: '' }
   }
-  const normalized = rawPath.replace(/\\/g, '/')
+  const cleaned = cleanRawPath(rawPath)
+  const normalized = cleaned ? cleaned.replace(/\\/g, '/') : rawPath.replace(/\\/g, '/').trim()
   const segments = normalized.split('/').filter(Boolean)
   const fileName = segments.pop() || normalized
   const relativeDir = segments.slice(-2).join('/')

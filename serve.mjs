@@ -715,12 +715,27 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
           }
         }
 
+        const globalRegistryPath = [
+          'C:\\AIModelRegistry\\registry.json',
+          '/mnt/c/AIModelRegistry/registry.json',
+        ].find((p) => fs.existsSync(p))
+        let globalBanned = ['tokenshop.homes', 'aimoniker.top', 'autorouter.net', 'gguuai.com', 'once-cf.novai.su']
+        let globalStations = []
+        if (globalRegistryPath) {
+          try {
+            const reg = JSON.parse(fs.readFileSync(globalRegistryPath, 'utf8'))
+            if (Array.isArray(reg.relays?.banned_domains)) globalBanned = reg.relays.banned_domains
+            if (Array.isArray(reg.relays?.stations)) globalStations = reg.relays.stations
+          } catch {}
+        }
+
         // Dynamic Active Channels: automatically map every active channel from Gateway
         const activeChannels = channels.filter(c => c.status === 1 && c.base_url && c.key)
 
         for (const c of activeChannels) {
           const cleanBase = c.base_url.replace(/\/+$/, '')
           if (seenUrls.has(cleanBase)) continue
+          if (globalBanned.some(b => cleanBase.includes(b))) continue
           seenUrls.add(cleanBase)
 
           let id = `relay_${c.id}`

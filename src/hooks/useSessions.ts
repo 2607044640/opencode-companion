@@ -11,6 +11,8 @@ import {
   resolveInitialTabsState,
   saveStoredOpenTabs,
   saveStoredActiveTab,
+  getStoredTabTitles,
+  saveStoredTabTitles,
 } from '../utils/tab-persistence'
 import {
   getArchivedSessionIds,
@@ -61,7 +63,34 @@ function isSameOrSubdirectory(parentPath: string, targetPath: string): boolean {
 
 export function useSessions() {
   const [projects, setProjects] = useState<Project[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
+  const [sessions, setSessions] = useState<Session[]>(() => {
+    try {
+      const stored = getStoredTabTitles()
+      const { initialTabs } = resolveInitialTabsState({ draftSessionId: DRAFT_SESSION_ID })
+      const cachedSessions: Session[] = []
+      for (const id of initialTabs) {
+        if (id === DRAFT_SESSION_ID) continue
+        const info = stored[id]
+        if (info && info.title) {
+          cachedSessions.push({
+            id,
+            slug: id,
+            projectID: info.projectID || 'global',
+            directory: info.directory || '',
+            title: info.title,
+            agent: 'Default Agent',
+            model: { id: '', providerID: '' },
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            cost: 0,
+            time: { created: info.time?.created || 0, updated: info.time?.updated || 0 },
+          })
+        }
+      }
+      return cachedSessions
+    } catch {
+      return []
+    }
+  })
   const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
@@ -92,6 +121,7 @@ export function useSessions() {
   const selectGenerationRef = useRef(0)
   const pinnedDeepLinkRef = useRef<string | null>(activeSessionId)
   const navIntentReplayedRef = useRef(false)
+  const openTabIdsRef = useRef<string[]>(openTabIds)
 
   useEffect(() => {
     sessionsRef.current = sessions
@@ -104,6 +134,7 @@ export function useSessions() {
   }, [activeSessionId])
 
   useEffect(() => {
+    openTabIdsRef.current = openTabIds
     saveStoredOpenTabs(openTabIds)
   }, [openTabIds])
 
@@ -113,7 +144,8 @@ export function useSessions() {
 
   useEffect(() => {
     const handleBeforeUnload = () => {
-      saveStoredOpenTabs(openTabIds)
+      openTabIdsRef.current = openTabIds
+    saveStoredOpenTabs(openTabIds)
       saveStoredActiveTab(activeSessionId)
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
@@ -189,6 +221,82 @@ export function useSessions() {
         }
       }
 
+      // Fetch session metadata for any open tabs that were not in default project's session list
+      const currentTabs = openTabIdsRef.current
+      const missingTabIds = currentTabs.filter(
+        (id) => id !== DRAFT_SESSION_ID && !nextSessions.some((s) => s.id === id)
+      )
+
+      if (missingTabIds.length > 0) {
+        const settled = await Promise.allSettled(missingTabIds.map((id) => api.getSession(id)))
+        const newlyFetched: Session[] = []
+        settled.forEach((res) => {
+          if (res.status === 'fulfilled' && res.value && res.value.id) {
+            newlyFetched.push(res.value)
+          }
+        })
+        if (newlyFetched.length > 0) {
+          nextSessions = [...nextSessions, ...newlyFetched]
+        }
+      }
+
+      // Preserve cached metadata for any open tabs that could not be resolved from daemon
+      const storedCache = getStoredTabTitles()
+      const stillMissing = currentTabs.filter(
+        (id) => id !== DRAFT_SESSION_ID && !nextSessions.some((s) => s.id === id)
+      )
+      if (stillMissing.length > 0) {
+        const fallbacks: Session[] = []
+        for (const id of stillMissing) {
+          const prev = sessionsRef.current.find((s) => s.id === id)
+          if (prev) {
+            fallbacks.push(prev)
+          } else if (storedCache[id]) {
+            fallbacks.push({
+              id,
+              slug: id,
+              projectID: storedCache[id].projectID || 'global',
+              directory: storedCache[id].directory || '',
+              title: storedCache[id].title,
+              agent: 'Default Agent',
+              model: { id: '', providerID: '' },
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              cost: 0,
+              time: { created: storedCache[id].time?.created || 0, updated: storedCache[id].time?.updated || 0 },
+            })
+          }
+        }
+        if (fallbacks.length > 0) {
+          nextSessions = [...nextSessions, ...fallbacks]
+        }
+      }
+
+      // Synchronize all known session titles into persistent localStorage cache
+      const updatedTitlesToStore = { ...storedCache }
+      let titlesChanged = false
+      for (const s of nextSessions) {
+        if (!s.id || s.id === DRAFT_SESSION_ID) continue
+        const title = s.title?.trim()
+        if (
+          title &&
+          (!updatedTitlesToStore[s.id] ||
+            updatedTitlesToStore[s.id].title !== title ||
+            updatedTitlesToStore[s.id].directory !== s.directory ||
+            updatedTitlesToStore[s.id].projectID !== s.projectID)
+        ) {
+          updatedTitlesToStore[s.id] = {
+            title,
+            directory: s.directory,
+            projectID: s.projectID,
+            time: s.time,
+          }
+          titlesChanged = true
+        }
+      }
+      if (titlesChanged) {
+        saveStoredTabTitles(updatedTitlesToStore)
+      }
+
       setSessions(nextSessions)
 
       if (targetSessionId) {
@@ -261,6 +369,18 @@ export function useSessions() {
     const unsubUpdated = sseManager.on('session.updated', (rawSession: any) => {
       const session = normalizeSession(rawSession)
       setSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, ...session } : s)))
+      if (session.title && session.id) {
+        try {
+          const stored = getStoredTabTitles()
+          stored[session.id] = {
+            title: session.title,
+            directory: session.directory,
+            projectID: session.projectID,
+            time: session.time,
+          }
+          saveStoredTabTitles(stored)
+        } catch {}
+      }
     })
 
     return () => {
@@ -493,6 +613,11 @@ export function useSessions() {
       try {
         await api.deleteSession(sessionId)
         setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+        try {
+          const stored = getStoredTabTitles()
+          delete stored[sessionId]
+          saveStoredTabTitles(stored)
+        } catch {}
         closeTab(sessionId)
       } catch (err) {
         console.error('Failed to delete session:', err)
@@ -622,7 +747,20 @@ export function useSessions() {
       if (patch.title !== undefined) {
         sanitizedPatch.title = sanitizeSessionTitle(patch.title)
       }
-      // 1. Optimistic update in local state
+      // 1. Optimistic update in local state and persistent title cache
+      if (sanitizedPatch.title) {
+        try {
+          const stored = getStoredTabTitles()
+          const current = sessionsRef.current.find((s) => s.id === sessionId)
+          stored[sessionId] = {
+            title: sanitizedPatch.title,
+            directory: sanitizedPatch.directory || current?.directory,
+            projectID: sanitizedPatch.projectID || current?.projectID,
+            time: current?.time,
+          }
+          saveStoredTabTitles(stored)
+        } catch {}
+      }
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, ...sanitizedPatch } : s))
       )

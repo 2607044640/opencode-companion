@@ -703,23 +703,24 @@ export function useChatStream(
       }
     })
 
-    // Periodic status poll & silence watchdog (every 5s when actively generating)
-    // Confirms daemon state so a completed turn is never stuck waiting for F5 or SSE events.
+    // Ninety seconds of nothing. A 3s pause is a tool or a thought, not a death.
+    // Confirm with the daemon before nudging: a missed idle event must not
+    // send "go on" into a turn that already finished.
     const silenceTimer = window.setInterval(() => {
       const activeId = currentSessionIdRef.current || sessionId
       if (!activeId || activeId === '__draft__') return
       if (!isRunningStatus(sessionStatusRef.current)) return
       if (goOnFlightRef.current) return
-
-      // Don't poll daemon within the first 2.5s of a new prompt send
-      if (Date.now() - lastSendTimestampRef.current < 2500) return
-
+      const quietFor = Date.now() - lastActivityAtRef.current
+      if (quietFor < GO_ON_SILENCE_MS) return
+      const askedAt = lastActivityAtRef.current
       void api.getSessionStatus(activeId).then((status) => {
         if (!status || currentSessionIdRef.current !== activeId) return
+        if (lastActivityAtRef.current !== askedAt) return
+        commitSessionStatus(status)
         if (!isRunningStatus(status)) {
           // Backend has transitioned to idle while silence timer was running.
           // Trigger authoritative history reconciliation to recover from missed SSE idle events.
-          commitSessionStatus(status)
           noteTurnEnd('clean')
           void api
             .getMessages(activeId, { fresh: true })
@@ -730,13 +731,7 @@ export function useChatStream(
             .catch(() => {})
           return
         }
-
-        // Backend is still running; check if quiet for GO_ON_SILENCE_MS before triggering maybeSendGoOn
-        const quietFor = Date.now() - lastActivityAtRef.current
-        if (quietFor >= GO_ON_SILENCE_MS) {
-          commitSessionStatus(status)
-          maybeSendGoOn('silence')
-        }
+        maybeSendGoOn('silence')
       })
     }, 5_000)
 

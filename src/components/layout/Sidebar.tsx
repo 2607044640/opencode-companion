@@ -25,9 +25,19 @@ import {
   Archive,
   ArchiveRestore,
   GripVertical,
+  ShieldCheck,
+  Loader2,
+  AlertCircle,
+  PanelTopClose,
+  PanelTopOpen,
 } from 'lucide-react'
-import type { Project, Session } from '../../types/opencode'
+import type { Project, Session, Message, SessionStatusPayload } from '../../types/opencode'
 import type { SessionGroup } from '../../hooks/useSessions'
+import type { SettingsTab } from '../settings/SettingsModal'
+import { TokenStatsWidget } from './TokenStatsWidget'
+import { RelayHubDropdown } from './RelayHubDropdown'
+import { ShortcutMenu } from './ShortcutMenu'
+import { DaemonStatusDot } from './DaemonStatusDot'
 import { matchCanonicalWorkspace } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
 import {
@@ -61,13 +71,17 @@ interface SidebarProps {
   groupedSessions: SessionGroup[]
   sessions?: Session[]
   activeSessionId: string | null
+  activeSession?: Session | null
+  messages?: Message[]
+  sessionStatus?: SessionStatusPayload
+  runKnown?: boolean
   unreadSessionIds?: string[]
   onSelectSession: (id: string) => void
   onNewSession: (directory?: string) => void
   onDeleteSession: (id: string) => void
   searchQuery: string
   onSearchChange: (q: string) => void
-  onOpenSettings: () => void
+  onOpenSettings: (tab?: SettingsTab) => void
   onOpenSearch?: () => void
   onOpenScheduledTasks?: () => void
   onToggleSidebar?: () => void
@@ -77,6 +91,17 @@ interface SidebarProps {
   onHistoryForward?: () => void
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
+  onOpenMapAndLocate?: (sessionId?: string) => void
+  onAddSessionToMap?: (sessionId: string) => void
+  onOpenModelRouter?: () => void
+  onOpenRelayHub?: () => void
+  onGetSessionJson?: () => Promise<string>
+  onToggleZenMode?: () => void
+  onOpenFind?: () => void
+  isHeaderVisible?: boolean
+  onToggleHeader?: () => void
+  onDaemonRestored?: () => void
+  onDaemonLost?: () => void
 }
 
 function getProjectDisplayName(proj?: Project | null): string {
@@ -96,6 +121,10 @@ export function Sidebar({
   onSelectProject,
   sessions = [],
   activeSessionId,
+  activeSession,
+  messages = [],
+  sessionStatus,
+  runKnown = true,
   unreadSessionIds,
   onSelectSession,
   onNewSession,
@@ -112,6 +141,17 @@ export function Sidebar({
   onHistoryForward,
   onUpdateSessionTitle,
   onShowInMap,
+  onOpenMapAndLocate,
+  onAddSessionToMap,
+  onOpenModelRouter,
+  onOpenRelayHub,
+  onGetSessionJson,
+  onToggleZenMode,
+  onOpenFind,
+  isHeaderVisible = true,
+  onToggleHeader,
+  onDaemonRestored,
+  onDaemonLost,
 }: SidebarProps) {
   const { lang } = useI18n()
   const isZh = lang === 'zh-CN'
@@ -339,9 +379,9 @@ export function Sidebar({
 
   if (isOpen === false) {
     return (
-      <aside className="w-12 h-full flex flex-col items-center py-2.5 shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none justify-between">
-        {/* Top: Expand Sidebar Icon + Quick Actions */}
-        <div className="flex flex-col items-center gap-2">
+      <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none justify-between">
+        {/* Top: Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
+        <div className="flex flex-col items-center gap-1.5">
           {/* Toggle Sidebar [|] */}
           <button
             type="button"
@@ -373,13 +413,124 @@ export function Sidebar({
           >
             <Search className="w-4 h-4" />
           </button>
-        </div>
 
-        {/* Bottom: Settings */}
-        <div className="flex flex-col items-center gap-2">
+          {/* Toggle Top Bar (Ctrl+Shift+B) */}
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={onToggleHeader}
+            className={`p-2 rounded-md transition-colors cursor-pointer ${
+              !isHeaderVisible
+                ? 'text-orange-400 hover:text-orange-300 hover:bg-[#1f232b]'
+                : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b]'
+            }`}
+            title={
+              isZh
+                ? isHeaderVisible
+                  ? '隐藏上方栏 (Ctrl+Shift+B)'
+                  : '显示上方栏 (Ctrl+Shift+B)'
+                : isHeaderVisible
+                ? 'Hide Top Bar (Ctrl+Shift+B)'
+                : 'Show Top Bar (Ctrl+Shift+B)'
+            }
+          >
+            {isHeaderVisible ? <PanelTopClose className="w-4 h-4" /> : <PanelTopOpen className="w-4 h-4" />}
+          </button>
+
+          {/* Shortcuts & Tools Menu (···) */}
+          <ShortcutMenu
+            activeSessionId={activeSessionId}
+            onOpenMapAndLocate={onOpenMapAndLocate}
+            onAddSessionToMap={onAddSessionToMap}
+            onOpenSearch={onOpenSearch}
+            onOpenModelRouter={onOpenModelRouter}
+            onGetSessionJson={onGetSessionJson}
+            onToggleZenMode={onToggleZenMode}
+            onOpenFind={onOpenFind}
+            isHeaderVisible={isHeaderVisible}
+            onToggleHeader={onToggleHeader}
+            compact
+            popoverPlacement="right"
+          />
+        </div>
+
+        {/* Bottom Cluster: Token Stats + Relay Hub + Status/Security + Settings */}
+        <div className="flex flex-col items-center gap-2">
+          {/* Token Stats Ring (compact) */}
+          <TokenStatsWidget
+            activeSession={activeSession}
+            messages={messages}
+            compact
+            popoverPlacement="right"
+          />
+
+          {/* Relay Hub Billing (compact) */}
+          <RelayHubDropdown
+            onOpenSettings={() => (onOpenRelayHub ? onOpenRelayHub() : onOpenSettings?.('relays'))}
+            compact
+            popoverPlacement="right"
+          />
+
+          <div className="w-6 border-t border-[#21242b] my-0.5" />
+
+          {/* Ambient Status Indicator */}
+          <div className="relative group/status flex items-center justify-center p-1.5 cursor-default">
+            {!runKnown ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+            ) : sessionStatus?.type === 'busy' ? (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+              </span>
+            ) : sessionStatus?.type === 'retry' ? (
+              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+            ) : (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500/80" />
+              </span>
+            )}
+
+            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 whitespace-nowrap rounded-md bg-[#12141a]/95 backdrop-blur-md border border-[#2a2e38] px-2 py-1 text-[11px] font-medium text-zinc-200 shadow-xl opacity-0 translate-x-1 group-hover/status:opacity-100 group-hover/status:translate-x-0 transition-all duration-150">
+              {!runKnown
+                ? '确认中…'
+                : sessionStatus?.type === 'busy'
+                ? '生成中…'
+                : sessionStatus?.type === 'retry'
+                ? `重试中 (${sessionStatus.attempt || 1})`
+                : '空闲 · 后端就绪 (127.0.0.1)'}
+            </div>
+          </div>
+
+          {/* WSL Daemon Live Connection Status Dot */}
+          <div className="flex items-center justify-center p-0.5">
+            <DaemonStatusDot
+              onRestored={onDaemonRestored}
+              onLost={onDaemonLost}
+              isZh={isZh}
+              showLabelOnIssue={false}
+            />
+          </div>
+
+          {/* Loopback Security Indicator */}
+          <div
+            tabIndex={0}
+            aria-label="127.0.0.1 沙箱隔离"
+            title="127.0.0.1 沙箱隔离边界"
+            className="group/sec relative flex items-center justify-center p-1 opacity-70 hover:opacity-100 cursor-default transition-opacity"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
+            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 flex items-center gap-1.5 whitespace-nowrap rounded bg-[#16181e] border border-[#272a31] px-2 py-1 font-mono text-[10px] text-zinc-400 opacity-0 shadow-lg transition-all duration-200 group-hover/sec:opacity-100">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
+              <span>127.0.0.1</span>
+            </div>
+          </div>
+
+          <div className="w-6 border-t border-[#21242b] my-0.5" />
+
+          {/* Settings */}
+          <button
+            type="button"
+            onClick={() => onOpenSettings()}
             className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
             title={isZh ? '设置' : 'Settings'}
           >
@@ -409,6 +560,34 @@ export function Sidebar({
             <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center gap-1 px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
               <span>{isZh ? '收起侧边栏' : 'Hide Sidebar'}</span>
               <kbd className="text-[9px] font-mono text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">Ctrl+B</kbd>
+            </div>
+          </div>
+
+          {/* Toggle Top Bar (Ctrl+Shift+B) */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={onToggleHeader}
+              className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                !isHeaderVisible
+                  ? 'text-orange-400 hover:text-orange-300 hover:bg-[#1f232b]'
+                  : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b]'
+              }`}
+              title={
+                isZh
+                  ? isHeaderVisible
+                    ? '隐藏上方栏 (Ctrl+Shift+B)'
+                    : '显示上方栏 (Ctrl+Shift+B)'
+                  : isHeaderVisible
+                  ? 'Hide Top Bar (Ctrl+Shift+B)'
+                  : 'Show Top Bar (Ctrl+Shift+B)'
+              }
+            >
+              {isHeaderVisible ? <PanelTopClose className="w-4 h-4" /> : <PanelTopOpen className="w-4 h-4" />}
+            </button>
+            <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center gap-1 px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
+              <span>{isZh ? (isHeaderVisible ? '隐藏上方栏' : '显示上方栏') : (isHeaderVisible ? 'Hide Top Bar' : 'Show Top Bar')}</span>
+              <kbd className="text-[9px] font-mono text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">Ctrl+Shift+B</kbd>
             </div>
           </div>
 
@@ -493,6 +672,22 @@ export function Sidebar({
               <span>{isZh ? '计划任务' : 'Scheduled Tasks'}</span>
             </div>
           </div>
+
+          {/* Shortcuts & Tools Menu (···) */}
+          <ShortcutMenu
+            activeSessionId={activeSessionId}
+            onOpenMapAndLocate={onOpenMapAndLocate}
+            onAddSessionToMap={onAddSessionToMap}
+            onOpenSearch={onOpenSearch}
+            onOpenModelRouter={onOpenModelRouter}
+            onGetSessionJson={onGetSessionJson}
+            onToggleZenMode={onToggleZenMode}
+            onOpenFind={onOpenFind}
+            isHeaderVisible={isHeaderVisible}
+            onToggleHeader={onToggleHeader}
+            compact
+            popoverPlacement="bottom"
+          />
         </div>
       </div>
 
@@ -1062,27 +1257,85 @@ export function Sidebar({
         )}
       </div>
 
-      {/* 4. Bottom Action Bar */}
-      <div className="p-2 border-t border-[#21242b] flex items-center justify-between text-xs text-[#8b949e] bg-[#0e1014]">
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[#161920] hover:text-[#f0f6fc] transition-colors cursor-pointer"
-        >
-          <Settings className="w-3.5 h-3.5" />
-          <span>{isZh ? '系统设置' : 'Settings'}</span>
-        </button>
+      {/* 4. Bottom Action Bar with Token Widget, Relay Hub, Ambient Status & Settings */}
+      <div className="p-2 border-t border-[#21242b] flex flex-col gap-2 bg-[#0e1014] text-xs text-[#8b949e]">
+        {/* Row 1: Token Usage Capsule & Relay Hub Billing */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex-1 min-w-0">
+            <TokenStatsWidget
+              activeSession={activeSession}
+              messages={messages}
+              compact={false}
+              popoverPlacement="top"
+            />
+          </div>
+          <RelayHubDropdown
+            onOpenSettings={() => (onOpenRelayHub ? onOpenRelayHub() : onOpenSettings?.('relays'))}
+            compact={false}
+            popoverPlacement="top"
+          />
+        </div>
 
-        <a
-          href="https://opencode.ai/docs"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-[#161920] hover:text-[#f0f6fc] transition-colors"
-          title={isZh ? '帮助文档' : 'Documentation'}
-        >
-          <HelpCircle className="w-3.5 h-3.5" />
-          <span>{isZh ? '帮助' : 'Help'}</span>
-        </a>
+        {/* Row 2: Status & Settings */}
+        <div className="flex items-center justify-between pt-1 border-t border-[#1a1d24]">
+          <button
+            type="button"
+            onClick={() => onOpenSettings()}
+            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[#161920] hover:text-[#f0f6fc] transition-colors cursor-pointer"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>{isZh ? '系统设置' : 'Settings'}</span>
+          </button>
+
+          <div className="flex items-center gap-1.5">
+            {/* WSL Daemon Live Connection Status Dot */}
+            <DaemonStatusDot
+              onRestored={onDaemonRestored}
+              onLost={onDaemonLost}
+              isZh={isZh}
+              showLabelOnIssue={true}
+            />
+
+            {/* Ambient status dot */}
+            <div className="relative group/status flex items-center p-0.5 cursor-default">
+              {!runKnown ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+              ) : sessionStatus?.type === 'busy' ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                </span>
+              ) : sessionStatus?.type === 'retry' ? (
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+              ) : (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500/80" />
+                </span>
+              )}
+            </div>
+
+            {/* Loopback Security Indicator */}
+            <div
+              tabIndex={0}
+              aria-label="127.0.0.1 沙箱隔离"
+              title="127.0.0.1 沙箱隔离边界"
+              className="p-1 text-emerald-400/80 hover:text-emerald-300 transition-colors cursor-default"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+            </div>
+
+            <a
+              href="https://opencode.ai/docs"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center p-1 rounded hover:bg-[#161920] hover:text-[#f0f6fc] transition-colors"
+              title={isZh ? '帮助文档' : 'Documentation'}
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* 5. Right-Click Context Menu */}

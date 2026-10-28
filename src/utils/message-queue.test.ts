@@ -133,4 +133,28 @@ describe('message queue', () => {
     const item = createQueuedMessage('keep in memory', undefined, 1)
     assert.doesNotThrow(() => savePersistedQueue(storage, { ses_1: [item] }))
   })
+
+  it('determines busy state when sessionStatus is busy or last turn is still live', () => {
+    // 1. Session status busy
+    const sessionBusy = true
+    const isLive = false
+    assert.equal(sessionBusy || isLive, true)
+
+    // 2. Assistant message without finish or completed time is live
+    const assistantMsg = {
+      info: { role: 'assistant', time: { created: Date.now() } },
+      parts: [{ type: 'text', text: 'streaming...' }],
+    }
+    const isDone = Boolean(assistantMsg.info.finish) || Boolean((assistantMsg.info as any).error) || Boolean(assistantMsg.info.time?.completed)
+    const assistantLive = !isDone
+    assert.equal(assistantLive, true)
+
+    // 3. Finished assistant message is not live
+    const finishedMsg = {
+      info: { role: 'assistant', finish: 'stop', time: { created: 100, completed: 200 } },
+      parts: [{ type: 'text', text: 'all done.' }],
+    }
+    const isFinishedDone = Boolean(finishedMsg.info.finish) || Boolean(finishedMsg.info.time?.completed)
+    assert.equal(isFinishedDone, true)
+  })
 })

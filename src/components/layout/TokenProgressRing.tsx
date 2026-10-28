@@ -4,6 +4,7 @@ interface TokenProgressRingProps {
   percent: number
   threshold?: TokenThreshold
   size?: number
+  showPercentText?: boolean
   className?: string
   title?: string
 }
@@ -11,16 +12,17 @@ interface TokenProgressRingProps {
 /**
  * Token Context Window Circular Progress Ring ("圈圈")
  * 
- * Renders an SVG progress ring directly in the header bar and tooltips.
+ * Renders an SVG progress ring directly in the header bar, sidebar, and tooltips.
  * Color transitions:
- * - >= 80%: Red (#ef4444)
- * - >= 50%: Yellow (#eab308)
- * - < 50%: Green (#22c55e)
+ * - >= 75%: Red (#ef4444) (超过3/4变红)
+ * - >= 50%: Yellow (#eab308) (超过一半变黄)
+ * - < 50%: Green (#22c55e) (其他是绿)
  */
 export function TokenProgressRing({
   percent,
   threshold,
   size = 14,
+  showPercentText = false,
   className = '',
   title,
 }: TokenProgressRingProps) {
@@ -37,7 +39,7 @@ export function TokenProgressRing({
 
   const strokeColor =
     activeThreshold === 'red'
-      ? '#ef4444' // Red (>= 80%)
+      ? '#ef4444' // Red (>= 75%)
       : activeThreshold === 'yellow'
       ? '#eab308' // Yellow (>= 50%)
       : '#22c55e' // Green (< 50%)
@@ -78,6 +80,14 @@ export function TokenProgressRing({
           />
         )}
       </svg>
+      {showPercentText && (
+        <span
+          className="absolute inset-0 flex items-center justify-center text-[9px] font-mono font-bold leading-none select-none pointer-events-none tracking-tighter"
+          style={{ color: strokeColor }}
+        >
+          {clamped}%
+        </span>
+      )}
     </div>
   )
 }
