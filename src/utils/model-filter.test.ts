@@ -10,10 +10,10 @@ import {
 
 describe('Curated Model Filter Engine', () => {
   test('ALLOWS canonical approved models', () => {
-    // 0. grok-4.7
-    assert.equal(isCuratedModel('obsidian', 'grok-4.7'), true)
-    assert.equal(isCuratedModel('obsidian', 'grok4.7'), true)
-    assert.equal(isCuratedModel('custom', 'grok-4.7', 'Grok 4.7 (Official)'), true)
+    // 0. grok-4.7 (purged)
+    assert.equal(isCuratedModel('obsidian', 'grok-4.7'), false)
+    assert.equal(isCuratedModel('obsidian', 'grok4.7'), false)
+    assert.equal(isCuratedModel('custom', 'grok-4.7', 'Grok 4.7 (Official)'), false)
 
     // 1. grok-4.6
     assert.equal(isCuratedModel('obsidian', 'grok-4.6'), true)
@@ -95,10 +95,10 @@ describe('Curated Model Filter Engine', () => {
     assert.equal(isCuratedModel(undefined, undefined), false)
   })
 
-  test('canonical model IDs set contains the expected 8 IDs', () => {
-    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 8)
+  test('canonical model IDs set contains the expected 7 IDs', () => {
+    assert.equal(ALLOWED_CANONICAL_MODEL_IDS.size, 7)
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gpt-6.1-sol'))
-    assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.7'))
+    assert.ok(!ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.7'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.6'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('grok-4.5'))
     assert.ok(ALLOWED_CANONICAL_MODEL_IDS.has('gpt-6-astra'))
@@ -136,12 +136,12 @@ describe('Curated Model Filter Engine', () => {
       { providerID: 'obsidian', modelID: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
       { providerID: 'obsidian', modelID: 'grok-4.6', name: 'Grok 4.6 (Paid)' },
       { providerID: 'obsidian', modelID: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
-      { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7 (Paid 满血主力)' },
+      { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
       { providerID: 'custom', modelID: 'claude-3-7-sonnet', name: 'Claude 3.7 Sonnet' },
     ]
 
     const sorted = sortModelsByPriority(rawList)
-    assert.equal(sorted[0].modelID, 'grok-4.7')
+    assert.equal(sorted[0].modelID, 'gpt-6.1-sol')
     assert.equal(sorted[1].modelID, 'grok-4.6')
     assert.equal(sorted[2].modelID, 'claude-3-7-sonnet')
     assert.equal(sorted[3].modelID, 'gemini-3.8-flash')
@@ -151,12 +151,12 @@ describe('Curated Model Filter Engine', () => {
   test('resolveSeniorModel picks senior model from routingConfig SSOT first', () => {
     const curated = [
       { providerID: 'obsidian', modelID: 'grok-4.6', name: 'Grok 4.6' },
-      { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7' },
+      { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
     ]
 
     const resolved = resolveSeniorModel({
       routingConfig: {
-        seniorModel: { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7 (Paid 满血主力)' },
+        seniorModel: { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
       },
       daemonConfig: {
         model: 'obsidian/grok-4.6',
@@ -165,28 +165,28 @@ describe('Curated Model Filter Engine', () => {
     })
 
     assert.ok(resolved)
-    assert.equal(resolved.modelID, 'grok-4.7')
+    assert.equal(resolved.modelID, 'gpt-6.1-sol')
     assert.equal(resolved.providerID, 'obsidian')
   })
 
   test('resolveSeniorModel falls back to daemon agent bindings when routingConfig is missing', () => {
     const curated = [
       { providerID: 'obsidian', modelID: 'gemini-3.8-flash', name: 'Flash 3.8' },
-      { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7' },
+      { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
     ]
 
     const resolved = resolveSeniorModel({
       routingConfig: null,
       daemonConfig: {
         agent: {
-          build: { model: 'obsidian/grok-4.7' },
+          build: { model: 'obsidian/gpt-6.1-sol' },
         },
       },
       curatedModels: curated,
     })
 
     assert.ok(resolved)
-    assert.equal(resolved.modelID, 'grok-4.7')
+    assert.equal(resolved.modelID, 'gpt-6.1-sol')
   })
 
   test('resolveSeniorModel gracefully falls back to priority ranking for general users', () => {

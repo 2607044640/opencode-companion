@@ -77,8 +77,8 @@ const closedBreaker = (): CircuitBreakerRecord => ({
 
 export const DEFAULT_STANDALONE_MODELS: ModelItem[] = [
   {
-    id: 'obsidian/grok-4.7',
-    name: 'Grok 4.7 (Paid 满血主力)',
+    id: 'obsidian/gpt-6.1-sol',
+    name: 'GPT-6.1 Sol (Paid 满血主力)',
     priority: 100,
     ttftTimeout: 75,
     enabled: true,
@@ -110,8 +110,8 @@ export const DEFAULT_SUBAGENTS: Record<string, SubagentBinding> = {
     role: 'prometheus',
     name: 'Prometheus (规划者)',
     targetType: 'model',
-    targetId: 'obsidian/grok-4.7',
-    targetModelId: 'obsidian/grok-4.7',
+    targetId: 'obsidian/gpt-6.1-sol',
+    targetModelId: 'obsidian/gpt-6.1-sol',
     readOnly: true,
     concurrency: 1,
     description: '只读架构规划，产出蓝图',
@@ -120,8 +120,8 @@ export const DEFAULT_SUBAGENTS: Record<string, SubagentBinding> = {
     role: 'atlas',
     name: 'Atlas (执行者)',
     targetType: 'model',
-    targetId: 'obsidian/grok-4.7',
-    targetModelId: 'obsidian/grok-4.7',
+    targetId: 'obsidian/gpt-6.1-sol',
+    targetModelId: 'obsidian/gpt-6.1-sol',
     readOnly: false,
     concurrency: 1,
     description: '权威编码执行与验证',
@@ -159,7 +159,7 @@ export function createDefaultSettings(): RoutingSettings {
     circuitBreakers: {},
     groups: [],
     standaloneModels: DEFAULT_STANDALONE_MODELS.map((m) => ({ ...m, circuitBreaker: closedBreaker() })),
-    activeStandaloneModelIds: ['obsidian/grok-4.7', 'obsidian/gpt-6-astra'],
+    activeStandaloneModelIds: ['obsidian/gpt-6.1-sol', 'obsidian/gpt-6-astra'],
     subagents: {
       prometheus: { ...DEFAULT_SUBAGENTS.prometheus },
       atlas: { ...DEFAULT_SUBAGENTS.atlas },

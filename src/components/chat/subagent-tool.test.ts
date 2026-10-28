@@ -133,21 +133,21 @@ Found 29 files on desktop including desktop.ini and Godots.exe.`
 
   it('safely extracts model strings and prevents [object Object]', () => {
     // 1. Real-world daemon metadata format: object with providerID & modelID
-    const daemonObj = { providerID: 'obsidian', modelID: 'grok-4.7' }
-    assert.equal(extractModelString(daemonObj), 'obsidian/grok-4.7')
+    const daemonObj = { providerID: 'obsidian', modelID: 'gpt-6.1-sol' }
+    assert.equal(extractModelString(daemonObj), 'obsidian/gpt-6.1-sol')
 
     // 2. Object with id
-    assert.equal(extractModelString({ id: 'obsidian/grok-4.7' }), 'obsidian/grok-4.7')
+    assert.equal(extractModelString({ id: 'obsidian/gpt-6.1-sol' }), 'obsidian/gpt-6.1-sol')
 
     // 3. Object with modelID only
-    assert.equal(extractModelString({ modelID: 'grok-4.7' }), 'grok-4.7')
+    assert.equal(extractModelString({ modelID: 'gpt-6.1-sol' }), 'gpt-6.1-sol')
 
     // 4. Object with targetModelId
-    assert.equal(extractModelString({ targetModelId: 'obsidian/grok-4.7' }), 'obsidian/grok-4.7')
+    assert.equal(extractModelString({ targetModelId: 'obsidian/gpt-6.1-sol' }), 'obsidian/gpt-6.1-sol')
 
     // 5. String model
-    assert.equal(extractModelString('obsidian/grok-4.7'), 'obsidian/grok-4.7')
-    assert.equal(extractModelString('grok-4.7'), 'grok-4.7')
+    assert.equal(extractModelString('obsidian/gpt-6.1-sol'), 'obsidian/gpt-6.1-sol')
+    assert.equal(extractModelString('gpt-6.1-sol'), 'gpt-6.1-sol')
 
     // 6. Accidental stringified '[object Object]' or invalid strings
     assert.equal(extractModelString('[object Object]'), '')

@@ -154,14 +154,14 @@ describe('SubagentSessionModal message parser and transcript formatter', () => {
     const transcript = formatSubagentTranscript(steps, {
       sessionId: 'ses_test',
       subagentType: 'explore',
-      modelLabel: 'grok-4.7 (obsidian)',
+      modelLabel: 'gpt-6.1-sol (obsidian)',
       taskDescription: 'Search for README',
     })
 
     assert.match(transcript, /# Subagent Execution Transcript/)
     assert.match(transcript, /Session ID:\*\* `ses_test`/)
     assert.match(transcript, /Subagent Type:\*\* `explore`/)
-    assert.match(transcript, /Model:\*\* `grok-4.7 \(obsidian\)`/)
+    assert.match(transcript, /Model:\*\* `gpt-6.1-sol \(obsidian\)`/)
     assert.match(transcript, /Total Steps:\*\* 3/)
     assert.match(transcript, /### Step 1: 子代理任务提示词/)
     assert.match(transcript, /Search for README\.md/)

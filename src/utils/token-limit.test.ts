@@ -12,10 +12,6 @@ import {
 
 describe('Token Limit & Model Profile Resolution', () => {
   test('resolveCanonicalModelId maps aliases, provider prefixes, and variations to canonical keys', () => {
-    assert.equal(resolveCanonicalModelId('obsidian/grok-4.7'), 'grok-4.7')
-    assert.equal(resolveCanonicalModelId('grok-4-7'), 'grok-4.7')
-    assert.equal(resolveCanonicalModelId('grok4.7'), 'grok-4.7')
-    assert.equal(resolveCanonicalModelId('newapi/grok-4.7'), 'grok-4.7')
     assert.equal(resolveCanonicalModelId('obsidian/grok-4.6'), 'grok-4.6')
     assert.equal(resolveCanonicalModelId('claude-3.5-sonnet'), 'claude-3.5-sonnet')
     assert.equal(resolveCanonicalModelId('claude-3-5-sonnet'), 'claude-3.5-sonnet')
@@ -24,13 +20,7 @@ describe('Token Limit & Model Profile Resolution', () => {
     assert.equal(resolveCanonicalModelId(''), 'unknown')
   })
 
-  test('getTokenLimit retrieves effective context ceiling (Grok 4.7 strictly 500k)', () => {
-    // Grok 4.7 physical/effective ceiling is 500k (500000)
-    assert.equal(getTokenLimit('grok-4.7'), 500000)
-    assert.equal(getTokenLimit('obsidian/grok-4.7'), 500000)
-    assert.equal(getTokenLimit('grok-4-7'), 500000)
-    assert.equal(getTokenLimit('newapi/grok-4.7'), 500000)
-
+  test('getTokenLimit retrieves effective context ceiling', () => {
     // Grok 4.6
     assert.equal(getTokenLimit('grok-4.6'), 500000)
 

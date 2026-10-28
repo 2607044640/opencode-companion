@@ -122,11 +122,11 @@ export function useSideQuestion(activeSessionId?: string | null) {
                 name: (obsidian.models['gpt-6.1-sol'] as any)?.name || 'gpt-6.1-sol',
               }
             }
-            if (obsidian?.models && obsidian.models['grok-4.7']) {
+            if (obsidian?.models && obsidian.models['gpt-6-astra']) {
               return {
                 providerID: 'obsidian',
-                modelID: 'grok-4.7',
-                name: (obsidian.models['grok-4.7'] as any)?.name || 'grok-4.7',
+                modelID: 'gpt-6-astra',
+                name: (obsidian.models['gpt-6-astra'] as any)?.name || 'gpt-6-astra',
               }
             }
             for (const p of res) {

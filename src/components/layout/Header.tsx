@@ -196,10 +196,10 @@ export function Header({
     }
   }, [])
 
-  // Resolve current active model ID and context ceiling (Grok 4.7 strictly 500k)
+  // Resolve current active model ID and context ceiling
   const currentModelId =
     activeSession?.model?.id ||
-    'grok-4.7'
+    'gpt-6.1-sol'
 
   const tokenLimit = getTokenLimit(currentModelId, modelProfiles)
 

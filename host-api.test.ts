@@ -157,9 +157,9 @@ describe('host-api routing config and senior model resolution', () => {
     const res = resolveModelProfiles()
     assert.equal(res.ok, true)
     assert.ok(res.profiles)
-    assert.ok(res.profiles['grok-4.7'])
-    assert.equal(res.profiles['grok-4.7'].effective_context_tokens, 500000)
-    assert.equal(res.aliases?.['obsidian/grok-4.7'], 'grok-4.7')
+    assert.ok(res.profiles['gpt-6.1-sol'])
+    assert.equal(res.profiles['gpt-6.1-sol'].effective_context_tokens, 922000)
+    assert.equal(res.aliases?.['obsidian/gpt-6.1-sol'], 'gpt-6.1-sol')
   })
 
   test('handleHostApi serves GET /api/model-profiles', async () => {
@@ -187,7 +187,7 @@ describe('host-api routing config and senior model resolution', () => {
     assert.equal(headers['Content-Type'], 'application/json')
     const payload = JSON.parse(bodyData)
     assert.equal(payload.ok, true)
-    assert.equal(payload.profiles['grok-4.7'].effective_context_tokens, 500000)
+    assert.equal(payload.profiles['gpt-6.1-sol'].effective_context_tokens, 922000)
   })
 })
 

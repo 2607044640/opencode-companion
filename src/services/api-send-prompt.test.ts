@@ -156,13 +156,13 @@ describe('api.sendPrompt multimodal & attachment handling', () => {
       const sessionID = 'ses_agent_model'
       await api.sendPrompt(sessionID, 'test prompt', {
         agent: 'build',
-        model: { providerID: 'obsidian', modelID: 'grok-4.7' },
+        model: { providerID: 'obsidian', modelID: 'gpt-6.1-sol' },
       })
 
       const promptCall = calls.find((c) => c.url.includes(`/session/${sessionID}/prompt_async`))
       assert.ok(promptCall, 'prompt_async was called')
       assert.equal(promptCall.body.agent, 'build')
-      assert.deepEqual(promptCall.body.model, { providerID: 'obsidian', modelID: 'grok-4.7' })
+      assert.deepEqual(promptCall.body.model, { providerID: 'obsidian', modelID: 'gpt-6.1-sol' })
     } finally {
       globalThis.fetch = originalFetch
     }

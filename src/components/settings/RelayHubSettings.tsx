@@ -39,17 +39,17 @@ interface RelayFormData {
 
 const PRESETS = [
   {
-    label: '稳定中转-Grok (grok-4.7)',
-    name: '稳定中转-Grok',
-    baseUrl: 'https://xn--fiq104an1x80s.com',
-    redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
+    label: 'Portdan (gpt-6-astra)',
+    name: 'Portdan-GPT6-Astra',
+    baseUrl: 'https://portdan.com',
+    redeemUrl: 'https://portdan.com/redeem',
     currency: 'USD' as const,
   },
   {
-    label: 'LLM Free (Grok 4.7)',
-    name: 'LLM Free',
+    label: 'TokenFree (gpt-6.1-sol)',
+    name: 'TokenFree',
     baseUrl: 'https://llmfree.work',
-    redeemUrl: 'https://llmfree.work/redeem',
+    redeemUrl: 'https://llmfree.work/usage',
     currency: 'USD' as const,
   },
   {

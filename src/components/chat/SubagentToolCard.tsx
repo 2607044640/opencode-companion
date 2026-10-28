@@ -108,10 +108,10 @@ export function isSubagentTool(part: ToolPart): boolean {
 
 /**
  * Safely extracts a normalized string representation from any model format:
- * - { providerID: 'obsidian', modelID: 'grok-4.7' } -> 'obsidian/grok-4.7'
- * - { id: 'obsidian/grok-4.7' } -> 'obsidian/grok-4.7'
- * - { modelID: 'grok-4.7' } -> 'grok-4.7'
- * - 'obsidian/grok-4.7' -> 'obsidian/grok-4.7'
+ * - { providerID: 'obsidian', modelID: 'gpt-6.1-sol' } -> 'obsidian/gpt-6.1-sol'
+ * - { id: 'obsidian/gpt-6.1-sol' } -> 'obsidian/gpt-6.1-sol'
+ * - { modelID: 'gpt-6.1-sol' } -> 'gpt-6.1-sol'
+ * - 'obsidian/gpt-6.1-sol' -> 'obsidian/gpt-6.1-sol'
  * - Prevents any accidental '[object Object]'
  */
 export function extractModelString(raw: unknown): string {
@@ -176,7 +176,7 @@ export function useSubagentModel(subagentType: string, part?: ToolPart) {
     const fromTarget = extractModelString(routing?.selectedActiveTarget)
     if (fromTarget) return fromTarget
 
-    return 'grok-4.7'
+    return 'gpt-6.1-sol'
   })
 
   useEffect(() => {
@@ -223,12 +223,12 @@ export function useSubagentModel(subagentType: string, part?: ToolPart) {
     }
   }, [subagentType, part])
 
-  // Clean formatting: e.g. "obsidian/grok-4.7" -> cleanModelName: "grok-4.7", providerName: "obsidian"
+  // Clean formatting: e.g. "obsidian/gpt-6.1-sol" -> cleanModelName: "gpt-6.1-sol", providerName: "obsidian"
   const cleanModelName = useMemo(() => {
-    const raw = extractModelString(modelLabel) || 'grok-4.7'
+    const raw = extractModelString(modelLabel) || 'gpt-6.1-sol'
     const parts = raw.split('/')
     const name = parts.length > 1 ? parts.slice(1).join('/') : raw
-    return name === '[object Object]' || !name ? 'grok-4.7' : name
+    return name === '[object Object]' || !name ? 'gpt-6.1-sol' : name
   }, [modelLabel])
 
   const providerName = useMemo(() => {

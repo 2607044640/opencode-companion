@@ -104,7 +104,7 @@ describe('message queue', () => {
       'with image',
       {
         agent: 'build',
-        model: { providerID: 'obsidian', modelID: 'grok-4.7' },
+        model: { providerID: 'obsidian', modelID: 'gpt-6.1-sol' },
         attachments: [{ mime: 'image/png', url: 'data:image/png;base64,aaa', name: 'a.png' }],
       },
       1

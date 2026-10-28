@@ -178,7 +178,7 @@ describe('Side Question (/btw) logic and popover ranking tests', () => {
       },
       currentIndexBySession: { session_1: 1 },
       cardOpenBySession: { session_1: true },
-      selectedModel: { providerID: 'obsidian', modelID: 'grok-4.7', name: 'Grok 4.7' },
+      selectedModel: { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
     })
 
     const parsed = JSON.parse(rawStorage)
@@ -199,8 +199,8 @@ describe('Side Question (/btw) logic and popover ranking tests', () => {
     assert.equal(parsed.cardOpenBySession['session_1'], true)
     assert.deepEqual(parsed.selectedModel, {
       providerID: 'obsidian',
-      modelID: 'grok-4.7',
-      name: 'Grok 4.7',
+      modelID: 'gpt-6.1-sol',
+      name: 'GPT-6.1 Sol',
     })
   })
 
@@ -229,7 +229,7 @@ describe('Side Question (/btw) logic and popover ranking tests', () => {
   it('allows searching and matching gpt-6.1-sol with "6." or "6.1"', () => {
     const models = [
       { id: 'gpt-6.1-sol', name: 'gpt-6.1-sol' },
-      { id: 'grok-4.7', name: 'grok-4.7' },
+      { id: 'grok-4.6', name: 'grok-4.6' },
       { id: 'big-pickle', name: 'Big Pickle' },
     ]
 

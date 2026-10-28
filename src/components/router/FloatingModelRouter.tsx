@@ -551,7 +551,7 @@ function StandaloneTab({
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#2a3140] bg-[#181c25] p-3">
           <input
             value={draftId}
-            placeholder="模型 ID (如 obsidian/grok-4.7)"
+            placeholder="模型 ID (如 obsidian/gpt-6.1-sol)"
             aria-label="新独立模型 ID"
             onChange={(event) => setDraftId(event.target.value)}
             className="min-w-[220px] flex-1 rounded border border-[#323848] bg-[#0e1117] px-2 py-1 text-xs"

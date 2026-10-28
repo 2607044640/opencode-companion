@@ -32,7 +32,7 @@ describe('model router composite chain', () => {
           enabled: true,
           strategy: 'priority-fallback',
           models: [
-            { id: 'obsidian/grok-4.7', name: 'Grok from group', priority: 70, ttftTimeout: 40, enabled: true },
+            { id: 'obsidian/gpt-6.1-sol', name: 'GPT-6.1 Sol from group', priority: 70, ttftTimeout: 40, enabled: true },
             { id: 'obsidian/kimi-3', name: 'Kimi 3', priority: 60, ttftTimeout: 20, enabled: true },
             { id: 'obsidian/disabled', name: 'Off', priority: 99, ttftTimeout: 10, enabled: false },
           ],
@@ -59,24 +59,24 @@ describe('model router composite chain', () => {
         },
       ],
       standaloneModels: [
-        { id: 'obsidian/grok-4.7', name: 'Grok 4.7 (Paid 满血主力)', priority: 100, ttftTimeout: 75, enabled: true },
+        { id: 'obsidian/gpt-6.1-sol', name: 'GPT-6.1 Sol (Paid 满血主力)', priority: 100, ttftTimeout: 75, enabled: true },
         { id: 'obsidian/gpt-6-astra', name: 'gpt 6 astra', priority: 85, ttftTimeout: 60, enabled: true },
         { id: 'obsidian/claude-opus-5', name: 'Claude Opus 5', priority: 80, ttftTimeout: 60, enabled: true },
       ],
-      activeStandaloneModelIds: ['obsidian/grok-4.7', 'obsidian/claude-opus-5'],
+      activeStandaloneModelIds: ['obsidian/gpt-6.1-sol', 'obsidian/claude-opus-5'],
     })
 
     const chain = buildCompositeChain(cfg, now)
     assert.deepEqual(chain.map((m) => m.id), [
-      'obsidian/grok-4.7',
+      'obsidian/gpt-6.1-sol',
       'obsidian/claude-opus-5',
       'obsidian/kimi-3',
     ])
-    const grok = chain[0]
-    assert.equal(grok.priority, 100)
-    assert.equal(grok.sourceGroupName, '独立模型')
-    assert.equal(grok.overriddenGroups?.[0]?.groupName, '付费组')
-    assert.equal(grok.overriddenGroups?.[0]?.priority, 70)
+    const top = chain[0]
+    assert.equal(top.priority, 100)
+    assert.equal(top.sourceGroupName, '独立模型')
+    assert.equal(top.overriddenGroups?.[0]?.groupName, '付费组')
+    assert.equal(top.overriddenGroups?.[0]?.priority, 70)
     assert.ok(!chain.some((m) => m.id === 'obsidian/gpt-6-astra'))
     assert.ok(!chain.some((m) => m.id === 'obsidian/should-skip'))
     assert.ok(!chain.some((m) => m.id === 'obsidian/disabled'))
@@ -86,33 +86,33 @@ describe('model router composite chain', () => {
   it('single-target selection narrows the workflow chain without changing the global queue inputs', () => {
     const cfg = settings({
       selectedActiveTarget: 'model:obsidian/gpt-6-astra',
-      activeStandaloneModelIds: ['obsidian/grok-4.7', 'obsidian/gpt-6-astra'],
+      activeStandaloneModelIds: ['obsidian/gpt-6.1-sol', 'obsidian/gpt-6-astra'],
     })
     const focused = chainForSelection(cfg)
     assert.deepEqual(focused.map((m) => m.id), ['obsidian/gpt-6-astra'])
     const global = buildCompositeChain(cfg)
-    assert.deepEqual(global.map((m) => m.id), ['obsidian/grok-4.7', 'obsidian/gpt-6-astra'])
+    assert.deepEqual(global.map((m) => m.id), ['obsidian/gpt-6.1-sol', 'obsidian/gpt-6-astra'])
   })
 })
 
 describe('model router circuit breaker', () => {
   it('opens a 60s cooldown on simulated 503 and clears every breaker on reset', () => {
     const now = 1_700_000_000_000
-    const opened = recordFailure(createDefaultSettings(), 'obsidian/grok-4.7', '503', now)
-    const rec = opened.circuitBreakers['obsidian/grok-4.7']
+    const opened = recordFailure(createDefaultSettings(), 'obsidian/gpt-6.1-sol', '503', now)
+    const rec = opened.circuitBreakers['obsidian/gpt-6.1-sol']
     assert.equal(rec.state, 'open')
     assert.equal(rec.failures, 1)
     assert.equal(rec.cooldownUntil, now + COOLDOWN_503_MS)
     assert.equal(COOLDOWN_503_MS, 60_000)
 
     const chain = buildCompositeChain(opened, now + 1000)
-    const grok = chain.find((m) => m.id === 'obsidian/grok-4.7')
-    assert.ok(grok)
-    assert.equal(isModelCooling(grok, now + 1000), true)
-    assert.equal(getModelRemainingSeconds(grok, now + 1000), 59)
+    const topModel = chain.find((m) => m.id === 'obsidian/gpt-6.1-sol')
+    assert.ok(topModel)
+    assert.equal(isModelCooling(topModel, now + 1000), true)
+    assert.equal(getModelRemainingSeconds(topModel, now + 1000), 59)
 
     const elapsed = buildCompositeChain(opened, now + COOLDOWN_503_MS)
-    const probed = elapsed.find((m) => m.id === 'obsidian/grok-4.7')
+    const probed = elapsed.find((m) => m.id === 'obsidian/gpt-6.1-sol')
     assert.equal(probed?.circuitBreaker?.state, 'half-open')
     assert.equal(isModelCooling(probed!, now + COOLDOWN_503_MS), false)
 
@@ -129,7 +129,7 @@ describe('model router circuit breaker', () => {
     const good = parseSSOT(JSON.stringify(createDefaultSettings()))
     assert.equal(good.success, true)
     if (!good.success) return
-    assert.equal(good.data.standaloneModels[0]?.id, 'obsidian/grok-4.7')
+    assert.equal(good.data.standaloneModels[0]?.id, 'obsidian/gpt-6.1-sol')
 
     const { jsonString } = serializeSSOT('{"revision":4,"extra":true}', { version: '1.1.0' })
     const again = JSON.parse(jsonString) as { revision: number; extra: boolean }

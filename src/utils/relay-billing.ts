@@ -348,17 +348,14 @@ export async function syncRelayPresets(
       modified = true
     }
 
-    // Auto-normalize model labels in existing provider names (e.g. LLMFree grok-4.6 -> 4.7, purge gemini-3.7-flash)
+    // Auto-normalize model labels in existing provider names
     for (const p of current) {
-      if (p.baseUrl.includes('llmfree.work') && (p.name.includes('4.6') || !p.name.includes('4.7'))) {
-        p.name = 'LLMFree-Grok (grok-4.7)'
+      if (p.baseUrl.includes('llmfree.work') && p.name.includes('grok-4.7')) {
+        p.name = 'TokenFree (gpt-6.1-sol)'
         modified = true
       }
-      if (
-        p.baseUrl.includes('xn--fiq104an1x80s.com') &&
-        (p.name.includes('gemini') || p.name.includes('Gemini') || !p.name.includes('grok-4.7'))
-      ) {
-        p.name = '稳定中转-Grok (grok-4.7)'
+      if (p.baseUrl.includes('xn--fiq104an1x80s.com') && p.name.includes('grok-4.7')) {
+        p.name = '稳定中转'
         modified = true
       }
     }
@@ -378,10 +375,7 @@ export async function syncRelayPresets(
         })
         modified = true
       } else {
-        const presetName =
-          (preset.baseUrl || '').includes('xn--fiq104an1x80s.com')
-            ? '稳定中转-Grok (grok-4.7)'
-            : preset.name
+        const presetName = preset.name
         if (presetName && current[existingIndex].name !== presetName) {
           current[existingIndex].name = presetName
           modified = true

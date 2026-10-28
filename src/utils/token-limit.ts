@@ -37,10 +37,6 @@ export const DEFAULT_MODEL_PROFILES: ModelProfilesData = {
   version: 1,
   default_model_id: 'unknown',
   aliases: {
-    'obsidian/grok-4.7': 'grok-4.7',
-    'grok-4-7': 'grok-4.7',
-    'grok4.7': 'grok-4.7',
-    'newapi/grok-4.7': 'grok-4.7',
     'obsidian/grok-4.6': 'grok-4.6',
     'grok-4-6': 'grok-4.6',
     'grok4.6': 'grok-4.6',
@@ -59,15 +55,6 @@ export const DEFAULT_MODEL_PROFILES: ModelProfilesData = {
     'unknown': 'unknown',
   },
   profiles: {
-    'grok-4.7': {
-      display_name: 'Grok 4.7',
-      family: 'grok',
-      api_context_tokens: 1000000,
-      effective_context_tokens: 500000,
-      warn_tokens: 200000,
-      human_gate_tokens: 300000,
-      reset_tokens: 500000,
-    },
     'grok-4.6': {
       display_name: 'Grok 4.6',
       family: 'grok',
@@ -185,10 +172,7 @@ export function resolveCanonicalModelId(
     return mergedAliases[dashNormalized]
   }
 
-  // 5. Check if string includes grok-4.7
-  if (lower.includes('grok-4.7') || lower.includes('grok-4-7') || lower.includes('grok4.7')) {
-    return 'grok-4.7'
-  }
+  // 5. Check model families
   if (lower.includes('grok-4.6') || lower.includes('grok-4-6') || lower.includes('grok4.6')) {
     return 'grok-4.6'
   }

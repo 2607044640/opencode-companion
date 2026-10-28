@@ -341,7 +341,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             presets: [
               {
                 id: 'relay_llmfree',
-                name: 'LLMFree-Grok (grok-4.7)',
+                name: 'TokenFree (gpt-6.1-sol)',
                 baseUrl: 'https://llmfree.work',
                 apiKey: 'sk-llmfree',
                 redeemUrl: 'https://llmfree.work/redeem',
@@ -349,7 +349,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
               },
               {
                 id: 'relay_wending',
-                name: '稳定中转-Grok (grok-4.7)',
+                name: '稳定中转',
                 baseUrl: 'https://xn--fiq104an1x80s.com',
                 apiKey: 'sk-wending',
                 redeemUrl: 'https://xn--fiq104an1x80s.com/redeem',
@@ -391,7 +391,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
             presets: [
               {
                 id: 'relay_llmfree',
-                name: 'LLMFree-Grok (grok-4.7)',
+                name: 'TokenFree (gpt-6.1-sol)',
                 baseUrl: 'https://llmfree.work',
                 apiKey: 'sk-updated',
                 redeemUrl: 'https://llmfree.work/redeem',
@@ -399,7 +399,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
               },
               {
                 id: 'relay_wending',
-                name: '稳定中转-Grok (grok-4.7)',
+                name: '稳定中转',
                 baseUrl: 'https://xn--fiq104an1x80s.com',
                 apiKey: 'sk-wending',
                 currency: 'USD',
@@ -414,7 +414,7 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       // Existing LLMFree had empty key, updated with preset key and name
       const p = res.find((item) => item.baseUrl.includes('llmfree.work'))
       assert.equal(p?.apiKey, 'sk-updated')
-      assert.equal(p?.name, 'LLMFree-Grok (grok-4.7)')
+      assert.equal(p?.name, 'TokenFree (gpt-6.1-sol)')
       assert.equal(p?.redeemUrl, 'https://llmfree.work/redeem')
     })
   })
