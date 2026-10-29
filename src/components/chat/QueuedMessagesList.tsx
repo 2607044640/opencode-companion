@@ -6,12 +6,13 @@ import { useI18n } from '../../utils/i18n'
 
 interface QueuedMessagesListProps {
   items: QueuedMessage[]
+  isPaused?: boolean
   onSendNow: (id: string) => void
   onEdit: (id: string) => void
   onDelete: (id: string) => void
 }
 
-export function QueuedMessagesList({ items, onSendNow, onEdit, onDelete }: QueuedMessagesListProps) {
+export function QueuedMessagesList({ items, isPaused = false, onSendNow, onEdit, onDelete }: QueuedMessagesListProps) {
   const { tr } = useI18n()
   const [collapsed, setCollapsed] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
@@ -61,12 +62,18 @@ export function QueuedMessagesList({ items, onSendNow, onEdit, onDelete }: Queue
         <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-zinc-700 text-[11px] text-zinc-100 inline-flex items-center justify-center">
           {items.length}
         </span>
-        <span className="text-[11px] text-zinc-500 truncate">
-          {tr(
-            '模型结束后发送',
-            'Sends after agent finishes working',
-            'Wird gesendet, wenn der Agent fertig ist'
-          )}
+        <span className={`text-[11px] truncate ${isPaused ? 'text-amber-400/90' : 'text-zinc-500'}`}>
+          {isPaused
+            ? tr(
+                '已暂停自动发送 · 点击右侧纸飞机立即发送',
+                'Auto-send paused · Click paper plane to send now',
+                'Automatischer Versand pausiert · Zum Senden klicken'
+              )
+            : tr(
+                '模型结束后发送',
+                'Sends after agent finishes working',
+                'Wird gesendet, wenn der Agent fertig ist'
+              )}
         </span>
       </button>
 

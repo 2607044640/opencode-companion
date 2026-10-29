@@ -29,7 +29,7 @@ import { ManageModelsModal } from '../models/ManageModelsModal'
 import { categorizeDroppedFiles, formatFileMentions, hasFilePayload } from './drag-drop'
 import { ImageLightboxModal, type LightboxImage } from './ImageLightboxModal'
 import { QueuedMessagesList } from './QueuedMessagesList'
-import type { QueuedMessage, QueuedPromptOptions } from '../../utils/message-queue'
+import { shouldEnqueueSubmission, type QueuedMessage, type QueuedPromptOptions } from '../../utils/message-queue'
 import { applySlashCommand, detectSlashTrigger } from './slash-trigger'
 import { rankPopoverItems } from './popover-rank'
 import {
@@ -66,6 +66,7 @@ interface PromptInputProps {
   /** False until the daemon answers. Neither send nor stop is honest yet. */
   runKnown?: boolean
   queuedMessages?: QueuedMessage[]
+  isQueuePaused?: boolean
   onEnqueue?: (draft: PromptDraft) => void
   onSendQueuedNow?: (id: string) => void
   onEditQueued?: (id: string) => void
@@ -93,6 +94,7 @@ export function PromptInput({
   isBusy,
   runKnown = true,
   queuedMessages,
+  isQueuePaused,
   onEnqueue,
   onSendQueuedNow,
   onEditQueued,
@@ -917,9 +919,10 @@ export function PromptInput({
       }
     }
 
-    // While the model is working, Enter queues instead of aborting.
-    // The red stop button remains the only abort control.
-    if (isBusy && onEnqueue) {
+    // While the model is working OR when items are already waiting in the queue,
+    // Enter / Send appends to the FIFO queue so new messages never cut in line.
+    const queueCount = queuedMessages ? queuedMessages.length : 0
+    if (shouldEnqueueSubmission(isBusy, queueCount) && onEnqueue) {
       onEnqueue(draft)
       clearComposer()
       return
@@ -951,6 +954,7 @@ export function PromptInput({
       {queuedMessages && queuedMessages.length > 0 && onSendQueuedNow && onEditQueued && onDeleteQueued && (
         <QueuedMessagesList
           items={queuedMessages}
+          isPaused={isQueuePaused}
           onSendNow={onSendQueuedNow}
           onEdit={onEditQueued}
           onDelete={onDeleteQueued}

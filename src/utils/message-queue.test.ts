@@ -1,14 +1,18 @@
-import test, { describe, it } from 'node:test'
+import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  canAutoDrainQueue,
   createQueuedMessage,
   dequeueFirst,
   enqueueMessage,
   loadPersistedQueue,
+  migrateSessionQueue,
   queuedImageAttachments,
   removeQueuedMessage,
   savePersistedQueue,
   shouldAutoDispatchQueue,
+  shouldEnqueueSubmission,
+  shouldPauseQueueOnTurnEnd,
   type QueuedMessage,
 } from './message-queue'
 
@@ -40,46 +44,126 @@ describe('message queue', () => {
     assert.equal(dequeueFirst([]).item, null)
   })
 
-  it('auto-sends only on a clean finish', () => {
-    assert.equal(
-      shouldAutoDispatchQueue({ assistantHasError: false, streamError: null, userAborted: false }),
-      true
-    )
+  it('shouldEnqueueSubmission enforces FIFO: enqueues when busy OR when queue already has items (Bug 2 fix)', () => {
+    // Model is idle and queue is empty -> send directly
+    assert.equal(shouldEnqueueSubmission(false, 0), false)
+    // Model is busy and queue is empty -> enqueue
+    assert.equal(shouldEnqueueSubmission(true, 0), true)
+    // Model is busy and queue is non-empty -> enqueue
+    assert.equal(shouldEnqueueSubmission(true, 2), true)
+    // Model is IDLE (e.g. paused or between turns) but queue has items -> MUST enqueue, never cut in line!
+    assert.equal(shouldEnqueueSubmission(false, 1), true)
   })
 
-  it('pauses when the assistant message has an error', () => {
+  it('canAutoDrainQueue uses level-triggered readiness to avoid turnEpoch race conditions (Bug 1 fix)', () => {
+    // 1. Stream finished (isBusy=false via isSending=false), but SSE status is still busy -> wait
     assert.equal(
-      shouldAutoDispatchQueue({ assistantHasError: true, streamError: null, userAborted: false }),
+      canAutoDrainQueue({
+        isBusy: true,
+        runKnown: true,
+        statusType: 'busy',
+        queueLength: 1,
+        isPaused: false,
+        isDispatching: false,
+      }),
       false
     )
-  })
 
-  it('pauses when the stream reports an API or fuse error', () => {
+    // 2. Moments later, SSE status transitions to idle -> immediately drains without needing a new epoch!
     assert.equal(
-      shouldAutoDispatchQueue({
-        assistantHasError: false,
-        streamError: 'Session error occurred',
-        userAborted: false,
+      canAutoDrainQueue({
+        isBusy: false,
+        runKnown: true,
+        statusType: 'idle',
+        queueLength: 1,
+        isPaused: false,
+        isDispatching: false,
+      }),
+      true
+    )
+
+    // 3. Blocked when paused (after error or user Stop)
+    assert.equal(
+      canAutoDrainQueue({
+        isBusy: false,
+        runKnown: true,
+        statusType: 'idle',
+        queueLength: 1,
+        isPaused: true,
+        isDispatching: false,
+      }),
+      false
+    )
+
+    // 4. Blocked while another dispatch is already in flight
+    assert.equal(
+      canAutoDrainQueue({
+        isBusy: false,
+        runKnown: true,
+        statusType: 'idle',
+        queueLength: 1,
+        isPaused: false,
+        isDispatching: true,
       }),
       false
     )
   })
 
-  it('does not auto-send after the user stops generation', () => {
+  it('auto-sends only on a clean finish and pauses on error or user stop', () => {
     assert.equal(
-      shouldAutoDispatchQueue({ assistantHasError: false, streamError: null, userAborted: true }),
+      shouldAutoDispatchQueue({ assistantHasError: false, streamError: null, userAborted: false }),
+      true
+    )
+    assert.equal(
+      shouldPauseQueueOnTurnEnd({ assistantHasError: false, streamError: null, userAborted: false }),
       false
+    )
+    assert.equal(
+      shouldPauseQueueOnTurnEnd({ assistantHasError: true, streamError: null, userAborted: false }),
+      true
+    )
+    assert.equal(
+      shouldPauseQueueOnTurnEnd({
+        assistantHasError: false,
+        streamError: 'Session error occurred',
+        userAborted: false,
+      }),
+      true
+    )
+    assert.equal(
+      shouldPauseQueueOnTurnEnd({ assistantHasError: false, streamError: null, userAborted: true }),
+      true
     )
   })
 
+  it('migrates draft session queue items to newly created session ID preserving FIFO order', () => {
+    const m1 = createQueuedMessage('first', undefined, 1)
+    const m2 = createQueuedMessage('second', undefined, 2)
+    const initial = {
+      __draft__: [m1, m2],
+      ses_other: [createQueuedMessage('other', undefined, 3)],
+    }
+    const migrated = migrateSessionQueue(initial, '__draft__', 'ses_new')
+    assert.equal(migrated.__draft__, undefined)
+    assert.deepEqual(
+      migrated.ses_new.map((x) => x.text),
+      ['first', 'second']
+    )
+    assert.equal(migrated.ses_other.length, 1)
+  })
+
   it('keeps only image attachments that have a url', () => {
-    const item = createQueuedMessage('look', {
-      attachments: [
-        { mime: 'image/png', url: 'data:image/png;base64,aaa', name: 'a.png' },
-        { mime: 'image/jpeg', url: '', name: 'empty.jpg' },
-        { mime: 'text/plain', url: 'data:text/plain,hi', name: 'note.txt' },
-      ],
-    }, 1)
+    const item = createQueuedMessage(
+      'look',
+      {
+        attachments: [
+          { mime: 'image/png', url: 'data:image/png;base64,aaa', name: 'a.png' },
+          { mime: 'image/jpeg', url: '', name: 'empty.jpg' },
+          { mime: 'text/plain', url: 'data:text/plain,hi', name: 'note.txt' },
+        ],
+      },
+      1
+    )
     const images = queuedImageAttachments(item)
     assert.equal(images.length, 1)
     assert.equal(images[0].name, 'a.png')
@@ -132,29 +216,5 @@ describe('message queue', () => {
     }
     const item = createQueuedMessage('keep in memory', undefined, 1)
     assert.doesNotThrow(() => savePersistedQueue(storage, { ses_1: [item] }))
-  })
-
-  it('determines busy state when sessionStatus is busy or last turn is still live', () => {
-    // 1. Session status busy
-    const sessionBusy = true
-    const isLive = false
-    assert.equal(sessionBusy || isLive, true)
-
-    // 2. Assistant message without finish or completed time is live
-    const assistantMsg = {
-      info: { role: 'assistant', time: { created: Date.now() } },
-      parts: [{ type: 'text', text: 'streaming...' }],
-    }
-    const isDone = Boolean(assistantMsg.info.finish) || Boolean((assistantMsg.info as any).error) || Boolean(assistantMsg.info.time?.completed)
-    const assistantLive = !isDone
-    assert.equal(assistantLive, true)
-
-    // 3. Finished assistant message is not live
-    const finishedMsg = {
-      info: { role: 'assistant', finish: 'stop', time: { created: 100, completed: 200 } },
-      parts: [{ type: 'text', text: 'all done.' }],
-    }
-    const isFinishedDone = Boolean(finishedMsg.info.finish) || Boolean(finishedMsg.info.time?.completed)
-    assert.equal(isFinishedDone, true)
   })
 })

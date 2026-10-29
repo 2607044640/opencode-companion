@@ -4,10 +4,9 @@ import {
   Plus,
   Check,
 } from 'lucide-react'
-import type { Message, Project, Session, SessionStatusPayload } from '../../types/opencode'
+import type { Project, Session } from '../../types/opencode'
 import { useI18n } from '../../utils/i18n'
 import { TabContextMenu } from './TabContextMenu'
-import type { SettingsTab } from '../settings/SettingsModal'
 import { resolveSessionProject } from '../../utils/session-workspace'
 import { getStoredTabTitles } from '../../utils/tab-persistence'
 
@@ -16,11 +15,6 @@ interface HeaderProps {
   sessions: Session[]
   openTabIds: string[]
   activeSessionId: string | null
-  activeSession?: Session | null
-  sessionStatus?: SessionStatusPayload
-  /** False until the daemon run map answers. Hide idle and retry chrome. */
-  runKnown?: boolean
-  messages?: Message[]
   unreadSessionIds?: string[]
   onSelectTab: (sessionId: string) => void
   onCloseTab: (sessionId: string) => void
@@ -29,23 +23,9 @@ interface HeaderProps {
   onReopenClosedTab?: () => void
   canReopenClosedTab?: boolean
   onNewSession: () => void
-  isSidebarOpen?: boolean
-  onToggleSidebar?: () => void
   onToggleMap?: () => void
-  onOpenMapAndLocate?: (sessionId?: string) => void
-  onAddSessionToMap?: (sessionId: string) => void
-  onOpenSearch?: () => void
-  onToggleZenMode?: () => void
-  zenShortcutLabel?: string
-  /** Returns full session JSON string for the active session */
-  onGetSessionJson?: () => Promise<string>
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
-  onOpenSettings?: (tab?: SettingsTab) => void
-  onOpenModelRouter?: () => void
-  onOpenRelayHub?: () => void
-  onDaemonRestored?: () => void
-  onDaemonLost?: () => void
 }
 
 export function Header({

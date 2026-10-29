@@ -35,6 +35,15 @@ export interface QueueTurnSnapshot {
   userAborted: boolean
 }
 
+export interface QueueDrainState {
+  isBusy: boolean
+  runKnown: boolean
+  statusType: string
+  queueLength: number
+  isPaused: boolean
+  isDispatching: boolean
+}
+
 let queueSeq = 0
 
 export function createQueuedMessage(
@@ -68,10 +77,64 @@ export function dequeueFirst(queue: readonly QueuedMessage[]): {
 }
 
 /**
- * Auto-send the head of the queue only after a clean idle.
- * Model error, API error, empty-response fuse, and system abort all pause the queue.
- * A user Stop is not a model error, but it also does not auto-continue.
+ * Invariant 1 (FIFO Submission Gate):
+ * Whenever the model is currently working OR there are already items waiting in the queue,
+ * any newly submitted prompt MUST be appended to the queue instead of sent directly.
  */
+export function shouldEnqueueSubmission(isBusy: boolean, queueLength: number): boolean {
+  return Boolean(isBusy || queueLength > 0)
+}
+
+/**
+ * Invariant 2 (Level-Triggered Auto-Drain):
+ * Determines whether the queue should immediately pop and send the head item.
+ * Unlike edge-triggered epoch counters, this level check succeeds regardless of whether
+ * stream completion or SSE status=idle arrives first.
+ */
+export function canAutoDrainQueue(state: QueueDrainState): boolean {
+  if (state.isDispatching) return false
+  if (state.isBusy) return false
+  if (!state.runKnown) return false
+  if (state.statusType !== 'idle') return false
+  if (state.isPaused) return false
+  return state.queueLength > 0
+}
+
+/**
+ * Invariant 3 (Pause Latch on Error / User Stop):
+ * Determines whether a turn outcome should pause automatic queue draining until the user
+ * either clicks "Send Now" or submits a fresh message.
+ */
+export function shouldPauseQueueOnTurnEnd(snapshot: QueueTurnSnapshot): boolean {
+  return !shouldAutoDispatchQueue(snapshot)
+}
+
+export function shouldAutoDispatchQueue(snapshot: QueueTurnSnapshot): boolean {
+  if (snapshot.userAborted) return false
+  if (snapshot.streamError) return false
+  if (snapshot.assistantHasError) return false
+  return true
+}
+
+/**
+ * Atomically migrates queued items when a draft session (__draft__) is promoted
+ * to a real backend session ID.
+ */
+export function migrateSessionQueue(
+  queueMap: Record<string, QueuedMessage[]>,
+  fromSessionId: string,
+  toSessionId: string
+): Record<string, QueuedMessage[]> {
+  if (!fromSessionId || !toSessionId || fromSessionId === toSessionId) return queueMap
+  const sourceItems = queueMap[fromSessionId]
+  if (!sourceItems || sourceItems.length === 0) return queueMap
+  const targetItems = queueMap[toSessionId] || []
+  const next = { ...queueMap }
+  delete next[fromSessionId]
+  next[toSessionId] = [...sourceItems, ...targetItems]
+  return next
+}
+
 const QUEUE_STORAGE_KEY = 'opencode_companion_prompt_queue'
 
 const MAX_STORED_ATTACHMENT_CHARS = 1_500_000
@@ -147,11 +210,4 @@ export function savePersistedQueue(
   } catch {
     // Quota or private mode. The in-memory queue still works for this tab.
   }
-}
-
-export function shouldAutoDispatchQueue(snapshot: QueueTurnSnapshot): boolean {
-  if (snapshot.userAborted) return false
-  if (snapshot.streamError) return false
-  if (snapshot.assistantHasError) return false
-  return true
 }

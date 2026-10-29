@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { Header } from './components/layout/Header'
 import { ChatTimeline } from './components/chat/ChatTimeline'
-import { PromptInput, type DraftInjection, type PromptDraft } from './components/chat/PromptInput'
+import { PromptInput, type DraftInjection } from './components/chat/PromptInput'
 import { SessionRevertDock } from './components/chat/SessionRevertDock'
 import { extractDraftFromMessage } from './utils/draft'
 import { SettingsModal, type SettingsTab } from './components/settings/SettingsModal'
@@ -12,25 +12,16 @@ import { DiffDrawerProvider } from './components/diff/DiffDrawerContext'
 import { DiffSidebarDrawer } from './components/diff/DiffSidebarDrawer'
 import { useSessions, DRAFT_SESSION_ID } from './hooks/useSessions'
 import { useChatStream } from './hooks/useChatStream'
+import { usePromptQueue } from './hooks/usePromptQueue'
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
+import { useScheduledTasksRunner } from './hooks/useScheduledTasksRunner'
 import { useSideQuestion } from './hooks/useSideQuestion'
 import { SideQuestionCard } from './components/chat/SideQuestionCard'
-import { getShortcuts, matchesShortcut, type ShortcutsMap } from './utils/shortcuts'
-import { getNextTabId, getPrevTabId, getTabIdByIndex } from './utils/tab-navigation'
 import { api, canonicalizeDirectory } from './services/api'
 import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore, Check } from 'lucide-react'
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
 import type { Message, PromptAttachment } from './types/opencode'
-import {
-  createQueuedMessage,
-  dequeueFirst,
-  enqueueMessage,
-  loadPersistedQueue,
-  removeQueuedMessage,
-  savePersistedQueue,
-  shouldAutoDispatchQueue,
-  type QueuedMessage,
-} from './utils/message-queue'
 import { sseManager } from './services/sse'
 import {
   getUnreadSessionIds,
@@ -43,13 +34,6 @@ import { ScheduledTasksModal } from './components/tasks/ScheduledTasksModal'
 import { FloatingModelRouter } from './components/router/FloatingModelRouter'
 import { SessionHistoryStack } from './utils/session-history'
 import { getPreferences } from './utils/preferences'
-import {
-  getScheduledTasks,
-  shouldRunTask,
-  advanceTaskAfterRun,
-  updateScheduledTask,
-  type ScheduledTask,
-} from './utils/scheduler'
 
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -83,8 +67,6 @@ export default function App() {
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
   const [isModelRouterOpen, setIsModelRouterOpen] = useState(false)
   const [modelRouterTab, setModelRouterTab] = useState<'workflow' | 'relay'>('workflow')
-  const [isZenMode, setIsZenMode] = useState(false)
-  const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts())
   const { t, lang } = useI18n()
   const isZh = lang === 'zh-CN'
 
@@ -191,8 +173,8 @@ export default function App() {
     todos,
     loading: messagesLoading,
     error,
-    turnEpoch,
     turnEnd,
+    isSending,
     sendPrompt,
     abort,
     retry,
@@ -200,6 +182,8 @@ export default function App() {
     unrevert,
     reverting,
   } = useChatStream(activeSessionId, updateSession, activeSession?.directory)
+
+  const isBusy = isSending || (runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry'))
 
   const {
     currentSideQuestion,
@@ -226,75 +210,101 @@ export default function App() {
     [askSideQuestion, messages, activeSession?.directory, sideQuestionModel]
   )
 
-  // Programmatic draft injection into PromptInput on message revert / restore
   const [draftInjection, setDraftInjection] = useState<DraftInjection | null>(null)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
-  // Messages typed while the model is still working. FIFO, unbounded.
-  // Keyed by session so switching tabs does not leak another chat's queue.
-  const [queueBySession, setQueueBySession] = useState<Record<string, QueuedMessage[]>>(() =>
-    loadPersistedQueue(typeof window !== 'undefined' ? window.sessionStorage : undefined)
-  )
+  const showToast = useCallback((msg: string, durationMs = 2500) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), durationMs)
+  }, [])
 
-  useEffect(() => {
-    savePersistedQueue(window.sessionStorage, queueBySession)
-  }, [queueBySession])
-  const [queueEditRequest, setQueueEditRequest] = useState<
-    (DraftInjection & { agent?: string; model?: { providerID: string; modelID: string } }) | null
-  >(null)
-  const queueSessionKey = activeSessionId || DRAFT_SESSION_ID
-  const queuedMessages = queueBySession[queueSessionKey] || []
-  const queuedMessagesRef = useRef(queuedMessages)
-  queuedMessagesRef.current = queuedMessages
-  const dispatchingQueueRef = useRef(false)
+  const { handleRunScheduledTaskNow } = useScheduledTasksRunner({
+    createNewSession,
+    onToast: showToast,
+  })
 
-  const handleEnqueue = useCallback(
-    (draft: PromptDraft) => {
-      const item = createQueuedMessage(draft.text, draft.options)
-      setQueueBySession((prev) => ({
-        ...prev,
-        [queueSessionKey]: enqueueMessage(prev[queueSessionKey] || [], item),
-      }))
+  const handleSendPrompt = useCallback(
+    async (
+      text: string,
+      options?: {
+        agent?: string
+        model?: { providerID: string; modelID: string }
+        attachments?: PromptAttachment[]
+      }
+    ) => {
+      if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) {
+        const selectedProject = selectedProjectId
+          ? projects.find(
+              (p) =>
+                p.id === selectedProjectId ||
+                Boolean(p.associatedIds && p.associatedIds.includes(selectedProjectId))
+            )
+          : null
+        const projectDirectory = selectedProject?.worktree
+          ? canonicalizeDirectory(selectedProject.worktree)
+          : '/home/developer/projects/APISpace'
+        const sessionTitle =
+          text.trim().slice(0, 40) ||
+          (options?.attachments && options.attachments.length > 0
+            ? options.attachments[0].name?.slice(0, 40) || 'Image'
+            : '') ||
+          `New session - ${new Date().toLocaleString('zh-CN', { hour12: false })}`
+
+        try {
+          const newSession = await createNewSession({
+            title: sessionTitle,
+            directory: projectDirectory,
+            agent: options?.agent,
+            model: options?.model
+              ? { id: options.model.modelID, providerID: options.model.providerID }
+              : undefined,
+          })
+
+          markHumanInitiated(newSession.id)
+          migrateDraftSideQuestions(newSession.id)
+          migrateDraftQueue(newSession.id)
+          await sendPrompt(text, options, newSession.id)
+        } catch (err) {
+          console.error('[App] Failed to create session or send prompt on first send:', err)
+        }
+        return
+      }
+
+      if (activeSessionId && isArchived(activeSessionId)) {
+        unarchiveSession(activeSessionId)
+      }
+
+      markHumanInitiated(activeSessionId)
+      await sendPrompt(text, options)
     },
-    [queueSessionKey]
+    [activeSessionId, projects, selectedProjectId, createNewSession, sendPrompt, isArchived, unarchiveSession]
   )
 
-  const handleDeleteQueued = useCallback(
-    (id: string) => {
-      setQueueBySession((prev) => ({
-        ...prev,
-        [queueSessionKey]: removeQueuedMessage(prev[queueSessionKey] || [], id),
-      }))
-    },
-    [queueSessionKey]
-  )
+  const {
+    queuedMessages,
+    isQueuePaused,
+    isDispatchingQueue,
+    queueEditRequest,
+    enqueue: handleEnqueue,
+    removeQueued: handleDeleteQueued,
+    editQueued: handleEditQueued,
+    sendQueuedNow,
+    migrateDraftQueue,
+  } = usePromptQueue({
+    activeSessionId,
+    isBusy,
+    runKnown,
+    sessionStatusType: sessionStatus.type,
+    turnEnd,
+    onSendPrompt: handleSendPrompt,
+    onAbort: abort,
+  })
 
-  const handleEditQueued = useCallback(
-    (id: string) => {
-      const item = queuedMessagesRef.current.find((entry) => entry.id === id)
-      if (!item) return
-      setQueueBySession((prev) => ({
-        ...prev,
-        [queueSessionKey]: removeQueuedMessage(prev[queueSessionKey] || [], id),
-      }))
-      setQueueEditRequest({
-        text: item.text,
-        attachments: item.options?.attachments,
-        timestamp: Date.now(),
-        focus: true,
-        agent: item.options?.agent,
-        model: item.options?.model,
-      })
-    },
-    [queueSessionKey]
-  )
-
-  // Target message jump state (e.g. from Cross-Message Search hit)
   const [targetMessageId, setTargetMessageId] = useState<string | null>(null)
 
   const handleRestoreMessage = useCallback(
     async (msg: Message) => {
       if (!activeSessionId) return
-      // 1. Inject draft text & attachments into PromptInput immediately
       const draft = extractDraftFromMessage(msg)
       setDraftInjection({
         text: draft.text,
@@ -303,7 +313,6 @@ export default function App() {
         focus: true,
       })
 
-      // 2. Check if restoring the latest rolled-back message
       const revertIndex = messages.findIndex((m) => m.info.id === activeSession?.revert?.messageID)
       const rolledBackUserMessages =
         revertIndex !== -1
@@ -326,7 +335,6 @@ export default function App() {
     [activeSessionId, activeSession?.revert?.messageID, messages, unrevert, revertToMessage]
   )
 
-  // Auto-fill prompt input with the latest rolled back user message if session is in reverted state
   const lastAutoInjectedSessionRef = useRef<string | null>(null)
   useEffect(() => {
     if (!activeSessionId || !activeSession?.revert?.messageID) return
@@ -352,21 +360,6 @@ export default function App() {
     }
   }, [activeSessionId, activeSession?.revert?.messageID, messages])
 
-  // Listen for shortcuts config updates from SettingsModal
-  useEffect(() => {
-    const handleShortcutsUpdate = (e: Event) => {
-      const custom = e as CustomEvent<ShortcutsMap>
-      if (custom.detail) {
-        setShortcuts(custom.detail)
-      } else {
-        setShortcuts(getShortcuts())
-      }
-    }
-    window.addEventListener('shortcuts-updated', handleShortcutsUpdate)
-    return () => window.removeEventListener('shortcuts-updated', handleShortcutsUpdate)
-  }, [])
-
-  // Prevent browser default behavior of navigating away when dropping files outside drop targets
   useEffect(() => {
     const handleWindowDragOver = (e: DragEvent) => {
       if (e.dataTransfer?.types?.includes('Files')) {
@@ -385,8 +378,6 @@ export default function App() {
       window.removeEventListener('drop', handleWindowDrop)
     }
   }, [])
-
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -463,24 +454,12 @@ export default function App() {
     [activeSessionId, sessions]
   )
 
-  const openTabIdsRef = useRef(openTabIds)
-  useEffect(() => {
-    openTabIdsRef.current = openTabIds
-  }, [openTabIds])
-
-  const activeSessionIdRef = useRef(activeSessionId)
-  useEffect(() => {
-    activeSessionIdRef.current = activeSessionId
-  }, [activeSessionId])
-
-  // Auto-focus window & document on mount, and lock KeyW & Tab if supported
   useEffect(() => {
     try {
       window.focus()
       if (!document.activeElement || document.activeElement === document.body) {
         document.body.focus?.()
       }
-      // Attempt keyboard lock for KeyW and Tab so host container doesn't intercept
       const nav = navigator as unknown as { keyboard?: { lock?: (keys: string[]) => Promise<void> } }
       if (nav.keyboard?.lock) {
         nav.keyboard.lock(['KeyW', 'Tab']).catch(() => {})
@@ -488,31 +467,6 @@ export default function App() {
     } catch {}
   }, [])
 
-  // Listen for direct session switch requests (e.g. from internal links) and popstate
-  useEffect(() => {
-    const handleSwitchSession = (e: Event) => {
-      const custom = e as CustomEvent<{ sessionID: string }>
-      if (custom.detail?.sessionID) {
-        selectSession(custom.detail.sessionID)
-      }
-    }
-    const handlePopState = () => {
-      const urlParams = new URLSearchParams(window.location.search)
-      const sessId = urlParams.get('session')
-      if (sessId && sessId !== activeSessionId) {
-        selectSession(sessId)
-      }
-    }
-
-    window.addEventListener('switch-session', handleSwitchSession)
-    window.addEventListener('popstate', handlePopState)
-    return () => {
-      window.removeEventListener('switch-session', handleSwitchSession)
-      window.removeEventListener('popstate', handlePopState)
-    }
-  }, [selectSession, activeSessionId])
-
-  // Navigation History Stack (Back / Forward)
   const historyStack = useRef(new SessionHistoryStack(50, activeSessionId))
   const [canGoBack, setCanGoBack] = useState(false)
   const [canGoForward, setCanGoForward] = useState(false)
@@ -556,7 +510,6 @@ export default function App() {
     isNavigatingHistory.current = false
   }, [selectSession, updateHistoryState])
 
-  // Sync initial session into history stack once loaded
   useEffect(() => {
     if (activeSessionId && historyStack.current.current() !== activeSessionId) {
       if (!isNavigatingHistory.current) {
@@ -566,14 +519,12 @@ export default function App() {
     }
   }, [activeSessionId, updateHistoryState])
 
-  // Clear unread indicator when selecting / viewing the active session
   useEffect(() => {
     if (activeSessionId) {
       markSessionRead(activeSessionId)
     }
   }, [activeSessionId])
 
-  // Sync window title with unread indicator
   useEffect(() => {
     const baseTitle = activeSession?.title || 'OpenCode Companion'
     if (unreadSessionIds.length > 0) {
@@ -596,455 +547,30 @@ export default function App() {
     [projects, setSelectedProjectId, startDraftSession]
   )
 
-  // Scheduled Tasks runner (checks every 15s)
-  useEffect(() => {
-    const runner = async () => {
-      const tasks = getScheduledTasks()
-      const now = Date.now()
-      for (const task of tasks) {
-        if (shouldRunTask(task, now)) {
-          try {
-            console.log(`[ScheduledTask] Running task "${task.title}"...`)
-            const newSession = await createNewSession({
-              title: task.title,
-              directory: task.directory,
-              agent: task.agent,
-              model: task.model,
-            })
-            await api.sendPrompt(newSession.id, task.prompt, {
-              agent: task.agent,
-              model: task.model?.id && task.model?.providerID
-                ? { providerID: task.model.providerID, modelID: task.model.id }
-                : undefined,
-            })
-            const advanced = advanceTaskAfterRun(task, now)
-            updateScheduledTask(task.id, {
-              enabled: advanced.enabled,
-              lastRun: advanced.lastRun,
-              nextRun: advanced.nextRun,
-              lastStatus: 'success',
-              lastSessionId: newSession.id,
-            })
-            setToastMessage(`计划任务 "${task.title}" 已自动触发执行`)
-            setTimeout(() => setToastMessage(null), 3000)
-          } catch (err: any) {
-            console.error(`[ScheduledTask] Failed to execute task "${task.title}":`, err)
-            updateScheduledTask(task.id, {
-              lastStatus: 'error',
-              lastError: err?.message || 'Execution error',
-            })
-          }
-        }
-      }
-    }
-
-    const timer = setInterval(runner, 15000)
-    return () => clearInterval(timer)
-  }, [createNewSession])
-
-  const handleRunScheduledTaskNow = useCallback(
-    async (task: ScheduledTask) => {
-      const newSession = await createNewSession({
-        title: task.title,
-        directory: task.directory,
-        agent: task.agent,
-        model: task.model,
-      })
-      await api.sendPrompt(newSession.id, task.prompt, {
-        agent: task.agent,
-        model: task.model?.id && task.model?.providerID
-          ? { providerID: task.model.providerID, modelID: task.model.id }
-          : undefined,
-      })
-      const advanced = advanceTaskAfterRun(task, Date.now())
-      updateScheduledTask(task.id, {
-        enabled: advanced.enabled,
-        lastRun: advanced.lastRun,
-        nextRun: advanced.nextRun,
-        lastStatus: 'success',
-        lastSessionId: newSession.id,
-      })
-      setToastMessage(`已手动触发计划任务 "${task.title}"`)
-      setTimeout(() => setToastMessage(null), 3000)
-    },
-    [createNewSession]
-  )
-
-  const handleSendPrompt = useCallback(
-    async (
-      text: string,
-      options?: {
-        agent?: string
-        model?: { providerID: string; modelID: string }
-        attachments?: PromptAttachment[]
-      }
-    ) => {
-      // If currently in a draft session (or no active session), lazily create the session on first send!
-      if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) {
-        const selectedProject = selectedProjectId
-          ? projects.find(
-              (p) =>
-                p.id === selectedProjectId ||
-                Boolean(p.associatedIds && p.associatedIds.includes(selectedProjectId))
-            )
-          : null
-        const projectDirectory = selectedProject?.worktree
-          ? canonicalizeDirectory(selectedProject.worktree)
-          : '/home/developer/projects/APISpace'
-        const sessionTitle =
-          text.trim().slice(0, 40) ||
-          (options?.attachments && options.attachments.length > 0
-            ? options.attachments[0].name?.slice(0, 40) || 'Image'
-            : '') ||
-          `New session - ${new Date().toLocaleString('zh-CN', { hour12: false })}`
-
-        try {
-          const newSession = await createNewSession({
-            title: sessionTitle,
-            directory: projectDirectory,
-            agent: options?.agent,
-            model: options?.model
-              ? { id: options.model.modelID, providerID: options.model.providerID }
-              : undefined,
-          })
-
-          // Mark human-initiated so completion triggers unread indicator
-          markHumanInitiated(newSession.id)
-
-          // Migrate any draft side questions to the newly created session
-          migrateDraftSideQuestions(newSession.id)
-
-          // Dispatch prompt into the newly created session via useChatStream
-          await sendPrompt(text, options, newSession.id)
-        } catch (err) {
-          console.error('[App] Failed to create session or send prompt on first send:', err)
-        }
-        return
-      }
-
-      // If active session is archived, automatically unarchive it on prompt send
-      if (activeSessionId && isArchived(activeSessionId)) {
-        unarchiveSession(activeSessionId)
-      }
-
-      // Mark human-initiated so completion triggers unread indicator
-      markHumanInitiated(activeSessionId)
-
-      // Existing real session: send directly via useChatStream
-      await sendPrompt(text, options)
-    },
-    [activeSessionId, projects, selectedProjectId, createNewSession, sendPrompt, isArchived, unarchiveSession]
-  )
-
-  const handleSendPromptRef = useRef(handleSendPrompt)
-  handleSendPromptRef.current = handleSendPrompt
-
-  const dispatchQueueHead = useCallback(
-    async (id: string, immediate = false) => {
-      if (dispatchingQueueRef.current) return
-      const current = queuedMessagesRef.current
-      const target = current.find((item) => item.id === id)
-      if (!target) return
-      dispatchingQueueRef.current = true
-      setQueueBySession((prev) => ({
-        ...prev,
-        [queueSessionKey]: removeQueuedMessage(prev[queueSessionKey] || [], id),
-      }))
-      try {
-        if (immediate) {
-          await abort({ preempt: true })
-        }
-        await handleSendPromptRef.current(target.text, target.options)
-      } finally {
-        dispatchingQueueRef.current = false
-      }
-    },
-    [queueSessionKey, abort]
-  )
-
-  const seenTurnEpochRef = useRef(0)
-  useEffect(() => {
-    if (turnEpoch === 0 || turnEpoch === seenTurnEpochRef.current) return
-    seenTurnEpochRef.current = turnEpoch
-    if (!runKnown || sessionStatus.type !== 'idle') return
-    if (queuedMessagesRef.current.length === 0) return
-    const assistant = [...messages].reverse().find((m) => m.info.role === 'assistant')
-    const clean = shouldAutoDispatchQueue({
-      assistantHasError: Boolean(assistant?.info.error) || turnEnd === 'error',
-      streamError: turnEnd === 'error' ? error || 'turn-error' : null,
-      userAborted: turnEnd === 'user',
-    })
-    if (!clean) return
-    const { item } = dequeueFirst(queuedMessagesRef.current)
-    if (!item) return
-    void dispatchQueueHead(item.id)
-  }, [turnEpoch, turnEnd, runKnown, sessionStatus.type, error, messages, dispatchQueueHead])
-
-  const isZenModeRef = useRef(isZenMode)
-  useEffect(() => {
-    isZenModeRef.current = isZenMode
-  }, [isZenMode])
-
-  const toggleZenMode = useCallback((targetState?: boolean) => {
-    const next = typeof targetState === 'boolean' ? targetState : !isZenModeRef.current
-    if (next) {
-      if (!document.fullscreenElement && document.documentElement?.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {
-          // Ignore fullscreen rejection gracefully (e.g. iframe sandbox)
-        })
-      }
-    } else {
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {})
-      }
-    }
-    setIsZenMode(next)
-  }, [])
-
-  // Sync state if user exits browser fullscreen natively (e.g. browser Esc or UI controls)
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      if (!document.fullscreenElement && isZenModeRef.current) {
-        setIsZenMode(false)
-      }
-    }
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
-  }, [])
-
-  // Global configurable keyboard listener
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // 1. Zen mode toggle via configured shortcut or unmodified F11
-      const isPlainF11 = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === 'F11'
-      if (matchesShortcut(e, shortcuts.zenMode) || isPlainF11) {
-        e.preventDefault()
-        toggleZenMode()
-        return
-      }
-
-      // 2. Escape handling: modals close first on Escape regardless of Zen mode
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (isSettingsOpen) {
-          e.preventDefault()
-          setIsSettingsOpen(false)
-          return
-        }
-        if (isMapOpen) {
-          e.preventDefault()
-          setIsMapOpen(false)
-          return
-        }
-        if (isSearchOpen) {
-          e.preventDefault()
-          setIsSearchOpen(false)
-          return
-        }
-        if (isModelRouterOpen) {
-          e.preventDefault()
-          setIsModelRouterOpen(false)
-          return
-        }
-        // If in Zen mode and no modal is open, exit Zen mode
-        if (isZenMode) {
-          e.preventDefault()
-          toggleZenMode(false)
-          return
-        }
-      }
-
-      // Fast-path: Instant Top Bar / Header Toggle (Ctrl+Shift+B)
-      const isCtrlShiftB =
-        (e.ctrlKey || e.metaKey) &&
-        !e.altKey &&
-        e.shiftKey &&
-        ((e.key && e.key.toLowerCase() === 'b') || e.code === 'KeyB' || e.keyCode === 66)
-
-      if (!isZenMode && isCtrlShiftB) {
-        e.preventDefault()
-        e.stopPropagation()
-        toggleHeader()
-        return
-      }
-
-      // 0. Fast-path: Instant Sidebar Toggle (Ctrl+B) with high priority and capture
-      const isCtrlB =
-        (e.ctrlKey || e.metaKey) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        ((e.key && e.key.toLowerCase() === 'b') || e.code === 'KeyB' || e.keyCode === 66)
-
-      if (!isZenMode && (isCtrlB || matchesShortcut(e, shortcuts.toggleSidebar))) {
-        e.preventDefault()
-        e.stopPropagation()
-        toggleSidebar()
-        return
-      }
-
-      // Fast-path: Close active tab with Ctrl+W / Cmd+W (Never closes the whole software, only the tab!)
-      const isCtrlW =
-        (e.ctrlKey || e.metaKey) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        ((e.key && e.key.toLowerCase() === 'w') || e.code === 'KeyW' || e.keyCode === 87)
-
-      if (isCtrlW || matchesShortcut(e, shortcuts.closeActiveTab)) {
-        e.preventDefault()
-        e.stopPropagation()
-        const currentId = activeSessionIdRef.current
-        if (currentId) {
-          closeTab(currentId)
-        }
-        return
-      }
-
-      // Fast-path: Tab Switching with Ctrl+Tab (Next) and Ctrl+Shift+Tab (Prev)
-      const isTabKey = e.key === 'Tab' || e.code === 'Tab' || e.keyCode === 9
-      const isCtrlTab = (e.ctrlKey || e.metaKey) && !e.altKey && isTabKey
-      const isCtrlPageDown = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'PageDown' || e.code === 'PageDown')
-      const isCtrlPageUp = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'PageUp' || e.code === 'PageUp')
-
-      if (
-        isCtrlTab ||
-        isCtrlPageDown ||
-        isCtrlPageUp ||
-        matchesShortcut(e, shortcuts.prevTab) ||
-        matchesShortcut(e, shortcuts.nextTab)
-      ) {
-        e.preventDefault()
-        e.stopPropagation()
-        const isPrev =
-          isCtrlPageUp ||
-          (isCtrlTab && e.shiftKey) ||
-          matchesShortcut(e, shortcuts.prevTab)
-
-        const targetId = isPrev
-          ? getPrevTabId(openTabIdsRef.current, activeSessionIdRef.current)
-          : getNextTabId(openTabIdsRef.current, activeSessionIdRef.current)
-
-        if (targetId) {
-          selectSession(targetId)
-        }
-        return
-      }
-
-      // Fast-path: Reopen closed session tab with Ctrl+Shift+T / Cmd+Shift+T
-      const isCtrlShiftT =
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        !e.altKey &&
-        ((e.key && e.key.toLowerCase() === 't') || e.code === 'KeyT' || e.keyCode === 84)
-
-      if (isCtrlShiftT || matchesShortcut(e, shortcuts.reopenClosedTab)) {
-        e.preventDefault()
-        e.stopPropagation()
-        reopenClosedTab()
-        return
-      }
-
-      // Fast-path: model router overlay. Must run before Ctrl+1..9, which also matches Digit3.
-      const isCtrlShift3 =
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        !e.altKey &&
-        (e.key === '3' || e.code === 'Digit3' || e.keyCode === 51)
-
-      if (isCtrlShift3 || matchesShortcut(e, shortcuts.openModelRouter)) {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsModelRouterOpen((prev) => !prev)
-        return
-      }
-
-      // Fast-path: Direct tab jump with Ctrl+1 ~ Ctrl+9 (Ctrl+9 jumps to last tab)
-      const isDigit = e.key >= '1' && e.key <= '9'
-      const isCtrlDigit = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && isDigit
-
-      if (isCtrlDigit) {
-        e.preventDefault()
-        e.stopPropagation()
-        const digit = parseInt(e.key, 10)
-        const targetId = getTabIdByIndex(openTabIdsRef.current, digit)
-        if (targetId) {
-          selectSession(targetId)
-        }
-        return
-      }
-
-      if (matchesShortcut(e, shortcuts.newSession)) {
-        e.preventDefault()
-        handleNewSession()
-        return
-      }
-
-      if (matchesShortcut(e, shortcuts.focusSearch) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
-        e.preventDefault()
-        setIsSearchOpen((prev) => !prev)
-        return
-      }
-
-      if ((shortcuts.findInPage && matchesShortcut(e, shortcuts.findInPage)) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f')) {
-        e.preventDefault()
-        e.stopPropagation()
-        setIsFindOpen(true)
-        return
-      }
-
-      if (
-        matchesShortcut(e, shortcuts.addSessionToMap) ||
-        (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key.toLowerCase() === 'm' || e.code === 'KeyM'))
-      ) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (activeSessionId) {
-          handleAddSessionToMap(activeSessionId)
-        }
-        return
-      }
-
-      if (
-        matchesShortcut(e, shortcuts.toggleMap) ||
-        ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'm')
-      ) {
-        e.preventDefault()
-        e.stopPropagation()
-        if (!isMapOpen) {
-          handleOpenMapAndLocate(activeSessionId)
-        } else {
-          setIsMapOpen(false)
-          setMapTargetSessionId(null)
-        }
-        return
-      }
-
-      if (matchesShortcut(e, shortcuts.openSettings) || ((e.ctrlKey || e.metaKey) && e.key === ',')) {
-        e.preventDefault()
-        setIsSettingsOpen((prev) => !prev)
-        return
-      }
-    }
-
-    // Use capture phase (true) so Ctrl+B, Ctrl+W, Ctrl+Tab, and Ctrl+Shift+T intercept before browser/OS accelerators
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [
-    shortcuts,
-    isZenMode,
+  const { isZenMode, toggleZenMode, shortcuts } = useGlobalShortcuts({
+    activeSessionId,
+    openTabIds,
     isSettingsOpen,
+    setIsSettingsOpen,
     isMapOpen,
+    setIsMapOpen,
+    setMapTargetSessionId,
     isSearchOpen,
+    setIsSearchOpen,
     isFindOpen,
+    setIsFindOpen,
     isModelRouterOpen,
+    setIsModelRouterOpen,
     handleNewSession,
-    toggleZenMode,
     toggleSidebar,
     toggleHeader,
     closeTab,
     reopenClosedTab,
     selectSession,
-  ])
+    handleAddSessionToMap,
+    handleOpenMapAndLocate,
+  })
 
-  // Guarantee outer window never scrolls or shifts layout vertically
   useEffect(() => {
     const handleScroll = () => {
       if (window.scrollX !== 0 || window.scrollY !== 0) {
@@ -1058,345 +584,305 @@ export default function App() {
   return (
     <DiffDrawerProvider activeSessionId={activeSessionId}>
       <div className="flex h-full w-full bg-[#0c0d0e] text-[#e6edf3] font-sans antialiased overflow-hidden">
-        {/* 0. Top-Right Subtle Hover-Revealed Zen Mode Exit Capsule */}
-      {isZenMode && (
-        <div className="fixed top-3.5 right-5 z-50 group pointer-events-auto">
-          <button
-            onClick={() => toggleZenMode(false)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#14171d]/60 hover:bg-[#1c212a] border border-zinc-700/40 hover:border-zinc-500/80 text-zinc-400 hover:text-zinc-100 shadow-xl backdrop-blur-md transition-all duration-300 opacity-25 hover:opacity-100 group-hover:opacity-100 cursor-pointer"
-            title={t.zen.exitZenTitle(shortcuts.zenMode?.label || 'F11')}
-          >
-            <Minimize2 className="w-3.5 h-3.5 text-zinc-400 group-hover:text-purple-400 transition-colors" />
-            <span className="text-xs font-medium tracking-wide">{t.zen.exitZenLabel}</span>
-            <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/60 shadow-inner">
-              {shortcuts.zenMode?.label || 'F11'} / Esc
-            </span>
-          </button>
-        </div>
-      )}
+        {isZenMode && (
+          <div className="fixed top-3.5 right-5 z-50 group pointer-events-auto">
+            <button
+              onClick={() => toggleZenMode(false)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#14171d]/60 hover:bg-[#1c212a] border border-zinc-700/40 hover:border-zinc-500/80 text-zinc-400 hover:text-zinc-100 shadow-xl backdrop-blur-md transition-all duration-300 opacity-25 hover:opacity-100 group-hover:opacity-100 cursor-pointer"
+              title={t.zen.exitZenTitle(shortcuts.zenMode?.label || 'F11')}
+            >
+              <Minimize2 className="w-3.5 h-3.5 text-zinc-400 group-hover:text-purple-400 transition-colors" />
+              <span className="text-xs font-medium tracking-wide">{t.zen.exitZenLabel}</span>
+              <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/60 shadow-inner">
+                {shortcuts.zenMode?.label || 'F11'} / Esc
+              </span>
+            </button>
+          </div>
+        )}
 
-      {/* 1. Left Project & Session Drawer (Collapsible) */}
-      {!isZenMode && (
-        <Sidebar
-          isOpen={isSidebarOpen}
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          onSelectProject={setSelectedProjectId}
-          groupedSessions={groupedSessions}
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          unreadSessionIds={unreadSessionIds}
-          onSelectSession={handleSelectSessionWithHistory}
-          onNewSession={handleNewSession}
-          onDeleteSession={(id) => {
-            historyStack.current.remove(id)
-            updateHistoryState()
-            deleteSession(id)
-            clearSessionSideQuestions(id)
-          }}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onOpenSettings={() => handleOpenSettings()}
-          onOpenSearch={() => setIsSearchOpen(true)}
-          onOpenScheduledTasks={() => setIsScheduledTasksOpen(true)}
-          onToggleSidebar={() => toggleSidebar()}
-          canGoBack={canGoBack}
-          canGoForward={canGoForward}
-          onHistoryBack={handleHistoryBack}
-          onHistoryForward={handleHistoryForward}
-          messages={messages}
-          activeSession={activeSession}
-          sessionStatus={sessionStatus}
-          runKnown={runKnown}
-          onOpenMapAndLocate={handleOpenMapAndLocate}
-          onAddSessionToMap={handleAddSessionToMap}
-          onOpenModelRouter={() => {
-            setModelRouterTab('workflow')
-            setIsModelRouterOpen(true)
-          }}
-          onOpenRelayHub={() => {
-            setModelRouterTab('relay')
-            setIsModelRouterOpen(true)
-          }}
-          onGetSessionJson={
-            activeSessionId
-              ? () => api.getAllMessagesRaw(activeSessionId)
-              : undefined
-          }
-          onToggleZenMode={() => toggleZenMode(true)}
-          onOpenFind={() => setIsFindOpen(true)}
-          isHeaderVisible={isHeaderVisible}
-          onToggleHeader={toggleHeader}
-          onDaemonRestored={handleDaemonRestored}
-          onDaemonLost={handleDaemonLost}
-          onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
-          onShowInMap={handleAddSessionToMap}
-        />
-      )}
-
-      {/* 2. Main Workspace Layout */}
-      <div
-        className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden transition-colors duration-300 ${
-          isZenMode ? 'bg-[#090a0c]' : 'bg-[#0c0d0e]'
-        }`}
-        onClick={() => {
-          if (activeSessionId) {
-            markSessionRead(activeSessionId)
-          }
-        }}
-      >
-        {/* Top Header Bar */}
-        {!isZenMode && isHeaderVisible && (
-          <Header
+        {!isZenMode && (
+          <Sidebar
+            isOpen={isSidebarOpen}
             projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+            groupedSessions={groupedSessions}
             sessions={sessions}
-            openTabIds={openTabIds}
             activeSessionId={activeSessionId}
+            unreadSessionIds={unreadSessionIds}
+            onSelectSession={handleSelectSessionWithHistory}
+            onNewSession={handleNewSession}
+            onDeleteSession={(id) => {
+              historyStack.current.remove(id)
+              updateHistoryState()
+              deleteSession(id)
+              clearSessionSideQuestions(id)
+            }}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onOpenSettings={() => handleOpenSettings()}
+            onOpenSearch={() => setIsSearchOpen(true)}
+            onOpenScheduledTasks={() => setIsScheduledTasksOpen(true)}
+            onToggleSidebar={() => toggleSidebar()}
+            canGoBack={canGoBack}
+            canGoForward={canGoForward}
+            onHistoryBack={handleHistoryBack}
+            onHistoryForward={handleHistoryForward}
+            messages={messages}
             activeSession={activeSession}
             sessionStatus={sessionStatus}
             runKnown={runKnown}
-            messages={messages}
-            unreadSessionIds={unreadSessionIds}
-            onSelectTab={(sessionId) => {
-              markSessionRead(sessionId)
-              selectSession(sessionId)
-            }}
-            onCloseTab={closeTab}
-            onCloseOtherTabs={closeOtherTabs}
-            onCloseTabsToRight={closeTabsToRight}
-            onReopenClosedTab={reopenClosedTab}
-            canReopenClosedTab={recentlyClosedTabIds.length > 0}
-            onNewSession={handleNewSession}
-            isSidebarOpen={isSidebarOpen}
-            onToggleSidebar={() => toggleSidebar()}
-            onToggleMap={() => setIsMapOpen((prev) => !prev)}
             onOpenMapAndLocate={handleOpenMapAndLocate}
             onAddSessionToMap={handleAddSessionToMap}
-            onOpenSearch={() => setIsSearchOpen(true)}
-            onToggleZenMode={() => toggleZenMode(true)}
-            zenShortcutLabel={shortcuts.zenMode?.label || 'F11'}
+            onOpenModelRouter={() => {
+              setModelRouterTab('workflow')
+              setIsModelRouterOpen(true)
+            }}
+            onOpenRelayHub={() => {
+              setModelRouterTab('relay')
+              setIsModelRouterOpen(true)
+            }}
             onGetSessionJson={
               activeSessionId
                 ? () => api.getAllMessagesRaw(activeSessionId)
                 : undefined
             }
-            onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
-            onShowInMap={handleAddSessionToMap}
-            onOpenSettings={handleOpenSettings}
-            onOpenRelayHub={() => {
-              setModelRouterTab('relay')
-              setIsModelRouterOpen(true)
-            }}
-            onOpenModelRouter={() => {
-              setModelRouterTab('workflow')
-              setIsModelRouterOpen(true)
-            }}
+            onToggleZenMode={() => toggleZenMode(true)}
+            onOpenFind={() => setIsFindOpen(true)}
+            isHeaderVisible={isHeaderVisible}
+            onToggleHeader={toggleHeader}
             onDaemonRestored={handleDaemonRestored}
             onDaemonLost={handleDaemonLost}
+            onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
+            onShowInMap={handleAddSessionToMap}
           />
         )}
 
-        {/* Center Chat Body & Streaming Timeline */}
-        {sessionsLoading ? (
-          <div className="flex-1 flex items-center justify-center text-zinc-500 gap-2">
-            <Loader2 className="w-5 h-5 animate-spin text-orange-400" />
-            <span className="text-xs">Connecting to OpenCode backend...</span>
-          </div>
-        ) : (
-          <main className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
-            {/* Archived Session Notice Banner */}
-            {activeSessionId && isArchived(activeSessionId) && (
-              <div className="bg-[#1c1a14] border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200/90 shrink-0 z-20 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
-                  <Archive className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>
-                    {isZh
-                      ? '此会话已归档。它已被移出活跃列表，但历史消息与上下文完整保留。发送新消息将自动恢复此会话。'
-                      : 'This conversation is archived. It is hidden from active project trees, but all history is preserved. Sending a message will automatically unarchive it.'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => unarchiveSession(activeSessionId)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-medium transition-colors cursor-pointer shrink-0 ml-3"
-                >
-                  <ArchiveRestore className="w-3.5 h-3.5" />
-                  <span>{isZh ? '恢复会话' : 'Unarchive'}</span>
-                </button>
-              </div>
-            )}
-
-            {/* Scrollable Timeline with Native Message Revert */}
-            <ChatTimeline
-              messages={messages}
-              sessionStatus={sessionStatus}
-              runKnown={runKnown}
-              error={error}
-              onRetry={retry}
-              onPromptSuggestion={(text) => sendPrompt(text)}
-              isZenMode={isZenMode}
-              activeSession={activeSession}
-              onRevertToMessage={revertToMessage}
-              onUnrevert={unrevert}
-              onDraftInject={(draft) => setDraftInjection(draft)}
-              isReverting={reverting}
-              targetMessageId={targetMessageId}
-              onTargetMessageScrolled={() => setTargetMessageId(null)}
-              isFindOpen={isFindOpen}
-              onCloseFind={() => setIsFindOpen(false)}
-              messagesLoading={messagesLoading || sessionsLoading}
+        <div
+          className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden transition-colors duration-300 ${
+            isZenMode ? 'bg-[#090a0c]' : 'bg-[#0c0d0e]'
+          }`}
+          onClick={() => {
+            if (activeSessionId) {
+              markSessionRead(activeSessionId)
+            }
+          }}
+        >
+          {!isZenMode && isHeaderVisible && (
+            <Header
+              projects={projects}
+              sessions={sessions}
+              openTabIds={openTabIds}
+              activeSessionId={activeSessionId}
+              unreadSessionIds={unreadSessionIds}
+              onSelectTab={(sessionId) => {
+                markSessionRead(sessionId)
+                selectSession(sessionId)
+              }}
+              onCloseTab={closeTab}
+              onCloseOtherTabs={closeOtherTabs}
+              onCloseTabsToRight={closeTabsToRight}
+              onReopenClosedTab={reopenClosedTab}
+              canReopenClosedTab={recentlyClosedTabIds.length > 0}
+              onNewSession={handleNewSession}
+              onToggleMap={() => setIsMapOpen((prev) => !prev)}
+              onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
+              onShowInMap={handleAddSessionToMap}
             />
+          )}
 
-            {/* Bottom Controls / Zen Mode Floating Dock (Preserves PromptInput instance across F11 toggles) */}
-            <div
-              className={
-                isZenMode
-                  ? 'fixed bottom-4 left-1/2 -translate-x-1/2 max-w-3xl w-[calc(100%-2rem)] z-40 flex flex-col gap-2 pointer-events-none'
-                  : 'flex flex-col shrink-0'
-              }
-            >
-              {isCardOpen && currentSideQuestion && (
-                <div
-                  className={
-                    isZenMode
-                      ? 'pointer-events-auto'
-                      : 'mx-auto w-full px-4 sm:px-6 lg:px-8 pb-2 max-w-4xl xl:max-w-5xl'
-                  }
-                >
-                  <SideQuestionCard
-                    data={currentSideQuestion}
-                    currentIndex={currentIndex}
-                    totalCount={totalCount}
-                    onPrev={goToPrev}
-                    onNext={goToNext}
-                    onClose={closeCard}
-                    onDelete={() => deleteSideQuestion()}
-                    isZenMode={isZenMode}
-                    selectedModel={sideQuestionModel}
-                    onSelectModel={setSideQuestionModel}
-                    providers={providers}
-                  />
+          {sessionsLoading ? (
+            <div className="flex-1 flex items-center justify-center text-zinc-500 gap-2">
+              <Loader2 className="w-5 h-5 animate-spin text-orange-400" />
+              <span className="text-xs">Connecting to OpenCode backend...</span>
+            </div>
+          ) : (
+            <main className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
+              {activeSessionId && isArchived(activeSessionId) && (
+                <div className="bg-[#1c1a14] border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200/90 shrink-0 z-20 backdrop-blur-sm">
+                  <div className="flex items-center gap-2">
+                    <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      {isZh
+                        ? '此会话已归档。它已被移出活跃列表，但历史消息与上下文完整保留。发送新消息将自动恢复此会话。'
+                        : 'This conversation is archived. It is hidden from active project trees, but all history is preserved. Sending a message will automatically unarchive it.'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => unarchiveSession(activeSessionId)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-medium transition-colors cursor-pointer shrink-0 ml-3"
+                  >
+                    <ArchiveRestore className="w-3.5 h-3.5" />
+                    <span>{isZh ? '恢复会话' : 'Unarchive'}</span>
+                  </button>
                 </div>
               )}
 
-              <div className={isZenMode ? 'pointer-events-auto' : ''}>
-                <SessionRevertDock
-                  activeSession={activeSession}
-                  messages={messages}
-                  onRestoreMessage={handleRestoreMessage}
-                  isRestoring={reverting}
-                />
-              </div>
+              <ChatTimeline
+                messages={messages}
+                sessionStatus={sessionStatus}
+                runKnown={runKnown}
+                error={error}
+                onRetry={retry}
+                onPromptSuggestion={(text) => sendPrompt(text)}
+                isZenMode={isZenMode}
+                activeSession={activeSession}
+                onRevertToMessage={revertToMessage}
+                onUnrevert={unrevert}
+                onDraftInject={(draft) => setDraftInjection(draft)}
+                isReverting={reverting}
+                targetMessageId={targetMessageId}
+                onTargetMessageScrolled={() => setTargetMessageId(null)}
+                isFindOpen={isFindOpen}
+                onCloseFind={() => setIsFindOpen(false)}
+                messagesLoading={messagesLoading || sessionsLoading}
+              />
 
-              <div className={isZenMode ? 'pointer-events-auto' : ''}>
-                <PromptInput
-                  activeSessionId={activeSessionId}
-                  activeSession={activeSession}
-                  onSend={handleSendPrompt}
-                  onSideQuestion={handleSideQuestion}
-                  sideQuestionCount={totalCount}
-                  onToggleSideQuestion={toggleCard}
-                  onAbort={abort}
-                  isBusy={runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry')}
-                  runKnown={runKnown}
-                  queuedMessages={queuedMessages}
-                  onEnqueue={handleEnqueue}
-                  onSendQueuedNow={(id) => void dispatchQueueHead(id, true)}
-                  onEditQueued={handleEditQueued}
-                  onDeleteQueued={handleDeleteQueued}
-                  queueEditRequest={queueEditRequest}
-                  isZenMode={isZenMode}
-                  draftInjection={draftInjection}
-                  projects={projects}
-                  selectedProjectId={selectedProjectId}
-                  onSelectProject={setSelectedProjectId}
-                  onNewProject={async () => { await refresh() }}
-                  sessions={sessions}
-                  todos={todos}
-                />
+              <div
+                className={
+                  isZenMode
+                    ? 'fixed bottom-4 left-1/2 -translate-x-1/2 max-w-3xl w-[calc(100%-2rem)] z-40 flex flex-col gap-2 pointer-events-none'
+                    : 'flex flex-col shrink-0'
+                }
+              >
+                {isCardOpen && currentSideQuestion && (
+                  <div
+                    className={
+                      isZenMode
+                        ? 'pointer-events-auto'
+                        : 'mx-auto w-full px-4 sm:px-6 lg:px-8 pb-2 max-w-4xl xl:max-w-5xl'
+                    }
+                  >
+                    <SideQuestionCard
+                      data={currentSideQuestion}
+                      currentIndex={currentIndex}
+                      totalCount={totalCount}
+                      onPrev={goToPrev}
+                      onNext={goToNext}
+                      onClose={closeCard}
+                      onDelete={() => deleteSideQuestion()}
+                      isZenMode={isZenMode}
+                      selectedModel={sideQuestionModel}
+                      onSelectModel={setSideQuestionModel}
+                      providers={providers}
+                    />
+                  </div>
+                )}
+
+                <div className={isZenMode ? 'pointer-events-auto' : ''}>
+                  <SessionRevertDock
+                    activeSession={activeSession}
+                    messages={messages}
+                    onRestoreMessage={handleRestoreMessage}
+                    isRestoring={reverting}
+                  />
+                </div>
+
+                <div className={isZenMode ? 'pointer-events-auto' : ''}>
+                  <PromptInput
+                    activeSessionId={activeSessionId}
+                    activeSession={activeSession}
+                    onSend={handleSendPrompt}
+                    onSideQuestion={handleSideQuestion}
+                    sideQuestionCount={totalCount}
+                    onToggleSideQuestion={toggleCard}
+                    onAbort={abort}
+                    isBusy={isBusy || isDispatchingQueue}
+                    runKnown={runKnown}
+                    queuedMessages={queuedMessages}
+                    isQueuePaused={isQueuePaused}
+                    onEnqueue={handleEnqueue}
+                    onSendQueuedNow={sendQueuedNow}
+                    onEditQueued={handleEditQueued}
+                    onDeleteQueued={handleDeleteQueued}
+                    queueEditRequest={queueEditRequest}
+                    isZenMode={isZenMode}
+                    draftInjection={draftInjection}
+                    projects={projects}
+                    selectedProjectId={selectedProjectId}
+                    onSelectProject={setSelectedProjectId}
+                    onNewProject={async () => { await refresh() }}
+                    sessions={sessions}
+                    todos={todos}
+                  />
+                </div>
               </div>
-            </div>
-          </main>
+            </main>
+          )}
+        </div>
+
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => {
+            setIsSettingsOpen(false)
+            setSettingsInitialTab(undefined)
+          }}
+          initialTab={settingsInitialTab}
+        />
+
+        <FloatingMapModal
+          isOpen={isMapOpen}
+          onClose={() => {
+            setIsMapOpen(false)
+            setMapTargetSessionId(null)
+          }}
+          targetSessionId={mapTargetSessionId}
+          onSelectSession={(sessionId) => {
+            selectSession(sessionId)
+          }}
+          projects={projects}
+          activeDirectory={
+            (projects.find((p) => p.id === selectedProjectId)?.worktree &&
+              projects.find((p) => p.id === selectedProjectId)?.worktree !== '/' &&
+              projects.find((p) => p.id === selectedProjectId)?.worktree) ||
+            activeSession?.directory ||
+            projects.find((p) => p.worktree && p.worktree !== '/')?.worktree
+          }
+        />
+
+        <FloatingSearchModal
+          isOpen={isSearchOpen}
+          onClose={() => setIsSearchOpen(false)}
+          onSelectSession={(sessionId, messageId) => {
+            markSessionRead(sessionId)
+            if (messageId) {
+              setTargetMessageId(messageId)
+            }
+            selectSession(sessionId)
+          }}
+          sessions={sessions}
+          projects={projects}
+          initialSelectedProjectId={selectedProjectId}
+          unreadSessionIds={unreadSessionIds}
+        />
+
+        <ScheduledTasksModal
+          isOpen={isScheduledTasksOpen}
+          onClose={() => setIsScheduledTasksOpen(false)}
+          projects={projects}
+          onRunTaskNow={handleRunScheduledTaskNow}
+        />
+
+        <FloatingModelRouter
+          isOpen={isModelRouterOpen}
+          initialTab={modelRouterTab}
+          onClose={() => setIsModelRouterOpen(false)}
+        />
+
+        <DiffSidebarDrawer />
+
+        {toastMessage && (
+          <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-3 py-2 bg-[#16181f]/95 border border-[#2d323e] text-zinc-100 text-xs rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
+            {toastMessage.includes('成功') ? (
+              <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[2.5]" />
+            ) : (
+              <MapPin className="w-3.5 h-3.5 text-orange-400" />
+            )}
+            <span>{toastMessage}</span>
+          </div>
         )}
       </div>
-
-      {/* 3. Settings Modal (Image 3) */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => {
-          setIsSettingsOpen(false)
-          setSettingsInitialTab(undefined)
-        }}
-        initialTab={settingsInitialTab}
-      />
-
-      {/* 4. A1 Floating Dialogue Map Modal */}
-      <FloatingMapModal
-        isOpen={isMapOpen}
-        onClose={() => {
-          setIsMapOpen(false)
-          setMapTargetSessionId(null)
-        }}
-        targetSessionId={mapTargetSessionId}
-        onSelectSession={(sessionId) => {
-          selectSession(sessionId)
-        }}
-        projects={projects}
-        activeDirectory={
-          (projects.find((p) => p.id === selectedProjectId)?.worktree &&
-            projects.find((p) => p.id === selectedProjectId)?.worktree !== '/' &&
-            projects.find((p) => p.id === selectedProjectId)?.worktree) ||
-          activeSession?.directory ||
-          projects.find((p) => p.worktree && p.worktree !== '/')?.worktree
-        }
-      />
-
-      {/* 5. A1 Floating Dialogue Search Modal */}
-      <FloatingSearchModal
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        onSelectSession={(sessionId, messageId) => {
-          markSessionRead(sessionId)
-          if (messageId) {
-            setTargetMessageId(messageId)
-          }
-          selectSession(sessionId)
-        }}
-        sessions={sessions}
-        projects={projects}
-        initialSelectedProjectId={selectedProjectId}
-        unreadSessionIds={unreadSessionIds}
-      />
-
-      {/* 5.5 Scheduled Tasks Modal */}
-      <ScheduledTasksModal
-        isOpen={isScheduledTasksOpen}
-        onClose={() => setIsScheduledTasksOpen(false)}
-        projects={projects}
-        onRunTaskNow={handleRunScheduledTaskNow}
-      />
-
-      <FloatingModelRouter
-        isOpen={isModelRouterOpen}
-        initialTab={modelRouterTab}
-        onClose={() => setIsModelRouterOpen(false)}
-      />
-
-      {/* 6. Right-Side File Diff Drawer (Zero Layout Shift Overlay) */}
-      <DiffSidebarDrawer />
-
-      {/* Floating Action Toast */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-3 py-2 bg-[#16181f]/95 border border-[#2d323e] text-zinc-100 text-xs rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
-          {toastMessage.includes('成功') ? (
-            <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[2.5]" />
-          ) : (
-            <MapPin className="w-3.5 h-3.5 text-orange-400" />
-          )}
-          <span>{toastMessage}</span>
-        </div>
-      )}
-    </div>
-  </DiffDrawerProvider>
+    </DiffDrawerProvider>
   )
 }

@@ -50,6 +50,7 @@ export function useChatStream(
   const [turnEpoch, setTurnEpoch] = useState(0)
   /** Why the latest turn ended. 'user' is Stop; 'error' pauses the queue; null is a clean finish. */
   const [turnEnd, setTurnEnd] = useState<'clean' | 'error' | 'user' | null>(null)
+  const [isSending, setIsSending] = useState(false)
 
   // Use a ref to access latest messages in SSE callbacks without stale closures
   const messagesRef = useRef<Message[]>([])
@@ -64,6 +65,7 @@ export function useChatStream(
   const transitioningSessionIdRef = useRef<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(sessionId)
   const sessionBusyRef = useRef(false)
+  const isSendingRef = useRef(false)
   const lastSendTimestampRef = useRef(0)
   /** Bumps on every status write so a late /session/status snapshot cannot clobber SSE, send, or abort. */
   const statusEpochRef = useRef(0)
@@ -84,7 +86,7 @@ export function useChatStream(
   >(async () => {})
 
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
-    if (!sessionBusyRef.current && kind === 'clean') return
+    // Clean transitions are gated by callers checking wasBusy before commitSessionStatus
     sessionBusyRef.current = false
     setTurnEnd(kind)
     setTurnEpoch((n) => n + 1)
@@ -504,10 +506,14 @@ export function useChatStream(
     const unsubStatus = sseManager.onSessionStatus((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
+      if (data.status.type === 'idle' && isSendingRef.current) return
+      const wasBusyOnStatus = sessionBusyRef.current
       noteActivity('status')
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
-        noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
+        if (wasBusyOnStatus || userAbortedRef.current) {
+          noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
+        }
         // Authoritative background history reconciliation on status idle
         void api
           .getMessages(activeId, { fresh: true })
@@ -566,6 +572,7 @@ export function useChatStream(
     const unsubIdle = sseManager.onSessionIdle((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
+      if (isSendingRef.current) return
       noteActivity('idle')
       commitSessionStatus({ type: 'idle' })
 
@@ -797,6 +804,8 @@ export function useChatStream(
       commitSessionStatus({ type: 'busy' })
       setError(null)
       setTurnEnd(null)
+      isSendingRef.current = true
+      setIsSending(true)
 
       const apiParts = buildPromptParts(text, options?.attachments)
 
@@ -811,6 +820,9 @@ export function useChatStream(
         setError(err instanceof Error ? err.message : String(err))
         commitSessionStatus({ type: 'idle' })
         noteTurnEnd('error')
+      } finally {
+        isSendingRef.current = false
+        setIsSending(false)
       }
     },
     [sessionId, noteTurnEnd, commitSessionStatus, noteActivity]
@@ -1010,6 +1022,7 @@ export function useChatStream(
     error,
     turnEpoch,
     turnEnd,
+    isSending,
     sendPrompt,
     abort,
     retry,
