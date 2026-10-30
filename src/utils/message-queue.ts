@@ -11,6 +11,7 @@ export interface QueuedMessage {
   text: string
   options?: QueuedPromptOptions
   createdAt: number
+  status?: 'queued' | 'waiting_boundary'
 }
 
 /** Image rows the queue list can paint as a thumbnail. Non-images stay text-only. */
@@ -66,6 +67,46 @@ export function enqueueMessage(queue: readonly QueuedMessage[], item: QueuedMess
 
 export function removeQueuedMessage(queue: readonly QueuedMessage[], id: string): QueuedMessage[] {
   return queue.filter((item) => item.id !== id)
+}
+
+/**
+ * Moves a queued message to the front of the queue and marks it as waiting_boundary.
+ * Ensures the prioritized message is next to dispatch as soon as the active paragraph completes.
+ */
+export function promoteAndMarkWaitingBoundary(
+  queue: readonly QueuedMessage[],
+  id: string
+): QueuedMessage[] {
+  const target = queue.find((item) => item.id === id)
+  if (!target) return [...queue]
+  const rest = queue.filter((item) => item.id !== id)
+  return [{ ...target, status: 'waiting_boundary' }, ...rest]
+}
+
+/**
+ * Invariant 4 (Paragraph-Boundary Fast Send):
+ * Determines whether an incoming daemon event represents a natural paragraph / step boundary
+ * (e.g. tool execution finished, reasoning ended, step-finish, or session became idle).
+ * Allows graceful preemption without cutting tools or thinking mid-execution.
+ */
+export function isParagraphBoundaryEvent(eventType: string, eventData: any): boolean {
+  if (eventType === 'session.idle') return true
+  if (eventType === 'session.status' && eventData?.status?.type === 'idle') return true
+  if (eventType === 'message.part.updated' || eventType === 'part.updated') {
+    const part = eventData?.part
+    if (!part) return false
+    if (part.type === 'tool') {
+      const status = part.state?.status
+      return status === 'completed' || status === 'error'
+    }
+    if (part.type === 'reasoning') {
+      return Boolean(part.time?.end)
+    }
+    if (part.type === 'step-finish') {
+      return true
+    }
+  }
+  return false
 }
 
 export function dequeueFirst(queue: readonly QueuedMessage[]): {
@@ -165,6 +206,7 @@ export function persistableQueue(queue: Record<string, QueuedMessage[]>): Record
         id: item.id,
         text: item.text,
         createdAt: typeof item.createdAt === 'number' ? item.createdAt : 0,
+        status: item.status === 'waiting_boundary' ? 'waiting_boundary' : 'queued',
         options: options
           ? {
               agent: typeof options.agent === 'string' ? options.agent : undefined,

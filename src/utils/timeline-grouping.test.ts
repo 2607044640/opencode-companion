@@ -151,4 +151,42 @@ describe('Timeline Grouping Unit Tests', () => {
       assert.deepEqual(grouped[2].allMessageIds, ['a2'])
     }
   })
+
+  test('omits completed assistant turns with 0 parts and no error (matches official OpenCode)', () => {
+    // Exact scenario from session ses_e77597f02ffew3npv9wZuzkk4p
+    const messages: Message[] = [
+      {
+        info: { id: 'u1', sessionID: 's', role: 'user', time: { created: 100 } },
+        parts: [{ id: 'p1', sessionID: 's', messageID: 'u1', type: 'text', text: '这是一个测试2' }],
+      },
+      {
+        info: { id: 'a1', sessionID: 's', role: 'assistant', time: { created: 110, completed: 200 } },
+        parts: [], // empty aborted turn without error
+      },
+      {
+        info: { id: 'u2', sessionID: 's', role: 'user', time: { created: 210 } },
+        parts: [{ id: 'p2', sessionID: 's', messageID: 'u2', type: 'text', text: '这是一个测试1' }],
+      },
+      {
+        info: { id: 'u3', sessionID: 's', role: 'user', time: { created: 300 } },
+        parts: [{ id: 'p3', sessionID: 's', messageID: 'u3', type: 'text', text: '这是一个测试3' }],
+      },
+      {
+        info: { id: 'a2', sessionID: 's', role: 'assistant', time: { created: 310, completed: 500 } },
+        parts: [{ id: 'p4', sessionID: 's', messageID: 'a2', type: 'text', text: '收到，测试3。' }],
+      },
+    ]
+
+    const grouped = groupTimelineMessages(messages)
+    // a1 must be dropped, leaving 3 user turns followed by 1 assistant turn
+    assert.equal(grouped.length, 4)
+    assert.equal(grouped[0].type, 'user')
+    assert.equal((grouped[0] as any).message.info.id, 'u1')
+    assert.equal(grouped[1].type, 'user')
+    assert.equal((grouped[1] as any).message.info.id, 'u2')
+    assert.equal(grouped[2].type, 'user')
+    assert.equal((grouped[2] as any).message.info.id, 'u3')
+    assert.equal(grouped[3].type, 'assistant')
+    assert.equal((grouped[3] as any).primaryMessage.info.id, 'a2')
+  })
 })

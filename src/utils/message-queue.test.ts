@@ -5,8 +5,10 @@ import {
   createQueuedMessage,
   dequeueFirst,
   enqueueMessage,
+  isParagraphBoundaryEvent,
   loadPersistedQueue,
   migrateSessionQueue,
+  promoteAndMarkWaitingBoundary,
   queuedImageAttachments,
   removeQueuedMessage,
   savePersistedQueue,
@@ -216,5 +218,72 @@ describe('message queue', () => {
     }
     const item = createQueuedMessage('keep in memory', undefined, 1)
     assert.doesNotThrow(() => savePersistedQueue(storage, { ses_1: [item] }))
+  })
+
+  it('promoteAndMarkWaitingBoundary prioritizes target to head and marks status', () => {
+    const q1 = createQueuedMessage('1', undefined, 1)
+    const q2 = createQueuedMessage('2', undefined, 2)
+    const q3 = createQueuedMessage('3', undefined, 3)
+
+    const promoted = promoteAndMarkWaitingBoundary([q1, q2, q3], q2.id)
+    assert.equal(promoted.length, 3)
+    assert.equal(promoted[0].id, q2.id)
+    assert.equal(promoted[0].status, 'waiting_boundary')
+    assert.equal(promoted[1].id, q1.id)
+    assert.equal(promoted[2].id, q3.id)
+  })
+
+  it('isParagraphBoundaryEvent accurately detects tool completions, reasoning end, and idle events', () => {
+    // 1. Tool completions
+    assert.equal(
+      isParagraphBoundaryEvent('message.part.updated', {
+        part: { type: 'tool', state: { status: 'completed' } },
+      }),
+      true
+    )
+    assert.equal(
+      isParagraphBoundaryEvent('message.part.updated', {
+        part: { type: 'tool', state: { status: 'error' } },
+      }),
+      true
+    )
+    // Running tool is NOT a boundary (must not cut mid-command)
+    assert.equal(
+      isParagraphBoundaryEvent('message.part.updated', {
+        part: { type: 'tool', state: { status: 'running' } },
+      }),
+      false
+    )
+
+    // 2. Reasoning completed with end timestamp
+    assert.equal(
+      isParagraphBoundaryEvent('message.part.updated', {
+        part: { type: 'reasoning', time: { start: 100, end: 200 } },
+      }),
+      true
+    )
+    // Reasoning ongoing without end timestamp is NOT a boundary
+    assert.equal(
+      isParagraphBoundaryEvent('message.part.updated', {
+        part: { type: 'reasoning', time: { start: 100 } },
+      }),
+      false
+    )
+
+    // 3. Step finish
+    assert.equal(
+      isParagraphBoundaryEvent('message.part.updated', {
+        part: { type: 'step-finish' },
+      }),
+      true
+    )
+
+    // 4. Session idle
+    assert.equal(isParagraphBoundaryEvent('session.idle', {}), true)
+    assert.equal(isParagraphBoundaryEvent('session.status', { status: { type: 'idle' } }), true)
+    assert.equal(isParagraphBoundaryEvent('session.status', { status: { type: 'busy' } }), false)
+
+    // 5. Plain text delta is not a boundary
+    assert.equal(isParagraphBoundaryEvent('message.part.delta', { delta: 'hello' }), false)
   })
 })

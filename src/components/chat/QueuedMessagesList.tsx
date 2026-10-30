@@ -102,17 +102,30 @@ export function QueuedMessagesList({ items, isPaused = false, onSendNow, onEdit,
                     )}
                   </span>
                 )}
-                <span className="flex-1 min-w-0 text-sm text-zinc-200 truncate" title={preview}>
-                  {preview}
+                <span className="flex-1 min-w-0 text-sm text-zinc-200 truncate flex items-center gap-2" title={preview}>
+                  <span className="truncate">{preview}</span>
+                  {item.status === 'waiting_boundary' && (
+                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] bg-purple-950/80 border border-purple-600/70 text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
+                      {tr('等待段落结束即发送…', 'Sends after paragraph finishes…', 'Sendet nach Absatz…')}
+                    </span>
+                  )}
                 </span>
                 <div className="flex items-center gap-0.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => onSendNow(item.id)}
-                    className="w-7 h-7 rounded-md text-zinc-400 hover:text-white hover:bg-[#2a2e37] flex items-center justify-center"
-                    title={tr('立即发送', 'Send now', 'Jetzt senden')}
+                    className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+                      item.status === 'waiting_boundary'
+                        ? 'text-purple-300 bg-purple-950/70 border border-purple-800/60'
+                        : 'text-zinc-400 hover:text-white hover:bg-[#2a2e37]'
+                    }`}
+                    title={
+                      item.status === 'waiting_boundary'
+                        ? tr('等待段落结束即发送…', 'Sends after paragraph finishes…', 'Sendet nach Absatz…')
+                        : tr('立即发送', 'Send now', 'Jetzt senden')
+                    }
                   >
-                    <Send className="w-3.5 h-3.5" />
+                    <Send className={`w-3.5 h-3.5 ${item.status === 'waiting_boundary' ? 'animate-pulse' : ''}`} />
                   </button>
                   <button
                     type="button"

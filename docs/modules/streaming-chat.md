@@ -10,6 +10,7 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | :--- | :--- | :--- |
 | `src/services/sse.ts` | Single `EventSource` to `/global/event`, reconnect 2s→10s, typed `on*` helpers | React state, REST prompt POST |
 | `src/hooks/useChatStream.ts` | History load, optimistic send, delta/part merge, status, error fuse, revert/unrevert | Textarea, map, shortcut registry, part-array assembly |
+| `src/utils/timeline-grouping.ts` | Contiguous assistant turn fusion, completed empty assistant turn pruning (SSOT alignment) | Direct DOM rendering, fetch calls |
 | `src/utils/prompt-parts.ts` | `buildPromptParts`, `buildOptimisticMessage`, `reconcileHistoryWithOptimistic` | FileReader, HTTP |
 | `src/components/chat/ChatTimeline.tsx` | Scroll, 502/error banner, find-in-page host, revert confirm diffs | `sendPrompt` HTTP |
 | `MessageBubble.tsx` | Per-message agent badge, model pill, `react-markdown` + `remark-gfm` + `rehype-highlight` | Prompt target dropdown (next-send, not author) |
@@ -31,6 +32,7 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 - `loadSessionData` sets messages via `reconcileHistoryWithOptimistic(history, prev)`. Empty history while a local timeline exists keeps `prev`. A user row in history that lacks file parts inherits file parts from the previous optimistic user message. (Why chosen over replacing state with GET: the daemon often returns text before file parts exist, which wiped the thumbnail.)
 - `loading`, `messages`, `todos`, `error`, and `loadedSessionId` are written only while `currentSessionIdRef` is still that id. A late GET for session A must not clear session B's spinner. `__draft__` and a null id set `loading` false. The timeline spinner is `messagesLoading || isPendingSession` while the transcript is empty and there is no error. Token or file counts are not a loading signal. (Why chosen over an unconditional `finally`: a fast tab switch left the new session looking idle, and a fetched empty transcript with leftover tokens spun forever.)
 - Data-URL file parts trigger `api.materializeAttachment` → `POST /api/materialize-attachment` (`serve.mjs`) without awaiting it before `prompt_async`. Failure is a console warning. (Why chosen over blocking send: disk mirrors are for native file reads, not the daemon contract.)
+- **Empty Assistant Turn Pruning (Official OpenCode SSOT)**: If an assistant message completes with 0 parts and carries no backend error (`!info.error`), `timeline-grouping.ts` drops it from the visual timeline, and `MessageBubble.tsx` returns `null`. This prevents phantom empty bubbles and false "未收到模型响应" warning banners on historical turns.
 - Unchanged hunk context is folded (`collapseUnchangedLines`: pad 3, minCollapse 4). The fold control is `+N more lines` (expand remaining) plus `+10` head/tail when `count > 10`. `prefs.floatingDiffView !== false` (default on) renders a centered `min(88vw, 1100px)` × `min(86vh, 900px)` dialog; turning the setting off restores the right `w-[min(48vw,720px)]` drawer. (Why chosen over dumping full context: long ctx blocks bury the actual add/del lines.)
 
 ## Numbered Data Flow

@@ -49,6 +49,8 @@ At most three. System-wide. Modules reference these; they do not restate them.
 - `src/services/api.ts` — REST + defensive normalize (`extra="allow"`). Every daemon payload crosses here before React state.
 - `src/services/sse.ts` — single `EventSource` to `/global/event`.
 - `src/hooks/useSessions.ts` / `useChatStream.ts` — session list vs transcript.
+- `src/hooks/usePromptQueue.ts` / `src/utils/message-queue.ts` — session prompt queue state machine, level-triggered auto-drain, paragraph-boundary smooth preemption, pause latch.
+- `src/hooks/useGlobalShortcuts.ts` / `useScheduledTasksRunner.ts` — decoupled global shortcuts and background scheduled task runner.
 - `src/utils/prompt-parts.ts` — `buildPromptParts`, `buildOptimisticMessage`, `reconcileHistoryWithOptimistic`. Single part builder for UI and `prompt_async`.
 - `src/utils/session-workspace.ts` — project resolve, `formatProjectPill` (`[APISpace]`), `getProjectAbbreviation` (`AS`/`ON`/`OD`/`AI`/`NS`).
 - `src/components/{chat,layout,map,search,settings,diff}/` — UI stores named in the table above. `map/canvas/session-search.ts`, `HighlightedText.tsx`, `blueprint-action-helpers.ts` belong to DialogueBlueprint. Diff drawer chrome is StreamingChat.

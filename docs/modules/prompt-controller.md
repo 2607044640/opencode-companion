@@ -7,6 +7,9 @@ Composer: autogrow textarea, Enter send / Shift+Enter newline, `/` and `@` popov
 | Component | Responsible For | MUST NOT Contain |
 | :--- | :--- | :--- |
 | `src/components/chat/PromptInput.tsx` | Text, attachments, agent/model menus, send/abort, draft injection, popover state | Timeline history, SSE merge, `MessagePartInput` assembly |
+| `src/hooks/usePromptQueue.ts` | Session-isolated queue state, level-triggered auto-drain, paragraph-boundary smooth preemption, pause latch | Direct DOM rendering, textarea focus |
+| `src/utils/message-queue.ts` | Pure queue state machine (`shouldEnqueueSubmission`, `canAutoDrainQueue`, `isParagraphBoundaryEvent`, persistence) | React state, fetch calls |
+| `src/components/chat/QueuedMessagesList.tsx` | Queued items UI, `waiting_boundary` status badge, edit/delete actions, confirmation modal | Wire protocol assembly, direct HTTP |
 | `src/utils/prompt-parts.ts` | `buildPromptParts` (wire), `buildOptimisticMessage`, `reconcileHistoryWithOptimistic` | FileReader, send button lock |
 | `PromptPopover.tsx` | Command / agent / file list, keyboard highlight | File search HTTP (`api.findFiles` stays in PromptInput) |
 | `ProjectDropdown.tsx` | Canonical project pick, new-project / settings modals | Session create HTTP |
@@ -21,6 +24,10 @@ Composer: autogrow textarea, Enter send / Shift+Enter newline, `/` and `@` popov
 - Images (`image/*` or image extensions) become `PromptAttachment` thumbnails. Other files insert `@filename` mentions via `formatFileMentions`. (Why chosen over treating every drop as a file part: daemon file parts are multimodal URLs; non-images are path context.)
 - Concurrent paste/drop uses `processingImageCount` (not a boolean). `isProcessingImage = processingImageCount > 0`. Each `FileReader` increments on start and decrements on load or error. Send stays disabled until the count is 0. (Why chosen over a boolean lock: overlapping readers cleared the flag when the first file finished and the second data URL was dropped.)
 - PromptInput does not build daemon parts. Parent `sendPrompt` and `api.sendPrompt` both call `buildPromptParts`. File parts are `{ type: 'file', mime, filename, url }` with `url` a `data:image/...;base64,...` URL. Image-only send (empty text, attachments present) is valid. (Why chosen over assembling parts in the textarea: the first-send / `__draft__` path used to omit file parts.)
+- **Queue Submission Gate (FIFO)**: `shouldEnqueueSubmission(isBusy, queueCount)` enforces that any message submitted while the model is working OR when items are already queued is enqueued into FIFO order instead of directly sent, preventing priority inversion.
+- **Level-Triggered Auto-Drain**: `canAutoDrainQueue` auto-pops the head queued prompt as soon as `!isBusy && runKnown && statusType === 'idle' && !isPaused && queue.length > 0`. Avoids fragile edge-triggered counter races.
+- **Paragraph-Boundary Fast Send**: Clicking "Send Now" (paper plane) does NOT execute a hard abort mid-step. Instead, it marks the queued prompt as `waiting_boundary` and listens via `isParagraphBoundaryEvent` for tool completion, reasoning end, or step-finish before cleanly triggering the next turn. Maintains 1, 2, 3 dispatch order.
+- **Pause Latch**: Any turn ending in error or user Stop latches `isPaused = true`. Auto-drain is paused until user clicks "Send Now" or submits a new message.
 
 ## Numbered Data Flow
 

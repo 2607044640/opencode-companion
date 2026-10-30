@@ -19,7 +19,7 @@ Load `docs/modules/<file>.md` only when changing that subsystem. Do not concaten
 | SessionManagement | [docs/modules/session-management.md](docs/modules/session-management.md) | Lifecycle, draft tabs, canonical project binding, 2-letter tab badges, revert dock, archive/pin. Daemon owns SQLite; companion never reads `opencode.db`. |
 | DialogueBlueprint | [docs/modules/dialogue-blueprint.md](docs/modules/dialogue-blueprint.md) | React Flow canvas, Dagre, laser cutter, lazy connect, multi-token canvas search, right-click action menu, decoupled branch/new/connect, undo vs SSE persist. |
 | StreamingChat | [docs/modules/streaming-chat.md](docs/modules/streaming-chat.md) | SSE `/global/event`, delta concat, error fuse, tool cards, floating/drawer diffs, hunk folding, GFM markdown tables. |
-| PromptController | [docs/modules/prompt-controller.md](docs/modules/prompt-controller.md) | Textarea, `/` and `@` popover, paste/upload/drag-drop, project pill, Todo button. |
+| PromptController | [docs/modules/prompt-controller.md](docs/modules/prompt-controller.md) | Textarea, prompt queue state machine, paragraph-boundary fast send, `/` and `@` popover, paste/upload/drag-drop, project pill, Todo button. |
 | LayoutModes | [docs/modules/layout-modes.md](docs/modules/layout-modes.md) | Sidebar, tabs, Ctrl+K search, Ctrl+F find, F11 zen, shortcuts, 2s countdown lock. |
 | RelayGateway | [docs/modules/relay-gateway.md](docs/modules/relay-gateway.md) | Model selector, provider config, relay billing hub, settings token field. |
 | FeatureFlags | [docs/modules/plugin-system.md](docs/modules/plugin-system.md) | `UserPreferences` visibility toggles. No `src/plugins/` registry in this repo. |

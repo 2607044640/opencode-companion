@@ -47,6 +47,19 @@ export function groupTimelineMessages(
     const compositeParts = currentAssistantMessages.flatMap((m) => m.parts)
     const allMessageIds = currentAssistantMessages.map((m) => m.info.id)
 
+    // OpenCode official SSOT alignment:
+    // Drop completed assistant messages that have no parts and no backend error.
+    // Prevents phantom empty cards and fake "interrupted" warning banners between user turns.
+    const hasAnyError = currentAssistantMessages.some((m) => Boolean(m.info.error))
+    const isCompleted = currentAssistantMessages.every(
+      (m) => Boolean(m.info.time?.completed || m.info.finish)
+    )
+    if (compositeParts.length === 0 && !hasAnyError && isCompleted) {
+      currentAssistantMessages = []
+      assistantStartIndex = -1
+      return
+    }
+
     // Aggregate tokens across all assistant turns in this interaction
     let inputTokens = 0
     let outputTokens = 0

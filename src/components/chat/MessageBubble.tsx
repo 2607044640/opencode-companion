@@ -757,6 +757,20 @@ export function MessageBubble({
 
   const isTurnGenerating = runKnown && (isBusy || turn.isLive)
 
+  // OpenCode official SSOT alignment:
+  // If an assistant message has no parts, no relay error, and is explicitly completed,
+  // do not render an empty bubble or false interrupted warning (matches official OpenCode).
+  if (
+    !isUser &&
+    message.parts.length === 0 &&
+    !errorMessage &&
+    !isTurnGenerating &&
+    !isBusy &&
+    isExplicitlyDone
+  ) {
+    return null
+  }
+
   if (isUser) {
     return (
       <UserMessageBubble
