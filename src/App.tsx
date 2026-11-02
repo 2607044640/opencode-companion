@@ -173,6 +173,8 @@ export default function App() {
     todos,
     loading: messagesLoading,
     error,
+    autoRecoveryState,
+    isErrorTerminal,
     turnEnd,
     isSending,
     sendPrompt,
@@ -183,7 +185,10 @@ export default function App() {
     reverting,
   } = useChatStream(activeSessionId, updateSession, activeSession?.directory)
 
-  const isBusy = isSending || (runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry'))
+  const isBusy =
+    isSending ||
+    Boolean(autoRecoveryState) ||
+    (runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry'))
 
   const {
     currentSideQuestion,
@@ -724,6 +729,8 @@ export default function App() {
                 sessionStatus={sessionStatus}
                 runKnown={runKnown}
                 error={error}
+                autoRecoveryState={autoRecoveryState}
+                isErrorTerminal={isErrorTerminal}
                 onRetry={retry}
                 onPromptSuggestion={(text) => sendPrompt(text)}
                 isZenMode={isZenMode}

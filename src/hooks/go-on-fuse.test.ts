@@ -111,7 +111,8 @@ describe('decideGoOn', () => {
     assert.deepEqual(asking, { act: 'wait', reason: 'user_question' })
   })
 
-  it('stops after the per-turn cap', () => {
+  it('stops after the per-turn cap (5)', () => {
+    assert.equal(GO_ON_MAX_PER_TURN, 5)
     const verdict = decideGoOn(clock({
       sentThisTurn: GO_ON_MAX_PER_TURN,
       messages: [assistant({
@@ -119,6 +120,38 @@ describe('decideGoOn', () => {
       })],
     }))
     assert.deepEqual(verdict, { act: 'wait', reason: 'cap' })
+  })
+
+  it('returns empty_turn when assistant has 0 output so empty-turn retry handles it instead of go on', () => {
+    const verdict = decideGoOn(clock({
+      messages: [assistant({
+        finish: 'error',
+        error: { name: 'APIError', data: { message: '502 Bad Gateway' } },
+        parts: [],
+      })],
+    }))
+    assert.deepEqual(verdict, { act: 'wait', reason: 'empty_turn' })
+  })
+
+  it('refuses go on on fatal non-retryable errors', () => {
+    const verdict = decideGoOn(clock({
+      messages: [assistant({
+        finish: 'error',
+        error: { name: 'APIError', data: { message: 'context_length_exceeded' } },
+      })],
+    }))
+    assert.deepEqual(verdict, { act: 'wait', reason: 'fatal_error' })
+  })
+
+  it('nudges with go on when a non-user system abort happens after partial output', () => {
+    const verdict = decideGoOn(clock({
+      userAborted: false,
+      messages: [assistant({
+        finish: 'abort',
+        parts: [{ id: 'p1', sessionID: 'ses_1', messageID: 'msg_a', type: 'text', text: 'already wrote half the file' }],
+      })],
+    }))
+    assert.deepEqual(verdict, { act: 'send', reason: 'relay_error' })
   })
 
   it('does not invent a nudge before status is known', () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Play, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw } from 'lucide-react'
 import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
 import { MessageBubble, getAgentBadge } from './MessageBubble'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
@@ -16,7 +16,7 @@ import { isPendingSession } from '../../utils/session-workspace'
 import { computeClientSideDiffs, mergeRevertDiffs } from '../../utils/client-side-diffs'
 import { isAbortError } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
-import type { RevertMode, PromptAttachment } from '../../hooks/useChatStream'
+import type { RevertMode, PromptAttachment, AutoRecoveryState } from '../../hooks/useChatStream'
 
 interface GeneratingBubbleProps {
   agent?: string
@@ -103,6 +103,8 @@ interface ChatTimelineProps {
   /** False until the daemon answers. Hide finished, retry, and error chrome. */
   runKnown?: boolean
   error?: string | null
+  autoRecoveryState?: AutoRecoveryState | null
+  isErrorTerminal?: boolean
   onRetry: () => void
   onPromptSuggestion?: (text: string) => void
   isZenMode?: boolean
@@ -124,6 +126,8 @@ export function ChatTimeline({
   sessionStatus,
   runKnown = true,
   error,
+  autoRecoveryState = null,
+  isErrorTerminal = false,
   onRetry,
   onPromptSuggestion,
   isZenMode,
@@ -714,7 +718,8 @@ export function ChatTimeline({
               : 'max-w-4xl xl:max-w-5xl'
           } ${isZenMode ? 'space-y-6 pb-36' : 'space-y-4'}`}
         >
-          {visibleItems.map((item) => {
+          {visibleItems.map((item, idx) => {
+            const isLastVisibleItem = idx === visibleItems.length - 1
             if (item.type === 'user' || item.type === 'system') {
               return (
                 <MessageBubble
@@ -746,6 +751,7 @@ export function ChatTimeline({
                 runKnown={runKnown}
                 isReverting={isReverting}
                 onRetry={onRetry}
+                showTerminalError={isLastVisibleItem && Boolean(isErrorTerminal)}
               />
             )
           })}
@@ -759,24 +765,35 @@ export function ChatTimeline({
             />
           )}
 
-          {/* Error / Retry Banner (Exact Replicate of Image 1) */}
-          {runKnown && (sessionStatus.type === 'retry' || (Boolean(error) && !isAbortError(error))) && (
+          {/* Non-Destructive Automatic Recovery Status Indicator (Attempt <= 5) */}
+          {runKnown &&
+            !isErrorTerminal &&
+            (Boolean(autoRecoveryState) || sessionStatus.type === 'retry') && (
+              <div className="max-w-4xl mx-auto my-3 px-4">
+                <div className="rounded-lg bg-[#14171d] border border-purple-800/40 p-3 flex items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                    <span className="text-xs text-zinc-300 font-medium">
+                      {autoRecoveryState?.mode === 'retry' ||
+                      (!autoRecoveryState && sessionStatus.type === 'retry')
+                        ? `正在自动重试当前轮次 (第 ${autoRecoveryState?.attempt || sessionStatus.attempt || 1}/${autoRecoveryState?.max || 5} 次)…`
+                        : `连接波动，正在自动发送 go on 继续生成 (第 ${autoRecoveryState?.attempt || 1}/${autoRecoveryState?.max || 5} 次)…`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          {/* Terminal Error Banner (Only shown after 5 automatic recovery attempts fail or on fatal non-retryable error; never exposes a destructive retry button) */}
+          {runKnown && isErrorTerminal && Boolean(error) && !isAbortError(error) && (
             <div className="max-w-4xl mx-auto my-4 px-4">
               <div className="relative overflow-hidden rounded-lg bg-[#1a1315] border border-rose-900/40 p-3.5 flex items-center justify-between gap-4 shadow-md">
-                {/* Red Left Accent Indicator (from Image 1) */}
                 <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-600" />
 
                 <div className="flex items-center gap-3 pl-2">
                   <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
                   <div className="text-xs text-rose-200">
-                    <span className="font-medium">
-                      {error || sessionStatus.message || "An error occurred during generation. Please try again."}
-                    </span>
-                    {sessionStatus.attempt ? (
-                      <span className="text-rose-400/80 ml-2 font-mono text-[11px]">
-                        (Attempt {sessionStatus.attempt})
-                      </span>
-                    ) : null}
+                    <span className="font-medium">{error}</span>
                   </div>
                 </div>
 
@@ -792,13 +809,6 @@ export function ChatTimeline({
                       <span>撤回此轮</span>
                     </button>
                   )}
-                  <button
-                    onClick={onRetry}
-                    className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded transition-colors flex items-center gap-1.5 shrink-0 shadow-sm"
-                  >
-                    <Play className="w-3 h-3" />
-                    <span>重试 / 继续</span>
-                  </button>
                 </div>
               </div>
             </div>

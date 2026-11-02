@@ -1,5 +1,5 @@
 import type { Message, MessagePart, ReasoningPart, TextPart } from '../types/opencode'
-import { isAbortError } from '../services/api'
+import { extractRelayErrorMessage, isAbortError } from '../services/api'
 import {
   sanitizeMessageRepetition,
   REPETITION_LOOP_ERROR_NAME,
@@ -10,11 +10,41 @@ export const EMPTY_RESPONSE_ERROR_NAME = 'EmptyResponseError' as const
 export const SYSTEM_ABORT_ERROR_NAME = 'SystemAbortError' as const
 export { REPETITION_LOOP_ERROR_NAME, REPETITION_LOOP_ERROR_MESSAGE }
 
+/** Maximum automatic recovery attempts (empty-turn retry or mid-turn go on) per user turn. */
+export const MAX_AUTO_RECOVERY_ATTEMPTS = 5
+
 export const EMPTY_RESPONSE_MESSAGE =
-  '中转服务未返回有效响应（空响应），请点击重试' as const
+  '中转服务连续 5 次未返回有效响应（空响应），已停止自动重试' as const
 
 export const SYSTEM_ABORT_MESSAGE =
-  '生成被中断（备选模型队列耗尽或通道异常），请点击重试' as const
+  '生成被中断且自动恢复已达 5 次上限，已停止自动重试' as const
+
+const FATAL_NON_RETRYABLE_PATTERNS = [
+  /context[_\s-]*length[_\s-]*exceeded/i,
+  /maximum\s+context\s+length/i,
+  /prompt\s+is\s+too\s+long/i,
+  /context\s+window\s+exceeded/i,
+  /token\s+limit\s+(?:exceeded|reached)/i,
+  /max[_\s-]*tokens?[_\s-]*exceeded/i,
+  /request\s+too\s+large/i,
+  /invalid[_\s-]*api[_\s-]*key/i,
+  /incorrect\s+api\s+key/i,
+  /insufficient[_\s-]*quota/i,
+  /billing[_\s-]*not[_\s-]*active/i,
+  /account[_\s-]*deactivated/i,
+  /重复生成熔断/,
+  /repetition_loop/i,
+]
+
+export function isFatalNonRetryableError(error: unknown): boolean {
+  if (!error) return false
+  const text =
+    typeof error === 'string'
+      ? error
+      : extractRelayErrorMessage(error as any) || JSON.stringify(error)
+  if (!text) return false
+  return FATAL_NON_RETRYABLE_PATTERNS.some((re) => re.test(text))
+}
 
 export type EmptyIdleFuseKind =
   | 'none'
@@ -68,45 +98,135 @@ export function hasTurnContent(msg: Message): boolean {
   return msg.parts.some(partHasVisibleContent)
 }
 
-export interface AutoRetryDecision {
-  readonly retry: boolean
-  readonly reason: 'empty_response' | 'system_abort' | 'already_retried' | 'not_empty' | 'has_error_body'
+export function extractUserMessageText(msg: Message): string {
+  return msg.parts
+    .filter((part): part is TextPart => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+    .trim()
 }
 
-/** One automatic resend per user message, only for an empty relay failure.
- * A 502 that already has an error body stays on the banner: Host go-on owns that path.
- * repetition_loop is not a reason here.
+export function isGoOnUserMessage(msg: Message, goOnText = 'go on'): boolean {
+  if (msg.info.role !== 'user') return false
+  const text = extractUserMessageText(msg).toLowerCase()
+  return text === goOnText.toLowerCase() || text.startsWith(`${goOnText.toLowerCase()} (`)
+}
+
+export interface CurrentTurnInspection {
+  readonly rootUserIndex: number
+  readonly rootUserMessage: Message | null
+  readonly turnKey: string | null
+  readonly turnMessages: readonly Message[]
+  readonly assistantMessages: readonly Message[]
+  readonly lastAssistantMessage: Message | undefined
+  readonly goOnCount: number
+  readonly turnHasAnyOutput: boolean
+}
+
+/**
+ * Inspects all messages belonging to the current user turn (from the last non-"go on"
+ * user message onwards). Determines whether ANY assistant message in this turn has
+ * emitted even a single character or tool call (`turnHasAnyOutput`).
  */
-export function userTurnKey(messages: readonly Message[]): string | null {
+export function inspectCurrentTurnRecovery(
+  messages: readonly Message[],
+  goOnText = 'go on'
+): CurrentTurnInspection {
+  let rootUserIndex = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg.info.role !== 'user') continue
-    const text = msg.parts
-      .filter((part): part is TextPart => part.type === 'text')
-      .map((part) => part.text)
-      .join('\n')
-      .trim()
-    return text || msg.info.id
+    if (msg.info.role === 'user' && !isGoOnUserMessage(msg, goOnText)) {
+      rootUserIndex = i
+      break
+    }
   }
-  return null
+
+  if (rootUserIndex === -1) {
+    // Fallback if all user messages are "go on" or only assistant messages exist (e.g. unit test fixtures)
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].info.role === 'user') {
+        rootUserIndex = i
+        break
+      }
+    }
+  }
+
+  const rootUserMessage = rootUserIndex !== -1 ? messages[rootUserIndex] : null
+  const turnMessages = rootUserIndex !== -1 ? messages.slice(rootUserIndex + 1) : messages
+  const assistantMessages = turnMessages.filter((m) => m.info.role === 'assistant')
+  const lastAssistantMessage =
+    assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : undefined
+  const goOnCount = turnMessages.filter((m) => isGoOnUserMessage(m, goOnText)).length
+  const anyAssistantContent = assistantMessages.some((m) => hasTurnContent(m))
+  const turnHasAnyOutput = anyAssistantContent || goOnCount > 0
+
+  const turnKey = rootUserMessage
+    ? extractUserMessageText(rootUserMessage) || rootUserMessage.info.id
+    : null
+
+  return {
+    rootUserIndex,
+    rootUserMessage,
+    turnKey,
+    turnMessages,
+    assistantMessages,
+    lastAssistantMessage,
+    goOnCount,
+    turnHasAnyOutput,
+  }
 }
 
+export interface AutoRetryDecision {
+  readonly retry: boolean
+  readonly reason:
+    | 'empty_response'
+    | 'system_abort'
+    | 'already_retried'
+    | 'cap_exceeded'
+    | 'not_empty'
+    | 'fatal_error'
+}
+
+export function userTurnKey(messages: readonly Message[]): string | null {
+  return inspectCurrentTurnRecovery(messages).turnKey
+}
+
+/**
+ * Decides whether to automatically retry an empty turn from scratch.
+ * STRICT INVARIANT:
+ * - Only retries when the turn has ZERO output (`!turnHasAnyOutput`).
+ * - Retries even if the relay attached a 502/504/timeout error to the empty shell,
+ *   unless the error is a fatal non-retryable error (e.g. context length overflow).
+ * - Stops retrying once `attemptCount >= MAX_AUTO_RECOVERY_ATTEMPTS` (5).
+ */
 export function decideEmptyTurnAutoRetry(input: {
   readonly fuseKind: EmptyIdleFuseKind
   readonly turnKey: string | null
-  readonly alreadyRetriedTurnKey: string | null
-  readonly assistantHasError: boolean
+  readonly alreadyRetriedTurnKey?: string | null
+  readonly attemptCount?: number
+  readonly maxAttempts?: number
+  readonly assistantHasError?: boolean
+  readonly errorText?: unknown
+  readonly turnHasAnyOutput?: boolean
 }): AutoRetryDecision {
+  if (input.turnHasAnyOutput) {
+    return { retry: false, reason: 'not_empty' }
+  }
   if (input.fuseKind !== 'empty_response' && input.fuseKind !== 'system_abort') {
     return { retry: false, reason: 'not_empty' }
   }
   if (input.turnKey === null) {
     return { retry: false, reason: 'not_empty' }
   }
-  if (input.assistantHasError) {
-    return { retry: false, reason: 'has_error_body' }
+  if (isFatalNonRetryableError(input.errorText)) {
+    return { retry: false, reason: 'fatal_error' }
   }
-  if (input.turnKey === input.alreadyRetriedTurnKey) {
+  const max = input.maxAttempts ?? MAX_AUTO_RECOVERY_ATTEMPTS
+  if (typeof input.attemptCount === 'number') {
+    if (input.attemptCount >= max) {
+      return { retry: false, reason: 'cap_exceeded' }
+    }
+  } else if (input.alreadyRetriedTurnKey && input.turnKey === input.alreadyRetriedTurnKey) {
     return { retry: false, reason: 'already_retried' }
   }
   return { retry: true, reason: input.fuseKind }

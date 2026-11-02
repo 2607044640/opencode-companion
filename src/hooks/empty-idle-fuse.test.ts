@@ -5,9 +5,12 @@ import {
   SYSTEM_ABORT_ERROR_NAME,
   SYSTEM_ABORT_MESSAGE,
   EMPTY_RESPONSE_ERROR_NAME,
+  MAX_AUTO_RECOVERY_ATTEMPTS,
   classifyEmptyIdleFuse,
   decideEmptyTurnAutoRetry,
   hasTurnContent,
+  inspectCurrentTurnRecovery,
+  isFatalNonRetryableError,
   userTurnKey,
 } from './empty-idle-fuse'
 
@@ -120,23 +123,35 @@ describe('empty-idle-fuse', () => {
     assert.equal(verdict.kind, 'repetition_loop')
   })
 
-  it('auto-retries an empty response once, then stops on the same prompt', () => {
+  it('auto-retries an empty response up to MAX_AUTO_RECOVERY_ATTEMPTS (5), then stops', () => {
     const first = decideEmptyTurnAutoRetry({
       fuseKind: 'empty_response',
       turnKey: 'plan the failover',
-      alreadyRetriedTurnKey: null,
+      attemptCount: 0,
       assistantHasError: false,
+      turnHasAnyOutput: false,
     })
     assert.equal(first.retry, true)
     assert.equal(first.reason, 'empty_response')
-    const second = decideEmptyTurnAutoRetry({
+
+    const fifth = decideEmptyTurnAutoRetry({
       fuseKind: 'system_abort',
       turnKey: 'plan the failover',
-      alreadyRetriedTurnKey: 'plan the failover',
+      attemptCount: 4,
       assistantHasError: false,
+      turnHasAnyOutput: false,
     })
-    assert.equal(second.retry, false)
-    assert.equal(second.reason, 'already_retried')
+    assert.equal(fifth.retry, true)
+
+    const sixth = decideEmptyTurnAutoRetry({
+      fuseKind: 'system_abort',
+      turnKey: 'plan the failover',
+      attemptCount: MAX_AUTO_RECOVERY_ATTEMPTS,
+      assistantHasError: false,
+      turnHasAnyOutput: false,
+    })
+    assert.equal(sixth.retry, false)
+    assert.equal(sixth.reason, 'cap_exceeded')
   })
 
   it('keys the latch by user text, not the message id retry deletes', () => {
@@ -156,15 +171,68 @@ describe('empty-idle-fuse', () => {
     assert.equal(after, before)
   })
 
-  it('does not auto-retry a 502 that already has an error body', () => {
-    const decision = decideEmptyTurnAutoRetry({
+  it('auto-retries a 502 on an empty turn (0 tokens), but refuses retry if turnHasAnyOutput is true', () => {
+    const empty502 = decideEmptyTurnAutoRetry({
       fuseKind: 'empty_response',
       turnKey: 'plan the failover',
-      alreadyRetriedTurnKey: null,
+      attemptCount: 0,
       assistantHasError: true,
+      errorText: '502 Bad Gateway',
+      turnHasAnyOutput: false,
     })
-    assert.equal(decision.retry, false)
-    assert.equal(decision.reason, 'has_error_body')
+    assert.equal(empty502.retry, true)
+    assert.equal(empty502.reason, 'empty_response')
+
+    const partial502 = decideEmptyTurnAutoRetry({
+      fuseKind: 'empty_response',
+      turnKey: 'plan the failover',
+      attemptCount: 0,
+      assistantHasError: true,
+      errorText: '502 Bad Gateway',
+      turnHasAnyOutput: true,
+    })
+    assert.equal(partial502.retry, false)
+    assert.equal(partial502.reason, 'not_empty')
+  })
+
+  it('refuses auto-retry on fatal non-retryable errors (context overflow, invalid API key)', () => {
+    assert.equal(isFatalNonRetryableError('context_length_exceeded: max tokens'), true)
+    assert.equal(isFatalNonRetryableError('502 Bad Gateway'), false)
+    const fatalDecision = decideEmptyTurnAutoRetry({
+      fuseKind: 'empty_response',
+      turnKey: 'plan the failover',
+      attemptCount: 0,
+      assistantHasError: true,
+      errorText: 'context_length_exceeded',
+      turnHasAnyOutput: false,
+    })
+    assert.equal(fatalDecision.retry, false)
+    assert.equal(fatalDecision.reason, 'fatal_error')
+  })
+
+  it('inspectCurrentTurnRecovery tracks output and go on count across a root user turn', () => {
+    const msgs: Message[] = [
+      {
+        info: { id: 'u1', sessionID: 'ses_1', role: 'user', time: { created: 1 } },
+        parts: [{ id: 'up1', sessionID: 'ses_1', messageID: 'u1', type: 'text', text: 'implement feature' }],
+      },
+      assistant({
+        finish: 'error',
+        parts: [{ id: 'ap1', sessionID: 'ses_1', messageID: 'msg_a', type: 'text', text: 'step 1 done' }],
+      }),
+      {
+        info: { id: 'u2', sessionID: 'ses_1', role: 'user', time: { created: 2 } },
+        parts: [{ id: 'up2', sessionID: 'ses_1', messageID: 'u2', type: 'text', text: 'go on' }],
+      },
+      assistant({
+        finish: 'error',
+        parts: [],
+      }),
+    ]
+    const inspection = inspectCurrentTurnRecovery(msgs, 'go on')
+    assert.equal(inspection.turnKey, 'implement feature')
+    assert.equal(inspection.turnHasAnyOutput, true)
+    assert.equal(inspection.goOnCount, 1)
   })
 
   it('does not auto-retry a repetition loop', () => {

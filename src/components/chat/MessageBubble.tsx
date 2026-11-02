@@ -46,6 +46,8 @@ interface MessageBubbleProps {
   isReverting?: boolean
   /** False until the daemon answers. Hide the finished duration and the live pill. */
   runKnown?: boolean
+  /** True only when automatic recovery is exhausted (>5 attempts or fatal error). Suppresses inline error UI otherwise. */
+  showTerminalError?: boolean
 }
 
 
@@ -653,7 +655,7 @@ function UserMessageBubble({
 export function MessageBubble({
   message,
   allMessageIds,
-  onRetry,
+  onRetry: _onRetry,
   isZenMode,
   onRevertToMessage,
   isRevertPoint,
@@ -661,6 +663,7 @@ export function MessageBubble({
   isBusy,
   isReverting,
   runKnown = true,
+  showTerminalError = false,
 }: MessageBubbleProps) {
   const { prefs } = usePreferences()
   const { t, tr } = useI18n()
@@ -731,7 +734,7 @@ export function MessageBubble({
     message.info.finish === 'abort' ||
     isAbortError(message.info.error)
   const errorMessage =
-    !isAborted && message.info.error
+    showTerminalError && !isAborted && message.info.error
       ? extractRelayErrorMessage(message.info.error)
       : null
   const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
@@ -904,16 +907,6 @@ export function MessageBubble({
               >
                 <FileCode className="w-3 h-3" />
                 <span>Diff</span>
-              </button>
-            )}
-            {onRetry && (
-              <button
-                onClick={onRetry}
-                className="flex items-center gap-1 px-2 py-0.5 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded text-[11px] transition-colors"
-                title="Retry response"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Retry</span>
               </button>
             )}
             {fullText && (
@@ -1113,30 +1106,21 @@ export function MessageBubble({
                     </p>
                   </div>
                 </div>
-              ) : emptyChrome === 'interrupted' ? (
+              ) : emptyChrome === 'interrupted' && showTerminalError ? (
                 <div className="flex items-start gap-3 py-3.5 px-4 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-xs">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <div className="flex-1 space-y-1">
                     <div className="font-semibold text-amber-300">
-                      {tr('未收到模型响应 (生成中断或已中止)', 'No response received (Generation interrupted or aborted)', 'Keine Antwort erhalten (abgebrochen)')}
+                      {tr('未收到模型响应 (自动重试已达上限)', 'No response received (Auto-retry limit reached)', 'Keine Antwort erhalten (Auto-Wiederholungslimit erreicht)')}
                     </div>
                     <p className="text-zinc-400 text-[11px] leading-relaxed">
                       {tr(
-                        '该轮次在输出内容前被中断（例如触发看门狗超时或后端重载）。您可以点击右上角或此处的“重试”按钮重新生成。',
-                        'This turn was interrupted before producing content (e.g. timeout or daemon reload). You can click Retry to run again.',
-                        'Diese Runde wurde vor der Ausgabe abgebrochen. Klicken Sie auf Wiederholen.'
+                        '该轮次在输出内容前连续多次中断且已达到最大自动重试次数 (5次)。',
+                        'This turn was interrupted before producing content and reached the maximum automatic retry limit (5 attempts).',
+                        'Diese Runde wurde vor der Ausgabe abgebrochen und hat das Wiederholungslimit (5) erreicht.'
                       )}
                     </p>
                   </div>
-                  {onRetry && (
-                    <button
-                      onClick={onRetry}
-                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[11px] font-medium transition-colors flex items-center gap-1 shrink-0 shadow-sm"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>{tr('重试此轮', 'Retry Turn', 'Wiederholen')}</span>
-                    </button>
-                  )}
                 </div>
               ) : null
             )}
@@ -1228,22 +1212,13 @@ export function MessageBubble({
             </>
           )}
 
-          {/* Render Relay Error Callout inside Assistant Card */}
-          {errorMessage && (
+          {/* Render Terminal Relay Error Callout ONLY after automatic recovery is exhausted */}
+          {showTerminalError && errorMessage && (
             <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3.5 text-red-300 text-xs sm:text-sm font-mono flex items-start gap-3 shadow-inner">
               <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               <div className="flex-1 space-y-1.5">
                 <div className="font-semibold text-red-400 flex items-center justify-between">
-                  <span>{tr('中转服务响应异常', 'Relay Response Error', 'Relay-Antwortfehler')}</span>
-                  {onRetry && (
-                    <button
-                      onClick={onRetry}
-                      className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-[11px] font-medium rounded transition-colors flex items-center gap-1 shrink-0 shadow-sm"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>{tr('重试此轮', 'Retry Turn', 'Wiederholen')}</span>
-                    </button>
-                  )}
+                  <span>{tr('中转服务响应异常 (已停止自动重试)', 'Relay Response Error (Auto-Retry Stopped)', 'Relay-Antwortfehler (Auto-Retry gestoppt)')}</span>
                 </div>
                 <div className="text-zinc-300 break-words whitespace-pre-wrap font-sans text-xs select-text leading-relaxed">
                   {errorMessage}

@@ -1,6 +1,13 @@
 import type { Message, TodoItem, ToolPart } from '../types/opencode'
 import { isAbortError } from '../services/api'
 import { isTodoCompleted } from '../components/chat/todo-state'
+import {
+  hasTurnContent,
+  inspectCurrentTurnRecovery,
+  isFatalNonRetryableError,
+  MAX_AUTO_RECOVERY_ATTEMPTS,
+} from './empty-idle-fuse'
+import { sanitizeMessageRepetition } from '../utils/repetition-fuse'
 
 /**
  * Silence must outlast a tool call and a thinking pause.
@@ -9,8 +16,8 @@ import { isTodoCompleted } from '../components/chat/todo-state'
  */
 export const GO_ON_SILENCE_MS = 90_000
 
-/** Cap automatic nudges for one user turn. A loop that never converges must stop. */
-export const GO_ON_MAX_PER_TURN = 8
+/** Cap automatic nudges for one user turn (5 attempts max per user rule). */
+export const GO_ON_MAX_PER_TURN = MAX_AUTO_RECOVERY_ATTEMPTS
 
 export const GO_ON_TEXT = 'go on'
 
@@ -109,22 +116,33 @@ function hasRelayError(message: Message | undefined): boolean {
  *
  * Send only when the daemon has stopped the turn (idle, or a relay error that
  * forced idle) for a reason that is not "the model finished" and not "the user
- * stopped it" and not "the model is asking a question".
- * Silence is the same idea with no idle event: nothing arrived for GO_ON_SILENCE_MS
- * while the daemon still claims the turn is running.
- *
- * Do not send because a todo is still open. The model can finish a turn and
- * leave the list for the user. Do not send because the stream paused for a
- * few seconds. Thinking and tool execution are allowed to be quiet.
+ * stopped it" and not "the model is asking a question", AND the turn already
+ * produced at least 1 character/tool call (`turnHasAnyOutput`).
+ * Completely empty turns (`!turnHasAnyOutput`) belong to empty-turn auto-retry,
+ * never `go on`.
  */
 export function decideGoOn(clock: GoOnClock): GoOnVerdict {
   if (clock.userAborted) return { act: 'wait', reason: 'user_abort' }
   if (!clock.runKnown) return { act: 'wait', reason: 'status_unknown' }
-  if (clock.sentThisTurn >= GO_ON_MAX_PER_TURN) return { act: 'wait', reason: 'cap' }
 
   const assistant = lastAssistant(clock.messages)
   if (!assistant) return { act: 'wait', reason: 'no_assistant' }
   if (isWaitingOnUser(assistant)) return { act: 'wait', reason: 'user_question' }
+
+  if (isFatalNonRetryableError(assistant.info.error)) {
+    return { act: 'wait', reason: 'fatal_error' }
+  }
+  if (sanitizeMessageRepetition(assistant).hasLoop) {
+    return { act: 'wait', reason: 'repetition_loop' }
+  }
+
+  const turnInspection = inspectCurrentTurnRecovery(clock.messages, GO_ON_TEXT)
+  if (!turnInspection.turnHasAnyOutput && !hasTurnContent(assistant)) {
+    // 0 characters / 0 tools generated so far -> empty-turn auto-retry owns this, not go-on
+    return { act: 'wait', reason: 'empty_turn' }
+  }
+
+  if (clock.sentThisTurn >= GO_ON_MAX_PER_TURN) return { act: 'wait', reason: 'cap' }
 
   const quietFor = clock.now - clock.lastActivityAt
   if (quietFor < 0) return { act: 'wait', reason: 'clock_skew' }
@@ -135,14 +153,22 @@ export function decideGoOn(clock: GoOnClock): GoOnVerdict {
   }
 
   if (finishMeansStop(assistant.info.finish) && !assistant.info.error) {
+    if (!hasTurnContent(assistant) && turnInspection.goOnCount > 0) {
+      // A previous step had output, then a go-on step returned an empty shell
+      return { act: 'send', reason: 'relay_error' }
+    }
     return { act: 'wait', reason: 'model_finished' }
   }
   if (hasRelayError(assistant)) return { act: 'send', reason: 'relay_error' }
   if (finishMeansCut(assistant.info.finish)) return { act: 'send', reason: 'cut_finish' }
   if (hasOpenTool(assistant)) return { act: 'send', reason: 'open_tool' }
+  if (assistant.info.finish === 'abort' && !isAbortError(assistant.info.error)) {
+    return { act: 'send', reason: 'relay_error' }
+  }
+  if (!hasTurnContent(assistant) && turnInspection.turnHasAnyOutput) {
+    return { act: 'send', reason: 'relay_error' }
+  }
 
   // Idle with no finish and no error is a clean stop the daemon already closed.
-  // Open todos do not reopen it. A missing finish on an empty shell is the
-  // empty-idle fuse's job (it resends the original prompt), not a go-on.
   return { act: 'wait', reason: 'settled' }
 }

@@ -11,7 +11,18 @@ import type {
 } from '../types/opencode'
 import { api, mergeMessageInfo, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage, isAbortError } from '../services/api'
 import { sseManager } from '../services/sse'
-import { classifyEmptyIdleFuse, decideEmptyTurnAutoRetry, userTurnKey, REPETITION_LOOP_ERROR_MESSAGE, REPETITION_LOOP_ERROR_NAME } from './empty-idle-fuse'
+import {
+  classifyEmptyIdleFuse,
+  decideEmptyTurnAutoRetry,
+  EMPTY_RESPONSE_MESSAGE,
+  inspectCurrentTurnRecovery,
+  isFatalNonRetryableError,
+  isGoOnUserMessage,
+  MAX_AUTO_RECOVERY_ATTEMPTS,
+  REPETITION_LOOP_ERROR_MESSAGE,
+  REPETITION_LOOP_ERROR_NAME,
+  SYSTEM_ABORT_MESSAGE,
+} from './empty-idle-fuse'
 import { sanitizeMessageRepetition } from '../utils/repetition-fuse'
 import { maybeCommitGitCheckpoint } from '../utils/maybe-git-checkpoint'
 import { postExternalFileRollback } from '../services/host-api'
@@ -33,6 +44,12 @@ export type { PromptAttachment }
 
 export type RevertMode = EngineRevertMode
 
+export interface AutoRecoveryState {
+  attempt: number
+  max: number
+  mode: 'retry' | 'go_on'
+}
+
 export function useChatStream(
   sessionId: string | null,
   onSessionUpdate?: (sessionId: string, patch: Partial<Session>) => void,
@@ -46,6 +63,8 @@ export function useChatStream(
   const [runKnown, setRunKnown] = useState(false)
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [autoRecoveryState, setAutoRecoveryState] = useState<AutoRecoveryState | null>(null)
+  const [isErrorTerminal, setIsErrorTerminal] = useState(false)
   /** Bumps on every transition into idle so the queue can drain even if status was already idle. */
   const [turnEpoch, setTurnEpoch] = useState(0)
   /** Why the latest turn ended. 'user' is Stop; 'error' pauses the queue; null is a clean finish. */
@@ -70,6 +89,8 @@ export function useChatStream(
   /** Bumps on every status write so a late /session/status snapshot cannot clobber SSE, send, or abort. */
   const statusEpochRef = useRef(0)
   const autoRetriedTurnKeyRef = useRef<string | null>(null)
+  const autoRecoveryCountRef = useRef(0)
+  const autoRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const retryRef = useRef<() => Promise<void>>(async () => {})
   /** One abort per user send. A live copier must not keep the SSE socket open. */
   const repetitionArmedRef = useRef(false)
@@ -84,6 +105,14 @@ export function useChatStream(
   const sendPromptRef = useRef<
     (text: string, options?: { agent?: string; model?: { providerID: string; modelID: string } }) => Promise<void>
   >(async () => {})
+
+  const clearAutoRecoveryTimer = useCallback(() => {
+    if (autoRecoveryTimerRef.current) {
+      clearTimeout(autoRecoveryTimerRef.current)
+      autoRecoveryTimerRef.current = null
+    }
+    goOnFlightRef.current = false
+  }, [])
 
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
     // Clean transitions are gated by callers checking wasBusy before commitSessionStatus
@@ -107,40 +136,298 @@ export function useChatStream(
     }
   }, [])
 
-  const noteActivity = useCallback((_kind: GoOnActivity) => {
+  const noteActivity = useCallback((kind: GoOnActivity) => {
     lastActivityAtRef.current = Date.now()
+    if (kind === 'delta' || kind === 'part') {
+      setAutoRecoveryState(null)
+    }
   }, [])
 
   /**
-   * Silence timer passes 'silence' so an idle-only verdict cannot fire early.
-   * Idle and error pass nothing: any send-verdict is already a hard stop.
+   * Unified automatic recovery engine:
+   * - If the turn has 0 output (`!turnHasAnyOutput`), automatically retries the turn (up to 5 times).
+   * - If the turn already has output (`turnHasAnyOutput`), NEVER deletes messages; automatically sends `go on` (up to 5 times).
+   * - Suppresses red error UI while auto-recovery is active (< 5 attempts).
+   * - Only surfaces a terminal error after 5 failed attempts or on a fatal non-retryable error.
+   * Returns `true` if an automatic recovery action was scheduled or is in flight.
    */
-  const maybeSendGoOn = useCallback((only?: 'silence') => {
-    if (goOnFlightRef.current) return
-    const verdict = decideGoOn({
-      lastActivityAt: lastActivityAtRef.current,
-      now: Date.now(),
-      runKnown: runKnownRef.current,
-      daemonIdle: !isRunningStatus(sessionStatusRef.current),
-      userAborted: userAbortedRef.current,
-      sentThisTurn: goOnSentRef.current,
-      messages: messagesRef.current,
-      todos: todosRef.current,
-    })
-    if (verdict.act !== 'send') return
-    if (only && verdict.reason !== only) return
-    goOnFlightRef.current = true
-    goOnSentRef.current += 1
-    const last = [...messagesRef.current].reverse().find((m) => m.info.role === 'assistant')
-    void sendPromptRef.current(GO_ON_TEXT, {
-      agent: last?.info.agent,
-      model: last?.info.model
-        ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
-        : undefined,
-    }).finally(() => {
-      goOnFlightRef.current = false
-    })
-  }, [])
+  const maybeSendGoOn = useCallback(
+    (only?: 'silence', rawErrorInput?: unknown): boolean => {
+      if (goOnFlightRef.current) return true
+      if (userAbortedRef.current || repetitionArmedRef.current) return false
+
+      const activeId = currentSessionIdRef.current
+      if (!activeId || activeId === '__draft__') return false
+
+      const currentMsgs = messagesRef.current
+      const turn = inspectCurrentTurnRecovery(currentMsgs, GO_ON_TEXT)
+      if (!turn.rootUserMessage && currentMsgs.length === 0) return false
+
+      const usedAttempts = Math.max(
+        autoRecoveryCountRef.current,
+        goOnSentRef.current,
+        turn.goOnCount
+      )
+
+      const lastMsg = currentMsgs[currentMsgs.length - 1]
+      const rawErr = rawErrorInput ?? turn.lastAssistantMessage?.info.error
+
+      // 1. Check repetition loop first
+      if (turn.lastAssistantMessage && sanitizeMessageRepetition(turn.lastAssistantMessage).hasLoop) {
+        setIsErrorTerminal(true)
+        setAutoRecoveryState(null)
+        setError(REPETITION_LOOP_ERROR_MESSAGE)
+        noteTurnEnd('error')
+        return false
+      }
+
+      // 2. Check fatal non-retryable errors (context overflow, invalid API key, quota)
+      if (rawErr && isFatalNonRetryableError(rawErr)) {
+        const fatalText = extractRelayErrorMessage(rawErr as any) || String(rawErr)
+        setIsErrorTerminal(true)
+        setAutoRecoveryState(null)
+        setError(fatalText)
+        noteTurnEnd('error')
+        return false
+      }
+
+      // 3. Silence watchdog path (while daemon still claims busy after 90s of zero SSE)
+      if (only === 'silence') {
+        const verdict = decideGoOn({
+          lastActivityAt: lastActivityAtRef.current,
+          now: Date.now(),
+          runKnown: runKnownRef.current,
+          daemonIdle: !isRunningStatus(sessionStatusRef.current),
+          userAborted: userAbortedRef.current,
+          sentThisTurn: usedAttempts,
+          messages: currentMsgs,
+          todos: todosRef.current,
+        })
+        if (verdict.act === 'send' && verdict.reason === 'silence') {
+          const nextAttempt = usedAttempts + 1
+          autoRecoveryCountRef.current = nextAttempt
+          goOnSentRef.current = nextAttempt
+          goOnFlightRef.current = true
+          setError(null)
+          setIsErrorTerminal(false)
+          setAutoRecoveryState({
+            attempt: nextAttempt,
+            max: MAX_AUTO_RECOVERY_ATTEMPTS,
+            mode: 'go_on',
+          })
+          const last = turn.lastAssistantMessage
+          void sendPromptRef
+            .current(GO_ON_TEXT, {
+              agent: last?.info.agent || turn.rootUserMessage?.info.agent,
+              model: last?.info.model
+                ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
+                : undefined,
+            })
+            .finally(() => {
+              goOnFlightRef.current = false
+            })
+          return true
+        }
+        return false
+      }
+
+      // If a prompt or "go on" was just dispatched within the last 2.5s and no error fired, wait
+      if (
+        !rawErrorInput &&
+        lastMsg?.info.role === 'user' &&
+        Date.now() - lastSendTimestampRef.current < 2500
+      ) {
+        return false
+      }
+
+      // 4. Branch A: Completely empty turn (0 characters, 0 tool calls emitted in this turn)
+      if (!turn.turnHasAnyOutput) {
+        const fuse = classifyEmptyIdleFuse({
+          lastMessage: turn.lastAssistantMessage,
+          userAborted: userAbortedRef.current,
+        })
+        const isEmptyFailure =
+          fuse.kind === 'empty_response' ||
+          fuse.kind === 'system_abort' ||
+          Boolean(rawErr) ||
+          (Boolean(turn.rootUserMessage) && !turn.lastAssistantMessage && !sessionBusyRef.current)
+
+        if (!isEmptyFailure) return false
+
+        const retryDecision = decideEmptyTurnAutoRetry({
+          fuseKind: fuse.kind === 'system_abort' ? 'system_abort' : 'empty_response',
+          turnKey: turn.turnKey,
+          attemptCount: usedAttempts,
+          maxAttempts: MAX_AUTO_RECOVERY_ATTEMPTS,
+          assistantHasError: Boolean(rawErr),
+          errorText: rawErr,
+          turnHasAnyOutput: false,
+        })
+
+        if (retryDecision.retry) {
+          const nextAttempt = usedAttempts + 1
+          autoRecoveryCountRef.current = nextAttempt
+          goOnSentRef.current = nextAttempt
+          autoRetriedTurnKeyRef.current = turn.turnKey
+          goOnFlightRef.current = true
+          setError(null)
+          setIsErrorTerminal(false)
+          setAutoRecoveryState({
+            attempt: nextAttempt,
+            max: MAX_AUTO_RECOVERY_ATTEMPTS,
+            mode: 'retry',
+          })
+
+          // Strip transient error from the empty shell so no red card flashes during backoff
+          if (turn.lastAssistantMessage?.info.error) {
+            const cleaned = messagesRef.current.map((m) =>
+              m.info.id === turn.lastAssistantMessage?.info.id
+                ? { ...m, info: { ...m.info, error: undefined } }
+                : m
+            )
+            messagesRef.current = cleaned
+            setMessages(cleaned)
+          }
+
+          autoRecoveryTimerRef.current = setTimeout(() => {
+            autoRecoveryTimerRef.current = null
+            if (
+              currentSessionIdRef.current !== activeId ||
+              userAbortedRef.current ||
+              sessionBusyRef.current ||
+              isSendingRef.current
+            ) {
+              goOnFlightRef.current = false
+              return
+            }
+            const freshTurn = inspectCurrentTurnRecovery(messagesRef.current, GO_ON_TEXT)
+            if (freshTurn.turnHasAnyOutput) {
+              // Content arrived in the meantime -> never delete; send go on instead
+              const last = freshTurn.lastAssistantMessage
+              void sendPromptRef
+                .current(GO_ON_TEXT, {
+                  agent: last?.info.agent || freshTurn.rootUserMessage?.info.agent,
+                  model: last?.info.model
+                    ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
+                    : undefined,
+                })
+                .finally(() => {
+                  goOnFlightRef.current = false
+                })
+              return
+            }
+            void retryRef.current().finally(() => {
+              goOnFlightRef.current = false
+            })
+          }, 1500)
+          return true
+        }
+
+        // Empty-turn retries exhausted (>= 5 attempts)
+        const errMsg =
+          (rawErr ? extractRelayErrorMessage(rawErr as any) : null) ||
+          (fuse.kind === 'system_abort' ? SYSTEM_ABORT_MESSAGE : EMPTY_RESPONSE_MESSAGE)
+        setIsErrorTerminal(true)
+        setAutoRecoveryState(null)
+        setError(errMsg)
+        noteTurnEnd('error')
+        return false
+      }
+
+      // 5. Branch B: Turn already has output (>= 1 char or tool call) -> NEVER delete; auto-send 'go on'
+      const verdict = decideGoOn({
+        lastActivityAt: lastActivityAtRef.current,
+        now: Date.now(),
+        runKnown: true,
+        daemonIdle: !isRunningStatus(sessionStatusRef.current),
+        userAborted: userAbortedRef.current,
+        sentThisTurn: usedAttempts,
+        messages: currentMsgs,
+        todos: todosRef.current,
+      })
+
+      const needsGoOn =
+        verdict.act === 'send' ||
+        (Boolean(rawErr) && !isAbortError(rawErr) && usedAttempts < MAX_AUTO_RECOVERY_ATTEMPTS)
+
+      if (needsGoOn) {
+        const nextAttempt = usedAttempts + 1
+        autoRecoveryCountRef.current = nextAttempt
+        goOnSentRef.current = nextAttempt
+        goOnFlightRef.current = true
+        setError(null)
+        setIsErrorTerminal(false)
+        setAutoRecoveryState({
+          attempt: nextAttempt,
+          max: MAX_AUTO_RECOVERY_ATTEMPTS,
+          mode: 'go_on',
+        })
+
+        // Strip transient error from assistant messages in local state so red error UI never renders
+        const cleaned = messagesRef.current.map((m) =>
+          m.info.role === 'assistant' && m.info.error
+            ? { ...m, info: { ...m.info, error: undefined } }
+            : m
+        )
+        messagesRef.current = cleaned
+        setMessages(cleaned)
+
+        autoRecoveryTimerRef.current = setTimeout(() => {
+          autoRecoveryTimerRef.current = null
+          if (
+            currentSessionIdRef.current !== activeId ||
+            userAbortedRef.current ||
+            sessionBusyRef.current ||
+            isSendingRef.current
+          ) {
+            goOnFlightRef.current = false
+            return
+          }
+          const latest = messagesRef.current[messagesRef.current.length - 1]
+          if (latest && isGoOnUserMessage(latest, GO_ON_TEXT)) {
+            // External watcher (e.g. opencode_ctl.py) already sent 'go on'
+            goOnFlightRef.current = false
+            return
+          }
+          const freshTurn = inspectCurrentTurnRecovery(messagesRef.current, GO_ON_TEXT)
+          const last = freshTurn.lastAssistantMessage
+          void sendPromptRef
+            .current(GO_ON_TEXT, {
+              agent: last?.info.agent || freshTurn.rootUserMessage?.info.agent,
+              model: last?.info.model
+                ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
+                : undefined,
+            })
+            .finally(() => {
+              goOnFlightRef.current = false
+            })
+        }, 1500)
+        return true
+      }
+
+      if (
+        verdict.reason === 'cap' ||
+        (Boolean(rawErr) && !isAbortError(rawErr) && usedAttempts >= MAX_AUTO_RECOVERY_ATTEMPTS)
+      ) {
+        const rawText = rawErr ? extractRelayErrorMessage(rawErr as any) : null
+        const capMsg = rawText
+          ? `已自动发送 go on / 重试 ${MAX_AUTO_RECOVERY_ATTEMPTS} 次仍失败：${rawText}`
+          : SYSTEM_ABORT_MESSAGE
+        setIsErrorTerminal(true)
+        setAutoRecoveryState(null)
+        setError(capMsg)
+        noteTurnEnd('error')
+        return false
+      }
+
+      // Clean stop
+      setAutoRecoveryState(null)
+      setIsErrorTerminal(false)
+      setError(null)
+      return false
+    },
+    [noteTurnEnd]
+  )
 
   const stopRepetitionLoop = useCallback((messageId: string) => {
     if (repetitionArmedRef.current) return
@@ -253,13 +540,17 @@ export function useChatStream(
     if (isTransitioning) {
       transitioningSessionIdRef.current = null
     } else {
+      clearAutoRecoveryTimer()
       commitSessionStatus({ type: 'idle' }, false)
       sessionBusyRef.current = false
       runKnownRef.current = false
       setRunKnown(false)
       setError(null)
+      setAutoRecoveryState(null)
+      setIsErrorTerminal(false)
       setTurnEnd(null)
       userAbortedRef.current = false
+      autoRecoveryCountRef.current = 0
       goOnSentRef.current = 0
       goOnFlightRef.current = false
       lastActivityAtRef.current = 0
@@ -509,20 +800,51 @@ export function useChatStream(
       if (data.status.type === 'idle' && isSendingRef.current) return
       const wasBusyOnStatus = sessionBusyRef.current
       noteActivity('status')
+
+      // If daemon's internal retry loop exceeds 5 attempts, abort and surface terminal error
+      if (
+        data.status.type === 'retry' &&
+        typeof data.status.attempt === 'number' &&
+        data.status.attempt > MAX_AUTO_RECOVERY_ATTEMPTS
+      ) {
+        commitSessionStatus({ type: 'idle' })
+        void api.abortSession(activeId).catch(() => {})
+        const msg =
+          data.status.message ||
+          `中转通道连续重试超过 ${MAX_AUTO_RECOVERY_ATTEMPTS} 次仍失败，已停止重试`
+        setIsErrorTerminal(true)
+        setAutoRecoveryState(null)
+        setError(msg)
+        noteTurnEnd('error')
+        return
+      }
+
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
-        if (wasBusyOnStatus || userAbortedRef.current) {
-          noteTurnEnd(userAbortedRef.current ? 'user' : 'clean')
+        if (userAbortedRef.current) {
+          noteTurnEnd('user')
         }
         // Authoritative background history reconciliation on status idle
         void api
           .getMessages(activeId, { fresh: true })
           .then((history) => {
             if (currentSessionIdRef.current !== activeId) return
-            setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
+            const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
+            messagesRef.current = reconciled
+            setMessages(reconciled)
+            if (!userAbortedRef.current && !isSendingRef.current && !sessionBusyRef.current) {
+              const recovering = maybeSendGoOn()
+              if (!recovering && wasBusyOnStatus) {
+                noteTurnEnd('clean')
+              }
+            }
           })
           .catch((err) => {
             console.warn('[useChatStream] History reconciliation on status idle failed:', err)
+            if (wasBusyOnStatus && !userAbortedRef.current) {
+              const recovering = maybeSendGoOn()
+              if (!recovering) noteTurnEnd('clean')
+            }
           })
       }
     })
@@ -538,6 +860,8 @@ export function useChatStream(
       if (userAbortedRef.current || isAbortError(data.error)) {
         userAbortedRef.current = false
         setError(null)
+        setAutoRecoveryState(null)
+        setIsErrorTerminal(false)
         noteTurnEnd('user')
         return
       }
@@ -545,19 +869,18 @@ export function useChatStream(
       const errorMsg = extractRelayErrorMessage(data.error) || 'Session error occurred'
       if (isAbortError(errorMsg)) {
         setError(null)
+        setAutoRecoveryState(null)
+        setIsErrorTerminal(false)
         noteTurnEnd('user')
         return
       }
-      setError(errorMsg)
-      noteTurnEnd('error')
 
       const relayError = {
         name: data.error?.name || 'SessionError',
         message: errorMsg,
         data: data.error?.data || {},
       }
-      // Attach the error before the go-on decision. The decider reads the ref,
-      // and setMessages has not committed yet.
+      // Stamp error for decision inspection; maybeSendGoOn will strip it from UI state if < 5 attempts
       const stamped = messagesRef.current.map((msg, index, all) => {
         if (index !== all.length - 1) return msg
         if (msg.info.role !== 'assistant' || msg.info.error) return msg
@@ -565,7 +888,9 @@ export function useChatStream(
       })
       messagesRef.current = stamped
       setMessages(stamped)
-      queueMicrotask(() => maybeSendGoOn())
+      queueMicrotask(() => {
+        maybeSendGoOn(undefined, relayError)
+      })
     })
 
     // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
@@ -576,66 +901,30 @@ export function useChatStream(
       noteActivity('idle')
       commitSessionStatus({ type: 'idle' })
 
-      // Authoritative background history reconciliation to merge any parts that might have been missed over the network
-      void api
-        .getMessages(activeId, { fresh: true })
-        .then((history) => {
-          if (currentSessionIdRef.current !== activeId) return
-          setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
-        })
-        .catch((err) => {
-          console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
-        })
+      const abortedByUser = userAbortedRef.current
+      userAbortedRef.current = false
+
+      if (abortedByUser) {
+        clearAutoRecoveryTimer()
+        setAutoRecoveryState(null)
+        setIsErrorTerminal(false)
+        setError(null)
+        noteTurnEnd('user')
+        return
+      }
 
       const currentMsgs = messagesRef.current
       const lastMsg = currentMsgs[currentMsgs.length - 1]
       const fuse = classifyEmptyIdleFuse({
         lastMessage: lastMsg,
-        userAborted: userAbortedRef.current,
+        userAborted: false,
       })
-      const abortedByUser = userAbortedRef.current
-      userAbortedRef.current = false
-      if (fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
-        void maybeCommitGitCheckpoint(activeId, currentMsgs)
-      }
-      const turnKey = userTurnKey(currentMsgs)
-      const auto =
-        (fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg
-          ? decideEmptyTurnAutoRetry({
-              fuseKind: fuse.kind,
-              turnKey,
-              alreadyRetriedTurnKey: autoRetriedTurnKeyRef.current,
-              assistantHasError: Boolean(lastMsg.info.error),
-            })
-          : null
-      if (auto?.retry && turnKey) {
-        autoRetriedTurnKeyRef.current = turnKey
-        void retryRef.current()
-        return
-      }
-      if (
-        !abortedByUser &&
-        fuse.kind !== 'user_abort' &&
-        fuse.kind !== 'repetition_loop' &&
-        fuse.kind !== 'empty_response' &&
-        fuse.kind !== 'system_abort'
-      ) {
-        queueMicrotask(() => maybeSendGoOn())
-      }
-      if (abortedByUser || fuse.kind === 'user_abort') {
-        noteTurnEnd('user')
-      } else if (
-        fuse.kind === 'empty_response' ||
-        fuse.kind === 'system_abort' ||
-        fuse.kind === 'repetition_loop' ||
-        Boolean(lastMsg?.info.role === 'assistant' && lastMsg.info.error)
-      ) {
-        noteTurnEnd('error')
-      } else {
-        noteTurnEnd('clean')
-      }
-      if (fuse.kind === 'repetition_loop' && lastMsg && !lastMsg.info.error) {
+
+      if (fuse.kind === 'repetition_loop' && lastMsg) {
+        setIsErrorTerminal(true)
+        setAutoRecoveryState(null)
         setError(fuse.message)
+        noteTurnEnd('error')
         setMessages((prev) => {
           if (prev.length === 0) return prev
           const last = prev[prev.length - 1]
@@ -656,43 +945,41 @@ export function useChatStream(
             },
           ]
         })
+        return
       }
-      if ((fuse.kind === 'empty_response' || fuse.kind === 'system_abort') && lastMsg) {
-        if (isAbortError(lastMsg.info.error)) {
-          return
-        }
-        if (lastMsg.info.finish === 'abort' && auto?.reason !== 'already_retried') {
-          return
-        }
-        const errorMsg = lastMsg.info.error
-          ? extractRelayErrorMessage(lastMsg.info.error)
-          : fuse.message
-        if (isAbortError(errorMsg)) {
-          return
-        }
-        setError(errorMsg)
-        setMessages((prev) => {
-          if (prev.length === 0) return prev
-          const last = prev[prev.length - 1]
-          if (last.info.id === lastMsg.info.id && !last.info.error) {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                info: {
-                  ...last.info,
-                  error: {
-                    name: fuse.errorName,
-                    message: errorMsg,
-                    data: { message: errorMsg, kind: fuse.kind },
-                  },
-                },
-              },
-            ]
+
+      // Immediately check with current messages, and re-verify once fresh history arrives
+      const immediateRecovering = maybeSendGoOn()
+
+      // Authoritative background history reconciliation to merge any parts or errors that arrived on idle
+      void api
+        .getMessages(activeId, { fresh: true })
+        .then((history) => {
+          if (currentSessionIdRef.current !== activeId) return
+          const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
+          messagesRef.current = reconciled
+          setMessages(reconciled)
+
+          if (abortedByUser || userAbortedRef.current || isSendingRef.current || sessionBusyRef.current) {
+            return
           }
-          return prev
+          const recoveringAfterReconcile = maybeSendGoOn()
+          if (!recoveringAfterReconcile && !immediateRecovering) {
+            const latest = reconciled[reconciled.length - 1]
+            const postFuse = classifyEmptyIdleFuse({ lastMessage: latest, userAborted: false })
+            if (postFuse.kind === 'none' && latest?.info.role === 'assistant' && !latest.info.error) {
+              void maybeCommitGitCheckpoint(activeId, reconciled)
+              noteTurnEnd('clean')
+            }
+          }
         })
-      }
+        .catch((err) => {
+          console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
+          if (!immediateRecovering && fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
+            void maybeCommitGitCheckpoint(activeId, currentMsgs)
+            noteTurnEnd('clean')
+          }
+        })
     })
 
     // Subscribe to message.removed to synchronize deletions
@@ -728,14 +1015,26 @@ export function useChatStream(
         if (!isRunningStatus(status)) {
           // Backend has transitioned to idle while silence timer was running.
           // Trigger authoritative history reconciliation to recover from missed SSE idle events.
-          noteTurnEnd('clean')
           void api
             .getMessages(activeId, { fresh: true })
             .then((history) => {
               if (currentSessionIdRef.current !== activeId) return
-              setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
+              const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
+              messagesRef.current = reconciled
+              setMessages(reconciled)
+              if (!userAbortedRef.current && !isSendingRef.current && !sessionBusyRef.current) {
+                const recovering = maybeSendGoOn()
+                if (!recovering) {
+                  noteTurnEnd('clean')
+                }
+              }
             })
-            .catch(() => {})
+            .catch(() => {
+              if (!userAbortedRef.current) {
+                const recovering = maybeSendGoOn()
+                if (!recovering) noteTurnEnd('clean')
+              }
+            })
           return
         }
         maybeSendGoOn('silence')
@@ -743,6 +1042,7 @@ export function useChatStream(
     }, 5_000)
 
     return () => {
+      clearAutoRecoveryTimer()
       if (typeof window !== 'undefined') {
         window.clearInterval(silenceTimer)
         window.removeEventListener('pageshow', onPageShow)
@@ -758,7 +1058,7 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop, noteActivity, maybeSendGoOn])
+  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop, noteActivity, maybeSendGoOn, clearAutoRecoveryTimer])
 
   const sendPrompt = useCallback(
     async (
@@ -799,7 +1099,11 @@ export function useChatStream(
       lastSendTimestampRef.current = Date.now()
       noteActivity('send')
       if (text.trim() !== GO_ON_TEXT) {
+        clearAutoRecoveryTimer()
+        autoRecoveryCountRef.current = 0
         goOnSentRef.current = 0
+        setAutoRecoveryState(null)
+        setIsErrorTerminal(false)
       }
       commitSessionStatus({ type: 'busy' })
       setError(null)
@@ -825,7 +1129,7 @@ export function useChatStream(
         setIsSending(false)
       }
     },
-    [sessionId, noteTurnEnd, commitSessionStatus, noteActivity]
+    [sessionId, noteTurnEnd, commitSessionStatus, noteActivity, clearAutoRecoveryTimer]
   )
 
   useEffect(() => {
@@ -834,6 +1138,9 @@ export function useChatStream(
 
   const abort = useCallback(async (opts?: { preempt?: boolean }) => {
     if (!sessionId) return
+    clearAutoRecoveryTimer()
+    setAutoRecoveryState(null)
+    setIsErrorTerminal(false)
     const running = sessionBusyRef.current
     if (!running && opts?.preempt) return
     if (!opts?.preempt) {
@@ -851,13 +1158,32 @@ export function useChatStream(
     } catch (err) {
       console.error('Failed to abort session:', err)
     }
-  }, [sessionId, noteTurnEnd, commitSessionStatus])
+  }, [sessionId, noteTurnEnd, commitSessionStatus, clearAutoRecoveryTimer])
 
   const retry = useCallback(async () => {
     setError(null)
+    setIsErrorTerminal(false)
     if (!sessionId) return
 
     const msgs = messagesRef.current
+    const turn = inspectCurrentTurnRecovery(msgs, GO_ON_TEXT)
+
+    // HARD INVARIANT: Never delete messages if the assistant has already output >= 1 character or tool call!
+    // Route directly to sending "go on" instead.
+    if (turn.turnHasAnyOutput) {
+      const last = turn.lastAssistantMessage
+      await sendPrompt(GO_ON_TEXT, {
+        agent: last?.info.agent || turn.rootUserMessage?.info.agent,
+        model: last?.info.model
+          ? {
+              providerID: last.info.model.providerID,
+              modelID: last.info.model.modelID,
+            }
+          : undefined,
+      })
+      return
+    }
+
     let lastUserIndex = -1
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].info.role === 'user') {
@@ -1020,6 +1346,8 @@ export function useChatStream(
     sessionStatus,
     todos,
     error,
+    autoRecoveryState,
+    isErrorTerminal,
     turnEpoch,
     turnEnd,
     isSending,
