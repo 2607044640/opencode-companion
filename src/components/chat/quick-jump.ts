@@ -96,18 +96,92 @@ export function evaluatePromptCollapsing(
   }
 }
 
+/**
+ * Safely slices string front without splitting high/low surrogate pairs (e.g. emojis).
+ */
+export function safeSliceFront(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str
+  let len = maxLen
+  if (/[\uD800-\uDBFF]$/.test(str.slice(0, len))) {
+    len -= 1
+  }
+  return str.slice(0, len)
+}
+
+/**
+ * Safely slices string tail without splitting high/low surrogate pairs.
+ */
+export function safeSliceTail(str: string, tailLen: number): string {
+  if (str.length <= tailLen) return str
+  let start = str.length - tailLen
+  if (/^[\uDC00-\uDFFF]/.test(str.slice(start))) {
+    start += 1
+  }
+  return str.slice(start)
+}
+
+/**
+ * Truncates and formats user input prompt for the hover preview card.
+ * Rule:
+ * - If length <= 200 characters: display full text.
+ * - If length > 200 characters: remove middle portion with " ... ",
+ *   displaying the first 150 characters and last 50 characters.
+ */
+export function formatUserPromptPreview(text?: string | null): string {
+  if (!text) return ''
+  const trimmed = text.trim()
+  if (trimmed.length <= 200) {
+    return trimmed
+  }
+  const front = safeSliceFront(trimmed, 150)
+  const tail = safeSliceTail(trimmed, 50)
+  return `${front} ... ${tail}`
+}
+
+/**
+ * Formats turn creation timestamp into localized time (e.g. "4:44 PM").
+ */
+export function formatTurnTime(timestamp?: number | string | null): string {
+  if (!timestamp) return ''
+  try {
+    let timeNum =
+      typeof timestamp === 'string'
+        ? Number(timestamp) || Date.parse(timestamp)
+        : timestamp
+    if (!timeNum || isNaN(timeNum)) return ''
+    if (timeNum > 0 && timeNum < 1e11) {
+      timeNum *= 1000
+    }
+    const date = new Date(timeNum)
+    if (isNaN(date.getTime())) return ''
+    return date.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return ''
+  }
+}
+
 export interface DialogueTick {
   index: number
   percentage: number
   offsetTop: number
   isActive: boolean
   snippet: string
+  rawPrompt: string
+  previewText: string
+  timeLabel?: string
+  messageId?: string
 }
 
 export interface DialogueElementInfo {
   offsetTop: number
   textContent?: string | null
   promptPreview?: string | null
+  rawPrompt?: string | null
+  timestamp?: number | string | null
+  messageId?: string | null
 }
 
 /**
@@ -130,8 +204,11 @@ export function computeDialogueTicks(
       el.offsetTop >= scrollTop - 60 &&
       el.offsetTop <= scrollTop + clientHeight - 40
 
-    const rawText = (el.promptPreview || el.textContent || '').trim().replace(/\s+/g, ' ')
-    const snippet = rawText.length > 36 ? rawText.slice(0, 36) + '…' : rawText || `对话 #${idx + 1}`
+    const sourcePrompt = (el.rawPrompt || el.promptPreview || el.textContent || '').trim()
+    const singleLineText = sourcePrompt.replace(/\s+/g, ' ')
+    const snippet = singleLineText.length > 36 ? singleLineText.slice(0, 36) + '…' : singleLineText || `对话 #${idx + 1}`
+    const previewText = formatUserPromptPreview(sourcePrompt) || `对话 #${idx + 1}`
+    const timeLabel = el.timestamp ? formatTurnTime(el.timestamp) : undefined
 
     return {
       index: idx,
@@ -139,6 +216,10 @@ export function computeDialogueTicks(
       offsetTop: el.offsetTop,
       isActive,
       snippet,
+      rawPrompt: sourcePrompt,
+      previewText,
+      timeLabel,
+      messageId: el.messageId || undefined,
     }
   })
 }

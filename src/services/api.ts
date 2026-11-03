@@ -998,15 +998,44 @@ export const api = {
   },
 
   /**
+   * Summarize conversation context (Official OpenCode /compact implementation)
+   * Dispatches to OpenCode daemon's native /session/:id/summarize endpoint with active model parameters.
+   */
+  async compactSession(
+    sessionID: string,
+    model?: { providerID?: string; modelID?: string }
+  ): Promise<boolean> {
+    const payload =
+      model?.providerID && model?.modelID
+        ? { providerID: model.providerID, modelID: model.modelID }
+        : {}
+
+    try {
+      const res = await request<any>(`/session/${sessionID}/summarize`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      return Boolean(res)
+    } catch (err) {
+      console.warn('[API] compactSession via /summarize failed, trying /compact fallback:', err)
+      try {
+        await request<any>(`/api/session/${sessionID}/compact`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        return true
+      } catch (e) {
+        console.warn('[API] compactSession fallback failed:', e)
+        throw err
+      }
+    }
+  },
+
+  /**
    * Summarize conversation context
    */
   async summarizeSession(sessionID: string): Promise<void> {
-    await request<any>(`/session/${sessionID}/summarize`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }).catch((err) => {
-      console.warn('summarizeSession failed or not implemented:', err)
-    })
+    await this.compactSession(sessionID).catch(() => {})
   },
 
   /**

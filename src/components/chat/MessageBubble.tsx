@@ -442,10 +442,20 @@ function UserMessageBubble({
     ? new Date(createdTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     : ''
 
+  const fileParts = message.parts
+    .filter((p) => p.type === 'file')
+    .map((p) => p as FilePart)
+  const promptPreviewText = fullText.trim()
+    ? fullText
+    : fileParts.length > 0
+    ? `[${fileParts.length} ${tr('个附件/图片', 'attachments/images', 'Anhänge/Bilder')}]`
+    : ''
+
   return (
     <div
       data-message-role="user"
-      data-prompt-preview={fullText.slice(0, 80)}
+      data-prompt-preview={promptPreviewText}
+      data-created-time={createdTime || ''}
       data-message-id={message.info.id}
       id={`msg_${message.info.id}`}
       className="w-full my-4"

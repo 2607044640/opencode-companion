@@ -223,6 +223,17 @@ export default function App() {
     setTimeout(() => setToastMessage(null), durationMs)
   }, [])
 
+  useEffect(() => {
+    const handleToastEvent = (e: Event) => {
+      const custom = e as CustomEvent<{ message: string; duration?: number }>
+      if (custom.detail?.message) {
+        showToast(custom.detail.message, custom.detail.duration || 2500)
+      }
+    }
+    window.addEventListener('opencode:toast', handleToastEvent)
+    return () => window.removeEventListener('opencode:toast', handleToastEvent)
+  }, [showToast])
+
   const { handleRunScheduledTaskNow } = useScheduledTasksRunner({
     createNewSession,
     onToast: showToast,

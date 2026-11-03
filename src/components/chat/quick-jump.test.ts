@@ -8,6 +8,8 @@ import {
   computeViewportThumb,
   resolveCommandCopyText,
   calculateDragScrollTop,
+  formatUserPromptPreview,
+  formatTurnTime,
   type UserMessageRect,
 } from './quick-jump'
 
@@ -227,6 +229,151 @@ describe('Scrollbar Drag & Track Calculation Logic', () => {
   test('calculateDragScrollTop returns 0 when content does not overflow', () => {
     assert.equal(calculateDragScrollTop(100, 300, 400, 500), 0)
     assert.equal(calculateDragScrollTop(100, 0, 1000, 500), 0)
+  })
+})
+
+describe('User Prompt Preview Length & Truncation Specification', () => {
+  test('returns empty string for empty, null, or undefined input', () => {
+    assert.equal(formatUserPromptPreview(''), '')
+    assert.equal(formatUserPromptPreview(null), '')
+    assert.equal(formatUserPromptPreview(undefined), '')
+  })
+
+  test('displays full text without truncation when length is <= 200 characters', () => {
+    const shortText = '请帮我实现一个全屏阅读模式以及相关的状态同步机制。'
+    assert.equal(formatUserPromptPreview(shortText), shortText)
+
+    // Exact 200 character boundary
+    const exact200 = 'x'.repeat(200)
+    assert.equal(formatUserPromptPreview(exact200), exact200)
+    assert.equal(formatUserPromptPreview(exact200).length, 200)
+  })
+
+  test('trims outer whitespace before evaluating length', () => {
+    const padded = '   hello world   '
+    assert.equal(formatUserPromptPreview(padded), 'hello world')
+  })
+
+  test('preserves multi-line formatting if total length <= 200 characters', () => {
+    const multiLine = '第一行提示词\n第二行提示词\n第三行提示词'
+    assert.equal(formatUserPromptPreview(multiLine), multiLine)
+  })
+
+  test('truncates middle when length > 200: front 150 chars + " ... " + tail 50 chars', () => {
+    // Exactly 201 characters: boundary test
+    const front150 = 'A'.repeat(150)
+    const mid1 = 'M'
+    const tail50 = 'Z'.repeat(50)
+    const input201 = front150 + mid1 + tail50
+    assert.equal(input201.length, 201)
+
+    const formatted201 = formatUserPromptPreview(input201)
+    assert.equal(formatted201, `${front150} ... ${tail50}`)
+    assert.ok(!formatted201.includes('M'))
+    assert.ok(formatted201.startsWith('A'.repeat(150)))
+    assert.ok(formatted201.endsWith('Z'.repeat(50)))
+  })
+
+  test('truncates long prompt (500 chars) retaining front 150 and tail 50', () => {
+    const front = 'StartPart_'.repeat(15) // 150 chars (10 * 15)
+    const middle = 'MIDDLE_OMITTED_'.repeat(20) // 300 chars (15 * 20)
+    const tail = 'EndPart_'.repeat(5) + '1234567890' // 50 chars (8 * 5 + 10 = 50)
+    const fullInput = front + middle + tail
+    assert.equal(fullInput.length, 500)
+
+    const result = formatUserPromptPreview(fullInput)
+    assert.equal(result.slice(0, 150), front)
+    assert.equal(result.slice(-50), tail)
+    assert.ok(result.includes(' ... '))
+    assert.ok(!result.includes('MIDDLE_OMITTED_'))
+    // 150 + 5 (" ... ") + 50 = 205
+    assert.equal(result.length, 205)
+  })
+})
+
+describe('Turn Time Formatter Logic', () => {
+  test('formats numeric timestamp into localized time', () => {
+    const ts = new Date('2026-11-03T14:30:00Z').getTime()
+    const formatted = formatTurnTime(ts)
+    assert.ok(typeof formatted === 'string' && formatted.length > 0)
+  })
+
+  test('formats string timestamp into localized time', () => {
+    const formatted = formatTurnTime('1762180200000')
+    assert.ok(typeof formatted === 'string' && formatted.length > 0)
+  })
+
+  test('returns empty string for falsy or invalid timestamp', () => {
+    assert.equal(formatTurnTime(null), '')
+    assert.equal(formatTurnTime(undefined), '')
+    assert.equal(formatTurnTime('invalid-time-string'), '')
+  })
+})
+
+describe('Dialogue Ticks Enhanced Preview Properties', () => {
+  test('computeDialogueTicks populates previewText, timeLabel, and messageId', () => {
+    const container = { scrollHeight: 2000, scrollTop: 0, clientHeight: 500 }
+    const longPrompt = 'First_'.repeat(30) + '_Middle_'.repeat(20) + '_Tail_'.repeat(10) // > 200 chars
+    const userElements = [
+      {
+        offsetTop: 200,
+        promptPreview: 'Short question',
+        timestamp: 1762180200000,
+        messageId: 'msg_001',
+      },
+      {
+        offsetTop: 1000,
+        promptPreview: longPrompt,
+        messageId: 'msg_002',
+      },
+    ]
+
+    const ticks = computeDialogueTicks(container, userElements)
+    assert.equal(ticks.length, 2)
+
+    // Tick 0: short prompt <= 200 chars
+    assert.equal(ticks[0].previewText, 'Short question')
+    // Tick 1: long prompt > 200 chars -> formatted with ...
+    assert.ok(ticks[1].previewText.includes(' ... '))
+    assert.equal(ticks[1].messageId, 'msg_002')
+  })
+})
+
+describe('Surrogate Pair Safe Slicing & Edge Cases', () => {
+  test('safeSliceFront does not split high surrogate at boundary', () => {
+    // String with 149 standard chars + 2-char emoji (total length 151)
+    const base = 'x'.repeat(149)
+    const emojiStr = base + '🚀' // Rocket emoji is \uD83D\uDE80
+    assert.equal(emojiStr.length, 151)
+
+    // Slicing at 150 would cut into the emoji between high and low surrogate
+    const sliced = formatUserPromptPreview(emojiStr + 'y'.repeat(100))
+    // Must not end with unpaired surrogate \uD83D
+    const frontPart = sliced.split(' ... ')[0]
+    assert.ok(!/[\uD800-\uDBFF]$/.test(frontPart))
+  })
+
+  test('formats 10-digit second timestamps accurately without reverting to 1970', () => {
+    // 1762180200 = 10 digits (seconds)
+    const formatted = formatTurnTime(1762180200)
+    assert.ok(typeof formatted === 'string' && formatted.length > 0)
+    // Must not be 1970 date
+    assert.ok(!formatted.includes('1970'))
+  })
+
+  test('computeDialogueTicks handles empty prompt with fallback title', () => {
+    const container = { scrollHeight: 1000, scrollTop: 0, clientHeight: 500 }
+    const userElements = [
+      {
+        offsetTop: 100,
+        promptPreview: '',
+        rawPrompt: '',
+      },
+    ]
+
+    const ticks = computeDialogueTicks(container, userElements)
+    assert.equal(ticks.length, 1)
+    assert.equal(ticks[0].previewText, '对话 #1')
   })
 })
 

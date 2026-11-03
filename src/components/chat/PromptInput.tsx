@@ -416,10 +416,10 @@ export function PromptInput({
         const finalAgents = usableAgents.length > 0 ? usableAgents : agentList
         setAgents(finalAgents)
         setProviders(providerList)
-        // Merge built-in commands like btw, compaction, summary, title (Image 4)
+        // Merge built-in commands like btw, compact, summary, title (matching official OpenCode verbatim)
         const defaultCommands: CommandItem[] = [
           { name: 'btw', description: 'Ask a quick question without interrupting the main conversation.' },
-          { name: 'compaction', description: 'Compress and summarize context tokens' },
+          { name: 'compact', description: 'Summarize the session to reduce context size' },
           { name: 'summary', description: 'Generate structured conversation summary' },
           { name: 'title', description: 'Auto-generate descriptive session title' },
           { name: 'undo', description: 'Revert last exchange or tool invocation' },
@@ -917,6 +917,32 @@ export function PromptInput({
         clearComposer()
         return
       }
+    }
+
+    // Intercept /compact (Official OpenCode session compaction command)
+    const isCompact =
+      trimmed === '/compact' ||
+      trimmed.startsWith('/compact ') ||
+      trimmed === '/compaction' ||
+      trimmed.startsWith('/compaction ')
+    if (isCompact) {
+      if (activeSessionId) {
+        window.dispatchEvent(
+          new CustomEvent('opencode:toast', {
+            detail: { message: '正在调用官方原版后端压缩会话上下文 (Summarizing session…)' },
+          })
+        )
+        void api.compactSession(activeSessionId, selectedModel).catch((err) => {
+          console.error('[PromptInput] Compact session failed:', err)
+          window.dispatchEvent(
+            new CustomEvent('opencode:toast', {
+              detail: { message: '压缩会话失败，请检查模型连接或后端状态' },
+            })
+          )
+        })
+      }
+      clearComposer()
+      return
     }
 
     // While the model is working OR when items are already waiting in the queue,
