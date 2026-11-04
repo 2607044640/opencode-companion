@@ -9,7 +9,11 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | Component | Responsible For | MUST NOT Contain |
 | :--- | :--- | :--- |
 | `src/services/sse.ts` | Single `EventSource` to `/global/event`, reconnect 2s→10s, typed `on*` helpers | React state, REST prompt POST |
-| `src/hooks/useChatStream.ts` | History load, optimistic send, delta/part merge, status, error fuse, revert/unrevert | Textarea, map, shortcut registry, part-array assembly |
+| `src/hooks/useChatStream.ts` | History load, optimistic send, delta/part merge, status, auto-recovery state machine, revert/unrevert | Textarea, map, shortcut registry, part-array assembly |
+| `src/hooks/empty-idle-fuse.ts` | `classifyEmptyIdleFuse`, `decideEmptyTurnAutoRetry`, `partHasVisibleContent` (pending empty tool check), fatal error gating | Direct HTTP |
+| `src/hooks/go-on-fuse.ts` | `decideGoOn`, silence threshold (`GO_ON_SILENCE_MS = 90s`), mid-turn auto-recovery activity classification | UI rendering |
+| `src/components/chat/TimelineQuickJump.tsx` | Left-side dialogue navigation rail (dots, viewport thumb, drag/click scroll, hover preview card) | Backend message mutation |
+| `src/components/chat/quick-jump.ts` | `findJumpTargetIndex`, `computeDialogueTicks`, `computeViewportThumb`, `formatUserPromptPreview`, `stripDispatchEnvelope` | React hooks |
 | `src/utils/timeline-grouping.ts` | Contiguous assistant turn fusion, completed empty assistant turn pruning (SSOT alignment) | Direct DOM rendering, fetch calls |
 | `src/utils/prompt-parts.ts` | `buildPromptParts`, `buildOptimisticMessage`, `reconcileHistoryWithOptimistic` | FileReader, HTTP |
 | `src/components/chat/ChatTimeline.tsx` | Scroll, 502/error banner, find-in-page host, revert confirm diffs | `sendPrompt` HTTP |
@@ -34,6 +38,21 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 - Data-URL file parts trigger `api.materializeAttachment` → `POST /api/materialize-attachment` (`serve.mjs`) without awaiting it before `prompt_async`. Failure is a console warning. (Why chosen over blocking send: disk mirrors are for native file reads, not the daemon contract.)
 - **Empty Assistant Turn Pruning (Official OpenCode SSOT)**: If an assistant message completes with 0 parts and carries no backend error (`!info.error`), `timeline-grouping.ts` drops it from the visual timeline, and `MessageBubble.tsx` returns `null`. This prevents phantom empty bubbles and false "未收到模型响应" warning banners on historical turns.
 - Unchanged hunk context is folded (`collapseUnchangedLines`: pad 3, minCollapse 4). The fold control is `+N more lines` (expand remaining) plus `+10` head/tail when `count > 10`. `prefs.floatingDiffView !== false` (default on) renders a centered `min(88vw, 1100px)` × `min(86vh, 900px)` dialog; turning the setting off restores the right `w-[min(48vw,720px)]` drawer. (Why chosen over dumping full context: long ctx blocks bury the actual add/del lines.)
+- **Auto-Recovery State Machine (`empty-idle-fuse.ts` & `go-on-fuse.ts`)**:
+  - Distinguishes empty turn retry (`mode: 'retry'`) vs mid-turn continuation (`mode: 'go_on'`).
+  - Completely empty turns (0 tokens emitted, empty response, system abort, or transient 502/504 Bad Gateway attached to an empty shell) automatically trigger clean replay. Before calling `api.deleteMessage`, `api.abortSession(sessionId)` terminates any lingering backend stream so it cannot re-upsert deleted turn messages into SQLite.
+  - Interrupted streams with partial text or completed tools trigger automatic `go on`.
+  - Max attempt cap: `MAX_AUTO_RECOVERY_ATTEMPTS = 5` per turn; halts with a clear audit error once exhausted to prevent infinite loops.
+  - TTFT protection: an assistant shell created `< 15s` ago with no finish/completion/error is shielded from premature empty-turn retry during initial reasoning.
+  - `partHasVisibleContent`: empty pending tool shells (`state.status === 'pending'` without input, raw, or output) return `false`, aligning 1:1 with backend `_turn_has_any_output`.
+  - Fatal errors (`context_length_exceeded`, `invalid_api_key`, `insufficient_quota`, `repetition_loop`) halt immediately without auto-retry.
+  - Cross-workspace status resolution: `api.getSessionStatus(sessionId, directory)` passes the canonical workspace path, preventing non-default workspaces from receiving empty status tables and falsely assuming idle.
+- **Timeline Navigation Rail (`TimelineQuickJump.tsx` & `quick-jump.ts`)**:
+  - Vertical rail on the left side of the chat timeline displaying light-colored circular dots per dialogue turn and a dynamic viewport thumb.
+  - Supports click and pointer-drag scrolling, synchronized with timeline scroll events.
+  - Hover preview card shows formatted prompt: <= 200 chars shown in full; > 200 chars truncated with middle omitted, preserving front 150 characters + ` ... ` + tail 50 characters.
+  - Host envelope stripping (`stripDispatchEnvelope`): strips `[CALLER=HOST ...]` metadata headers and unwraps `<user_intent>...</user_intent>` tags so the preview card presents pure human prompt text.
+  - Dynamic geometry observer: `ResizeObserver` monitors both `container` and `container.firstElementChild` to instantly recalculate tick positions whenever prompt folding or message expansions alter `scrollHeight`.
 
 ## Numbered Data Flow
 
@@ -45,7 +64,11 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 6. `message.updated`: merge `info` (tokens, finish, agent). If role is user and pending optimistic id is set, rewrite that bubble's id and part `messageID`s in place.
 7. `partitionAssistantTurn` splits `<think>...</think>` (unclosed tag allowed) into thought groups; `classifyTool` buckets explore/edit/command/other; edits get `countDiffLines` + `extractEditItem`. Label: `formatWorkedLabel` (`Worked for 32s` / `Working for 4m`).
 8. Tool cards flip `state.status` (`pending` → `running` → `completed` | `error`) from full part payloads, not deltas. Diff open: `parseUnifiedHunks` → `DiffViewer` (`collapseUnchangedLines` per hunk). `DiffSidebarDrawer` is a floating dialog when `prefs.floatingDiffView !== false`, else a right sidebar. Turn mode accordion-folds files (`collapsedFiles`); Esc / backdrop click closes.
-9. `session.error` → fuse to idle + banner. Retry resends last user text/attachments. Abort → `POST /session/{id}/abort`. On `session.idle`, an empty `empty_response` or `system_abort` with no assistant error body calls that same retry once per user prompt text. Retry deletes the user row and mints a new id, so the latch is the text, not the id. A second empty failure of that same text stays on the banner. `repetition_loop` and a 502 that already has an error body do not auto-retry.
+9. `session.error` or unhandled idle drop → auto-recovery state machine evaluates the turn:
+   - If turn output is 0 characters / 0 tools (or empty 502/504): `decideEmptyTurnAutoRetry` triggers `mode: 'retry'` (aborts backend, deletes failed assistant & user messages from SQLite, and re-dispatches).
+   - If turn output is partial: `maybeSendGoOn` triggers `mode: 'go_on'` to append continuation.
+   - Non-disruptive countdown state (`autoRecoveryState`) is displayed in the timeline footer; attempts exceeding `MAX_AUTO_RECOVERY_ATTEMPTS = 5` lock to terminal error.
+   - Repetition loops and fatal credential/quota errors halt immediately.
 
 ## Side-effects API
 
@@ -59,11 +82,18 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
 | `buildOptimisticMessage` | `({ sessionId, text, attachments?, agent?, model? }) => Message` | Pure. `usr_<ts>` + `isOptimistic` parts |
 | `reconcileHistoryWithOptimistic` | `(history, prev) => Message[]` | Pure. Keeps `prev` when history is empty; copies missing file parts onto history user rows |
 | `api.materializeAttachment` | `({ filename?, mime?, dataUrl }) => Promise<void>` | `POST /api/materialize-attachment`; swallows errors |
+| `api.getSessionStatus` | `(sessionID: string, directory?: string) => Promise<SessionStatusPayload \| null>` | `GET /session/status?directory=...`; returns idle on failure |
 | `useChatStream.abort` | `() => Promise<void>` | `POST /abort`; status idle |
-| `useChatStream.retry` | `() => Promise<void>` | Replays last user parts |
+| `useChatStream.retry` | `() => Promise<void>` | Aborts backend stream, deletes failed assistant & user messages from SQLite, then replays prompt |
 | `useChatStream.revertToMessage` | `(messageId, { mode?: RevertMode, partID? }) => Promise<{ok, error?, session?}>` | Reloads history |
 | `api.getMessages` | `(sessionID) => Promise<Message[]>` | `GET /session/{id}/message` |
 | `api.sendPrompt` | `(id, string \| MessagePartInput[], { agent?, model?, attachments? })` | `buildPromptParts`; optional `switchSessionAgent`; non-blocking materialize; `POST /prompt_async` |
+| `classifyEmptyIdleFuse` | `(input: EmptyIdleFuseInput) => EmptyIdleFuseVerdict` | Pure; categorizes empty response, system abort, or repetition loop |
+| `decideEmptyTurnAutoRetry` | `(input: AutoRetryDecisionInput) => AutoRetryDecision` | Pure; validates 0-token turn, attempt cap (< 5), and non-fatal error |
+| `formatUserPromptPreview` | `(text?: string \| null) => string` | Pure; <=200 chars full; >200 chars slices front 150 + " ... " + tail 50 |
+| `stripDispatchEnvelope` | `(text?: string \| null) => string` | Pure; strips `[CALLER=HOST ...]` and unwraps `<user_intent>` |
+| `computeDialogueTicks` | `(container, userElements) => DialogueTick[]` | Pure; derives dialogue dot percentages, snippets, and active states |
+| `computeViewportThumb` | `(container, options?) => { topPct, heightPct }` | Pure; maps scroll viewport to dynamic thumb geometry on navigation rail |
 | `classifyTool` | `(tool: string) => 'explore' \| 'edit' \| 'command' \| 'other'` | Pure |
 | `partitionAssistantTurn` | `(parts, info?, now?) => WorkedTurn` | Pure |
 | `formatWorkedLabel` | `(ms, isLive) => string` | Pure |

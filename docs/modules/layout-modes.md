@@ -17,6 +17,8 @@ Live sidebar width is `w-64 sm:w-[260px]` on `Sidebar.tsx` (`<aside>`). There is
 | `src/utils/shortcuts.ts` | Defaults, localStorage merge, match/double-tap, overlay/editable guards | Feature logic |
 | `CountdownConfirmDialog.tsx` | Mandatory countdown lock (default 2s) | Business mutations (caller does the work) |
 | `SettingsModal.tsx` | Tabbed settings host, shortcut editor, theme, archived list | Relay HTTP internals (RelayGateway) |
+| `TimelineQuickJump.tsx` | Left-side timeline navigation rail, dot anchors, dynamic thumb, hover preview card | REST / SSE logic |
+| `quick-jump.ts` | Jump target selection (`findJumpTargetIndex`), geometry calculations, prompt truncation & envelope stripping | DOM rendering |
 | `TodoBanner.tsx` | Expand/collapse/dismiss checklist overlay | `GET /todo` |
 
 ## Key Invariants
@@ -24,6 +26,7 @@ Live sidebar width is `w-64 sm:w-[260px]` on `Sidebar.tsx` (`<aside>`). There is
 - Global shortcuts no-op when `isEditableTarget` (input/textarea/contenteditable) or `hasActiveOverlay` (`[role=dialog]`, `[data-floating-modal]`, …) unless the shortcut belongs to that overlay. (Why chosen over always-on chords: Ctrl+F inside search must not also spawn find-in-page.)
 - `Ctrl+K` is session/message search. `Ctrl+F` is find-in-current-timeline. Do not merge them.
 - Zen (`F11`, Esc to leave) hides sidebar + header and flips `isZenMode`. Do not treat native browser fullscreen as a substitute without also flipping that flag. (Why chosen over fullscreen-only: layout chrome would remain.)
+- **Left-side Dialogue Navigation Rail (`TimelineQuickJump`)**: Antigravity-style conversation navigation rail docked to the left of the chat timeline. Light-colored circular dots represent each user dialogue turn. Viewport thumb scales dynamically with dialogue depth (`computeViewportThumb`). Hovering a dot reveals a dark floating preview card with turn number, timestamp, and human prompt (length <= 200 displayed fully; length > 200 sliced to front 150 + " ... " + tail 50; `stripDispatchEnvelope` strips host dispatch headers). `ResizeObserver` monitors both the container and its content child (`firstElementChild`) to synchronize tick geometry upon folding/collapsing.
 
 ## Numbered Data Flow
 
