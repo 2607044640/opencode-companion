@@ -86,8 +86,21 @@ function partHasVisibleContent(part: MessagePart): boolean {
       return Boolean(reasoning.text?.trim())
     }
     case 'file':
-    case 'tool':
       return true
+    case 'tool': {
+      const state = (part as any).state
+      if (!state || typeof state !== 'object') return true
+      if (state.status === 'pending') {
+        const hasInput =
+          state.input &&
+          typeof state.input === 'object' &&
+          Object.keys(state.input as Record<string, unknown>).length > 0
+        const hasRaw = typeof state.raw === 'string' && state.raw.trim().length > 0
+        const hasOutput = typeof state.output === 'string' && state.output.trim().length > 0
+        return Boolean(hasInput || hasRaw || hasOutput)
+      }
+      return true
+    }
     default:
       return false
   }

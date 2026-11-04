@@ -261,4 +261,36 @@ describe('empty-idle-fuse', () => {
     })
     assert.equal(verdict.kind, 'none')
   })
+
+  it('treats an empty pending tool shell as zero content, but a populated or running tool as visible content', () => {
+    const emptyPendingTool = assistant({
+      finish: 'error',
+      parts: [
+        {
+          id: 't1',
+          sessionID: 'ses_1',
+          messageID: 'msg_a',
+          type: 'tool',
+          tool: 'bash',
+          state: { status: 'pending', input: {} },
+        } as any,
+      ],
+    })
+    assert.equal(hasTurnContent(emptyPendingTool), false)
+
+    const populatedPendingTool = assistant({
+      finish: 'error',
+      parts: [
+        {
+          id: 't2',
+          sessionID: 'ses_1',
+          messageID: 'msg_a',
+          type: 'tool',
+          tool: 'bash',
+          state: { status: 'pending', input: { command: 'ls' } },
+        } as any,
+      ],
+    })
+    assert.equal(hasTurnContent(populatedPendingTool), true)
+  })
 })

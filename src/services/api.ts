@@ -1199,9 +1199,13 @@ export const api = {
    * A missing id is idle (process died, reboot, or the session is not running).
    * Null means the status call itself failed — caller must not invent busy.
    */
-  async getSessionStatus(sessionID: string): Promise<SessionStatusPayload | null> {
+  async getSessionStatus(sessionID: string, directory?: string): Promise<SessionStatusPayload | null> {
     try {
-      const raw = await request<unknown>('/session/status', { cache: 'no-store' })
+      const canonicalDir = directory ? canonicalizeDirectory(directory) : undefined
+      const endpoint = canonicalDir
+        ? `/session/status?directory=${encodeURIComponent(canonicalDir)}`
+        : '/session/status'
+      const raw = await request<unknown>(endpoint, { cache: 'no-store' })
       return sessionStatusFromTable(raw, sessionID)
     } catch {
       return null

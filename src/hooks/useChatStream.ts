@@ -242,6 +242,20 @@ export function useChatStream(
 
       // 4. Branch A: Completely empty turn (0 characters, 0 tool calls emitted in this turn)
       if (!turn.turnHasAnyOutput) {
+        const lastAssistant = turn.lastAssistantMessage
+        const rawCreated = Number(lastAssistant?.info.time?.created || 0)
+        const createdMs = rawCreated > 0 && rawCreated < 1e11 ? rawCreated * 1000 : rawCreated
+        const isFreshUnclosedShell =
+          Boolean(lastAssistant) &&
+          !lastAssistant?.info.finish &&
+          !lastAssistant?.info.time?.completed &&
+          !rawErr &&
+          createdMs > 0 &&
+          Date.now() - createdMs < 15_000
+        if (isFreshUnclosedShell) {
+          return false
+        }
+
         const fuse = classifyEmptyIdleFuse({
           lastMessage: turn.lastAssistantMessage,
           userAborted: userAbortedRef.current,
@@ -481,7 +495,11 @@ export function useChatStream(
       commitSessionStatus(status)
       return true
     }
-    const statusPromise = api.getSessionStatus(id).then((status) => {
+    const knownDir =
+      sessionDir ||
+      peeked?.[0]?.info.path?.root ||
+      peeked?.[0]?.info.path?.cwd
+    const statusPromise = api.getSessionStatus(id, knownDir).then((status) => {
       applySnapshot(status)
       return status
     })
@@ -1008,7 +1026,11 @@ export function useChatStream(
       const quietFor = Date.now() - lastActivityAtRef.current
       if (quietFor < GO_ON_SILENCE_MS) return
       const askedAt = lastActivityAtRef.current
-      void api.getSessionStatus(activeId).then((status) => {
+      const activeDir =
+        sessionDir ||
+        messagesRef.current[0]?.info.path?.root ||
+        messagesRef.current[0]?.info.path?.cwd
+      void api.getSessionStatus(activeId, activeDir).then((status) => {
         if (!status || currentSessionIdRef.current !== activeId) return
         if (lastActivityAtRef.current !== askedAt) return
         commitSessionStatus(status)
@@ -1199,6 +1221,10 @@ export function useChatStream(
 
     const lastUserMsg = msgs[lastUserIndex]
     const subsequentAssistantMsgs = msgs.slice(lastUserIndex + 1).filter((m) => m.info.role === 'assistant')
+
+    // 0. Abort any lingering in-flight stream on the backend before deleting messages
+    // so an active generator cannot re-upsert deleted turn messages into SQLite.
+    await api.abortSession(sessionId).catch(() => {})
 
     // 1. Physically delete failed/empty assistant messages from backend SQLite
     for (const aMsg of subsequentAssistantMsgs) {

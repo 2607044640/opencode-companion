@@ -174,6 +174,9 @@ export function TimelineQuickJump({
       scheduleUpdate()
     })
     resizeObserver.observe(container)
+    if (container.firstElementChild) {
+      resizeObserver.observe(container.firstElementChild)
+    }
 
     return () => {
       container.removeEventListener('scroll', scheduleUpdate)

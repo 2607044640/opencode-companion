@@ -8,6 +8,7 @@ import {
   computeViewportThumb,
   resolveCommandCopyText,
   calculateDragScrollTop,
+  stripDispatchEnvelope,
   formatUserPromptPreview,
   formatTurnTime,
   type UserMessageRect,
@@ -374,6 +375,19 @@ describe('Surrogate Pair Safe Slicing & Edge Cases', () => {
     const ticks = computeDialogueTicks(container, userElements)
     assert.equal(ticks.length, 1)
     assert.equal(ticks[0].previewText, '对话 #1')
+  })
+
+  test('stripDispatchEnvelope removes [CALLER=HOST ...] and extracts <user_intent>', () => {
+    const rawHostDispatch =
+      '[CALLER=HOST TASK_ID=dea7a26c]\n\n<user_intent>\n请详细调研 Backpack Brawl 商店刷新池与专属道具机制\n</user_intent>\n\n<context>\nTARGET=ObsidianNote\n</context>'
+    assert.equal(
+      stripDispatchEnvelope(rawHostDispatch),
+      '请详细调研 Backpack Brawl 商店刷新池与专属道具机制'
+    )
+    assert.equal(
+      formatUserPromptPreview(rawHostDispatch),
+      '请详细调研 Backpack Brawl 商店刷新池与专属道具机制'
+    )
   })
 })
 

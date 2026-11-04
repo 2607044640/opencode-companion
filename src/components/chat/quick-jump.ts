@@ -121,6 +121,25 @@ export function safeSliceTail(str: string, tailLen: number): string {
 }
 
 /**
+ * Strips host dispatch metadata headers (`[CALLER=HOST ...]`) and extracts the
+ * human prompt inside `<user_intent>...</user_intent>` envelopes if present.
+ */
+export function stripDispatchEnvelope(text?: string | null): string {
+  if (!text) return ''
+  let clean = text.trim()
+  while (clean.startsWith('[CALLER=HOST')) {
+    const closeIdx = clean.indexOf(']')
+    if (closeIdx === -1) break
+    clean = clean.slice(closeIdx + 1).trimStart()
+  }
+  const intentMatch = clean.match(/<user_intent>\s*([\s\S]*?)\s*<\/user_intent>/i)
+  if (intentMatch && intentMatch[1]?.trim()) {
+    return intentMatch[1].trim()
+  }
+  return clean
+}
+
+/**
  * Truncates and formats user input prompt for the hover preview card.
  * Rule:
  * - If length <= 200 characters: display full text.
@@ -129,7 +148,8 @@ export function safeSliceTail(str: string, tailLen: number): string {
  */
 export function formatUserPromptPreview(text?: string | null): string {
   if (!text) return ''
-  const trimmed = text.trim()
+  const trimmed = stripDispatchEnvelope(text)
+  if (!trimmed) return ''
   if (trimmed.length <= 200) {
     return trimmed
   }
@@ -204,7 +224,8 @@ export function computeDialogueTicks(
       el.offsetTop >= scrollTop - 60 &&
       el.offsetTop <= scrollTop + clientHeight - 40
 
-    const sourcePrompt = (el.rawPrompt || el.promptPreview || el.textContent || '').trim()
+    const rawSource = (el.rawPrompt || el.promptPreview || el.textContent || '').trim()
+    const sourcePrompt = stripDispatchEnvelope(rawSource)
     const singleLineText = sourcePrompt.replace(/\s+/g, ' ')
     const snippet = singleLineText.length > 36 ? singleLineText.slice(0, 36) + '…' : singleLineText || `对话 #${idx + 1}`
     const previewText = formatUserPromptPreview(sourcePrompt) || `对话 #${idx + 1}`
