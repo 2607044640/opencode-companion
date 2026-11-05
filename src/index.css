@@ -3,16 +3,18 @@
 
 @layer base {
   :root {
-    --bg-main: #0c0d0e;
-    --bg-card: #151719;
-    --bg-card-hover: #1c1f22;
-    --bg-tool: #121315;
-    --border-subtle: #24272b;
-    --border-highlight: #33383f;
-    --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --text-muted: #656d76;
-    --accent-purple: #9333ea;
+    --bg-main: #13131a;
+    --bg-sidebar: #0f0f15;
+    --bg-header: #0f0f15;
+    --bg-card: #181824;
+    --bg-card-hover: #202030;
+    --bg-tool: #161622;
+    --border-subtle: #222232;
+    --border-highlight: #2e2e42;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-purple: #8b5cf6;
     --accent-orange: #f97316;
   }
 
@@ -73,11 +75,11 @@
 
 /* Markdown rendering typography */
 .prose pre {
-  margin: 0.5rem 0;
-  padding: 0.75rem;
-  background-color: #101214;
-  border-radius: 0.375rem;
-  border: 1px solid #27272a;
+  margin: 0.75rem 0;
+  padding: 0.875rem 1rem;
+  background-color: #161622;
+  border-radius: 0.5rem;
+  border: 1px solid #242436;
   overflow-x: auto;
 }
 
@@ -87,10 +89,12 @@
 }
 
 .prose :not(pre) > code {
-  background-color: #27272a80;
+  background-color: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.25);
   padding: 0.15rem 0.35rem;
-  border-radius: 0.25rem;
-  color: #f43f5e;
+  border-radius: 0.375rem;
+  color: #c4b5fd;
+  font-weight: 500;
 }
 
 /* User prompt scroll jump target highlight */

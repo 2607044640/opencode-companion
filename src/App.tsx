@@ -599,7 +599,7 @@ export default function App() {
 
   return (
     <DiffDrawerProvider activeSessionId={activeSessionId}>
-      <div className="flex h-full w-full bg-[#0c0d0e] text-[#e6edf3] font-sans antialiased overflow-hidden">
+      <div className="flex h-full w-full bg-[#13131a] text-[#f1f5f9] font-sans antialiased overflow-hidden">
         {isZenMode && (
           <div className="fixed top-3.5 right-5 z-50 group pointer-events-auto">
             <button
@@ -676,7 +676,7 @@ export default function App() {
 
         <div
           className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden transition-colors duration-300 ${
-            isZenMode ? 'bg-[#090a0c]' : 'bg-[#0c0d0e]'
+            isZenMode ? 'bg-[#101016]' : 'bg-[#13131a]'
           }`}
           onClick={() => {
             if (activeSessionId) {
