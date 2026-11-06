@@ -379,7 +379,7 @@ export function Sidebar({
 
   if (isOpen === false) {
     return (
-      <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none justify-between">
+      <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between">
         {/* Top: Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
         <div className="flex flex-col items-center gap-1.5">
           {/* Toggle Sidebar [|] */}
@@ -542,9 +542,9 @@ export function Sidebar({
   }
 
   return (
-    <aside className="w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#21242b] bg-[#0d0f12] text-[#c9d1d9] select-none">
+    <aside className="w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none">
       {/* 1. Top Action Buttons Bar (图4功能 - 并列一行，纯图标，带悬浮说明) */}
-      <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#21242b] bg-[#111317]">
+      <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#1f1f2c] bg-[#12121a]">
         {/* Left: Sidebar Toggle, Back, Forward */}
         <div className="flex items-center gap-1">
           {/* Toggle Sidebar [|] */}

@@ -1013,12 +1013,12 @@ export function PromptInput({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative rounded-xl border shadow-2xl transition-all focus-within:border-[#388bfd]/60 focus-within:ring-1 focus-within:ring-[#388bfd]/20 ${
+        className={`relative rounded-2xl border shadow-2xl transition-all focus-within:border-purple-500/50 focus-within:ring-1 focus-within:ring-purple-500/20 ${
           isDragging
-            ? 'border-orange-500/80 ring-2 ring-orange-500/30 bg-[#161922]'
+            ? 'border-purple-500/80 ring-2 ring-purple-500/30 bg-[#161924]'
             : isZenMode
-            ? 'bg-[#121419]/90 backdrop-blur-md border-zinc-700/60 hover:border-zinc-500/80 hover:bg-[#121419]/95'
-            : 'bg-[#14161b] border-[#272a31]'
+            ? 'bg-[#181824]/95 backdrop-blur-md border-[#2b2b3f] hover:border-[#383852]'
+            : 'bg-[#181824]/95 backdrop-blur-md border-[#262638] hover:border-[#32324a]'
         }`}
       >
         {/* Drag and Drop Active Overlay */}
@@ -1095,7 +1095,7 @@ export function PromptInput({
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
           onPaste={handlePaste}
-          placeholder={isZenMode ? '沉浸阅读中... 输入消息按 Enter 发送' : placeholder}
+          placeholder={isZenMode ? '沉浸阅读中... 输入消息按 Enter 发送' : (placeholder || 'Ask anything, @ to mention, / for actions')}
           className="w-full bg-transparent text-sm text-zinc-100 placeholder-zinc-500 px-4 pt-3.5 pb-2 resize-none focus:outline-none leading-relaxed font-sans max-h-48"
         />
 
@@ -1135,15 +1135,15 @@ export function PromptInput({
                   setShowAgentMenu(!showAgentMenu)
                   setShowModelMenu(false)
                 }}
-                className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1b1e24] hover:bg-[#22262e] border border-[#2b3038] text-zinc-300 hover:text-white transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#20202e]/80 hover:bg-[#28283c] border border-[#2c2c40] text-zinc-300 hover:text-white transition-colors text-xs"
               >
-                <Bot className="w-3 h-3 text-orange-400" />
+                <Bot className="w-3 h-3 text-purple-400" />
                 <span className="font-medium truncate max-w-[140px]">{selectedAgent}</span>
                 <ChevronDown className="w-3 h-3 text-zinc-500" />
               </button>
 
               {showAgentMenu && (
-                <div className="absolute left-0 bottom-full mb-1.5 w-60 rounded-lg border border-[#2c3038] bg-[#16181e] shadow-xl z-50 p-1 max-h-56 overflow-y-auto">
+                <div className="absolute left-0 bottom-full mb-1.5 w-60 rounded-xl border border-[#2c2c40] bg-[#161622] shadow-xl z-50 p-1 max-h-56 overflow-y-auto">
                   <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 uppercase">
                     Select Primary Agent
                   </div>
@@ -1162,8 +1162,8 @@ export function PromptInput({
                         }}
                         className={`w-full text-left px-2 py-1.5 rounded text-xs flex flex-col ${
                           selectedAgent === agent.name
-                            ? 'bg-orange-600/20 text-orange-300 font-medium'
-                            : 'text-zinc-300 hover:bg-[#20242c]'
+                            ? 'bg-purple-600/20 text-purple-300 font-medium'
+                            : 'text-zinc-300 hover:bg-[#222234]'
                         }`}
                       >
                         <span className="truncate">{agent.name}</span>
@@ -1185,7 +1185,7 @@ export function PromptInput({
                   setShowModelMenu(!showModelMenu)
                   setShowAgentMenu(false)
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#181b22] hover:bg-[#20242e] border border-[#2b303a] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#222232]/80 hover:bg-[#2a2a3e] border border-[#2e2e42] text-zinc-300 hover:text-white transition-colors cursor-pointer text-xs"
                 title="Select model"
               >
                 <Sparkles className="w-3 h-3 text-purple-400" />
@@ -1196,9 +1196,9 @@ export function PromptInput({
               </button>
 
               {showModelMenu && (
-                <div className="absolute left-0 bottom-full mb-2 w-72 rounded-xl border border-[#2a2e38] bg-[#14161c] shadow-2xl z-50 overflow-hidden flex flex-col">
+                <div className="absolute left-0 bottom-full mb-2 w-72 rounded-xl border border-[#2c2c40] bg-[#161622] shadow-2xl z-50 overflow-hidden flex flex-col">
                   {/* Search Box at top (Matches Image 1) */}
-                  <div className="p-2 border-b border-[#21242b] bg-[#111317]">
+                  <div className="p-2 border-b border-[#242436] bg-[#12121a]">
                     <div className="relative flex items-center">
                       <Search className="w-3.5 h-3.5 absolute left-2.5 text-zinc-500 pointer-events-none" />
                       <input
@@ -1207,7 +1207,7 @@ export function PromptInput({
                         onChange={(e) => setModelSearchQuery(e.target.value)}
                         placeholder={t.models.searchPlaceholder}
                         autoFocus
-                        className="w-full pl-8 pr-2.5 py-1 bg-[#0c0d10] border border-[#272a32] focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 rounded-md text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
+                        className="w-full pl-8 pr-2.5 py-1 bg-[#0f0f15] border border-[#242436] focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 rounded-md text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
                       />
                       {modelSearchQuery && (
                         <button

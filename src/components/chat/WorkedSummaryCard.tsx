@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Sparkles,
   ChevronDown,
   ChevronRight,
   Loader2,
-  CheckCircle2,
   XCircle,
   AlertCircle,
   FileCode,
@@ -86,24 +84,24 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
   }
 
   return (
-    <div className="my-2 rounded-lg border border-[#272a30] bg-[#121417]/85 overflow-hidden text-xs shadow-sm transition-all">
-      {/* Worked Header Bar (Antigravity Style: Sleek 32px height) */}
+    <div className="my-1.5 transition-all">
+      {/* Worked Header Bar (Antigravity Minimal Style: Sleek text + chevron) */}
       <div
         onClick={handleToggle}
-        className="flex items-center justify-between px-3 py-2 bg-[#16181d] hover:bg-[#1b1e24] cursor-pointer transition-colors select-none"
+        className={`inline-flex items-center gap-1.5 py-1 px-2 -ml-2 rounded-lg cursor-pointer transition-colors select-none text-zinc-400 hover:text-zinc-200 hover:bg-[#1f1f2e]/60 ${
+          expanded ? 'bg-[#181824] text-zinc-200 mb-2 border border-[#262638]' : ''
+        }`}
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <div className="w-5 h-5 rounded flex items-center justify-center bg-zinc-800/80 text-zinc-300 border border-zinc-700/50 shrink-0">
-            <Sparkles className="w-3 h-3 text-amber-400" />
-          </div>
-
-          <span className="font-semibold text-xs text-zinc-100 shrink-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs text-zinc-400 hover:text-zinc-200">
             {label}
           </span>
 
-          <span className="text-[10px] text-zinc-500 font-mono shrink-0">
-            ({turn.totalWorkItems} {turn.totalWorkItems === 1 ? tr('个操作', 'action') : tr('个操作', 'actions')})
-          </span>
+          {turn.totalWorkItems > 0 && (
+            <span className="text-[11px] text-zinc-500 font-mono">
+              ({turn.totalWorkItems} {turn.totalWorkItems === 1 ? tr('个操作', 'action') : tr('个操作', 'actions')})
+            </span>
+          )}
 
           {editCount > 0 && (
             <button
@@ -118,7 +116,7 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
                   files: turnFiles,
                 })
               }}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-700/60 text-emerald-300 font-mono text-[10px] font-medium transition-colors ml-1 cursor-pointer"
+              className="flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-700/60 text-emerald-300 font-mono text-[10px] font-medium transition-colors ml-1 cursor-pointer"
               title={tr('点击打开审查面板查看本轮差异', 'Click to review turn diffs', 'Klicken, um Runden-Diffs zu prüfen')}
             >
               <FileCode className="w-3 h-3 text-emerald-400" />
@@ -135,7 +133,7 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 ml-2">
+        <div className="flex items-center gap-1.5 shrink-0 ml-1">
           {confirming ? (
             <span className="flex items-center gap-1 text-zinc-400 font-mono text-[10px]">
               <Loader2 className="w-3 h-3 animate-spin" />
@@ -160,25 +158,19 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
                 <span className="hidden sm:inline">{tr('异常', 'Issues')}</span>
               </span>
             </DelayedTooltip>
-          ) : (
-            <span className="flex items-center gap-1 text-emerald-400 font-mono text-[10px]">
-              <CheckCircle2 className="w-3 h-3" />
-            </span>
-          )}
+          ) : null}
 
-          <button className="text-zinc-500 hover:text-zinc-200">
-            {expanded ? (
-              <ChevronDown className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronRight className="w-3.5 h-3.5" />
-            )}
-          </button>
+          {expanded ? (
+            <ChevronDown className="w-3 h-3 text-zinc-400" />
+          ) : (
+            <ChevronRight className="w-3 h-3 text-zinc-400" />
+          )}
         </div>
       </div>
 
       {/* Expanded Hierarchical Breakdown */}
       {expanded && (
-        <div className="border-t border-[#272a30] select-text">
+        <div className="rounded-xl border border-[#262638] bg-[#161622]/95 overflow-hidden text-xs shadow-lg mb-2 select-text">
           <HierarchicalToolList groups={turn.groups} messageId={messageId} isLive={confirming || isEffectivelyLive} />
         </div>
       )}

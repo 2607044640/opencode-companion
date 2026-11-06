@@ -121,7 +121,7 @@ export function Header({
   }, [activeSessionId])
 
   return (
-    <header className="h-12 border-b border-[#24272b] bg-[#0f1115] flex items-center justify-between px-2 gap-2 select-none shrink-0">
+    <header className="h-12 border-b border-[#1f1f2c] bg-[#0f0f15] flex items-center justify-between px-2 gap-2 select-none shrink-0">
       {/* Multi-Session Tabs */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto no-scrollbar">
         {/* Tab Items */}
@@ -218,8 +218,8 @@ export function Header({
                 }}
                 className={`group flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-t-md cursor-pointer border-t-2 transition-all min-w-[50px] w-auto ${tabWidthClass} ${
                   isActive
-                    ? 'bg-[#16181d] text-[#e6edf3] border-t-orange-500 font-medium border-x border-[#272a30] shadow-sm'
-                    : 'bg-[#121418]/80 text-[#8b949e] border-t-transparent hover:bg-[#181b20] hover:text-[#c9d1d9] border-x border-[#1a1d24]'
+                    ? 'bg-[#181824] text-[#f1f5f9] border-t-purple-500 font-medium border-x border-[#262638] shadow-sm'
+                    : 'bg-[#12121a]/80 text-zinc-400 border-t-transparent hover:bg-[#161622] hover:text-zinc-200 border-x border-[#1c1c2a]'
                 }`}
               >
                 {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) - Click to copy session ID */}

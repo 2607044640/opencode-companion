@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw } from 'lucide-react'
+import { AlertTriangle, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw, ArrowDown } from 'lucide-react'
 import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
 import { MessageBubble, getAgentBadge } from './MessageBubble'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
@@ -35,12 +35,12 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
       className="w-full max-w-3xl mr-auto my-4 animate-in fade-in slide-in-from-bottom-2 duration-200"
     >
       <div
-        className={`w-full rounded-xl border border-purple-800/60 bg-[#121418]/90 shadow-lg shadow-purple-950/30 backdrop-blur-sm transition-all ${
-          isZenMode ? 'p-5 rounded-2xl' : 'p-4'
+        className={`w-full rounded-2xl border border-purple-500/20 bg-[#161622]/90 shadow-xl backdrop-blur-sm transition-all ${
+          isZenMode ? 'p-5' : 'p-4'
         }`}
       >
         {/* Header: Agent badge, Model badge, Generating badge */}
-        <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-purple-900/30 text-xs text-zinc-400">
+        <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-[#242436] text-xs text-zinc-400">
           <div className="flex items-center gap-2">
             <div
               className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold border ${badge.bg}`}
@@ -276,7 +276,7 @@ export function ChatTimeline({
   }, [messages])
   const targetAgent = lastUserMsg?.info?.agent || activeSession?.agent || 'build'
   const targetModelId = lastUserMsg?.info?.modelID || activeSession?.model?.id || ''
-
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
 
   // Track if user scrolled up manually
   const handleScroll = () => {
@@ -284,9 +284,11 @@ export function ChatTimeline({
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 80
     isAutoScrollEnabled.current = isAtBottom
+    setShowScrollBottom(!isAtBottom && scrollHeight > clientHeight + 100)
   }
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    setShowScrollBottom(false)
     if (!containerRef.current) return
     const container = containerRef.current
     if (behavior === 'smooth') {
@@ -700,9 +702,9 @@ export function ChatTimeline({
               <button
                 key={idx}
                 onClick={() => onPromptSuggestion?.(s)}
-                className="flex-1 p-2.5 rounded-lg bg-[#14161a] hover:bg-[#1a1d22] border border-[#24272c] text-left text-xs text-zinc-300 hover:text-white transition-all flex items-center gap-2 group"
+                className="flex-1 p-2.5 rounded-xl bg-[#181824] hover:bg-[#202030] border border-[#262638] text-left text-xs text-zinc-300 hover:text-white transition-all flex items-center gap-2 group cursor-pointer shadow-sm"
               >
-                <Sparkles className="w-3.5 h-3.5 text-orange-400 shrink-0 group-hover:scale-110 transition-transform" />
+                <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0 group-hover:scale-110 transition-transform" />
                 <span className="truncate">{s}</span>
               </button>
             ))}
@@ -845,6 +847,22 @@ export function ChatTimeline({
         isReverting={isReverting}
         error={revertError}
       />
+
+      {/* Floating Scroll to Bottom Button (Antigravity Style: Centered circular button with down arrow) */}
+      {showScrollBottom && (
+        <button
+          type="button"
+          onClick={() => {
+            isAutoScrollEnabled.current = true
+            scrollToBottom('smooth')
+          }}
+          className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 w-8 h-8 rounded-full bg-[#181824]/90 hover:bg-[#242438] border border-[#2e2e46] text-zinc-300 hover:text-white flex items-center justify-center shadow-2xl cursor-pointer transition-all active:scale-90 backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+          title="滚动到底部"
+          aria-label="滚动到底部"
+        >
+          <ArrowDown className="w-4 h-4" />
+        </button>
+      )}
 
       {/* Text Selection Floating Copy & 1s Feedback Popover */}
       <SelectionCopyFeedback

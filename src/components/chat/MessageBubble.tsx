@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import {
-  User,
   Copy,
   Check,
   RotateCcw,
@@ -241,7 +240,7 @@ function createMarkdownComponents(isZenMode?: boolean) {
       </blockquote>
     ),
     pre: ({ ...props }: any) => (
-      <div className="relative my-2 rounded-md bg-[#0a0b0d] border border-[#272a30] overflow-hidden">
+      <div className="relative my-2 rounded-xl bg-[#161622] border border-[#242436] overflow-hidden">
         <pre
           className={`overflow-x-auto font-mono text-zinc-300 ${
             isZenMode ? 'p-4 text-xs sm:text-sm leading-relaxed' : 'p-3 text-xs'
@@ -254,7 +253,7 @@ function createMarkdownComponents(isZenMode?: boolean) {
       const isInline = !className
       return isInline ? (
         <code
-          className={`bg-[#1c2028] text-[#e6edf3] border border-[#2d3340] px-1.5 py-0.5 rounded font-mono ${
+          className={`bg-purple-950/25 text-[#c4b5fd] border border-purple-500/20 px-1.5 py-0.5 rounded-md font-mono font-medium ${
             isZenMode ? 'text-xs sm:text-[13px]' : 'text-[11px] sm:text-xs'
           }`}
           {...props}
@@ -458,91 +457,29 @@ function UserMessageBubble({
       data-created-time={createdTime || ''}
       data-message-id={message.info.id}
       id={`msg_${message.info.id}`}
-      className="w-full my-4"
+      className="w-full my-3 flex flex-col items-end"
     >
+      {/* User Message Bubble: Auto-sized according to content length, capped at ~2/3 width */}
       <div
-        className={`w-full bg-[#181a20] border border-[#2d313a] rounded-xl px-4.5 py-3.5 text-zinc-100 shadow-sm transition-all ${
+        className={`w-fit max-w-[88%] sm:max-w-[75%] lg:max-w-[67%] bg-[#1a1a26] border border-[#28283c] rounded-2xl px-4.5 py-3 text-zinc-100 shadow-sm transition-all break-words select-text ${
           isZenMode
-            ? 'text-[15px] leading-relaxed py-4 px-5 bg-[#1a1d24] border-[#343b46] shadow-md'
+            ? 'text-[15px] leading-relaxed py-4.5 px-5.5 bg-[#1c1c2a] border-[#2e2e44] shadow-md'
             : 'text-sm'
         }`}
       >
-        {/* User message header: shows prompt target binding & metrics */}
-        <div className="flex items-center justify-between gap-3 mb-2 text-[11px] text-zinc-400 pb-2 border-b border-[#252830]">
-          <div className="flex items-center gap-1.5 font-medium text-zinc-300">
-            <User className="w-3.5 h-3.5 text-zinc-400" />
-            <span>You</span>
-            {isReverted && (
-              <span className="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono text-zinc-400">
-                {t.chat.revertedBadge}
-              </span>
-            )}
-            {(agentName || modelName) && (
-              <span className="flex items-center gap-1 text-[10px] text-zinc-500 ml-1">
-                <ArrowRight className="w-2.5 h-2.5" />
-                <span className="text-zinc-400 font-mono">
-                  {agentName || 'Default'}
-                  {modelName ? ` (${modelName})` : ''}
-                </span>
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {isCollapsible && (
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-purple-300 hover:text-purple-200 bg-purple-950/40 hover:bg-purple-950/70 border border-purple-800/40 transition-colors"
-                title={isExpanded ? tr('收起提问内容', 'Collapse prompt', 'Prompt einklappen') : tr('展开提问内容', 'Expand prompt', 'Prompt ausklappen')}
-              >
-                {isExpanded ? (
-                  <>
-                    <ChevronUp className="w-3 h-3 text-purple-400" />
-                    <span>{tr('收起', 'Collapse', 'Einklappen')}</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-3 h-3 text-purple-400" />
-                    <span>{tr('展开', 'Expand', 'Ausklappen')}</span>
-                  </>
-                )}
-              </button>
-            )}
-            {isCollapsible && (
-              <span className="text-[10px] text-zinc-500 font-mono">
-                {lineCount} {tr('行', 'lines', 'Zeilen')} · {charCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')}
-              </span>
-            )}
-            {onRevertToMessage && (
-              <button
-                onClick={() => onRevertToMessage(message.info.id)}
-                disabled={isReverting}
-                className="hover:text-zinc-200 text-zinc-400 hover:bg-zinc-800 transition-colors p-0.5 rounded disabled:opacity-40"
-                title={t.chat.undoUpToThisPoint}
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              onClick={handleCopy}
-              className="hover:text-zinc-200 transition-colors p-0.5 rounded hover:bg-zinc-800"
-              title={tr('复制提示词', 'Copy prompt', 'Prompt kopieren')}
-            >
-              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Attached Images (Square Thumbnails in a Row - matching Image 2) */}
+        {/* Attached Images (Square Thumbnails in a Row - matching Image 2 & 3) */}
         {(() => {
           const fileParts = message.parts
             .filter((p) => p.type === 'file')
             .map((p) => p as FilePart)
           if (fileParts.length === 0) return null
           return (
-            <ImageThumbnailRow
-              images={fileParts}
-              onOpenLightbox={(idx) => handleOpenLightbox(fileParts, idx)}
-            />
+            <div className="mb-2">
+              <ImageThumbnailRow
+                images={fileParts}
+                onOpenLightbox={(idx) => handleOpenLightbox(fileParts, idx)}
+              />
+            </div>
           )
         })()}
 
@@ -550,7 +487,7 @@ function UserMessageBubble({
         {fullText && (
           <div className="relative">
             <div
-              className={`whitespace-pre-wrap leading-relaxed text-zinc-200 transition-all ${
+              className={`whitespace-pre-wrap leading-relaxed text-zinc-100 transition-all ${
                 isCollapsible && !isExpanded ? 'max-h-24 overflow-hidden' : ''
               }`}
             >
@@ -561,10 +498,10 @@ function UserMessageBubble({
             {isCollapsible && !isExpanded && (
               <div
                 onClick={() => setIsExpanded(true)}
-                className={`absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t ${
+                className={`absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t ${
                   isZenMode
-                    ? 'from-[#1e2229] via-[#1e2229]/90'
-                    : 'from-[#1d2127] via-[#1d2127]/90'
+                    ? 'from-[#1c1c2a] via-[#1c1c2a]/90'
+                    : 'from-[#1a1a26] via-[#1a1a26]/90'
                 } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
                 title={tr('点击展开完整提示词', 'Click to expand full prompt', 'Klicken, um vollständigen Prompt anzuzeigen')}
               />
@@ -573,8 +510,9 @@ function UserMessageBubble({
             {/* Expand / Collapse Toggle Bar */}
             {isCollapsible && (
               <button
+                type="button"
                 onClick={() => setIsExpanded(!isExpanded)}
-                className={`w-full mt-2 pt-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-all select-none rounded border ${
+                className={`w-full mt-2 pt-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-all select-none rounded border cursor-pointer ${
                   isExpanded
                     ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/30 hover:bg-zinc-800/60 py-1 border-zinc-800'
                     : 'text-purple-300 hover:text-purple-100 bg-purple-950/30 hover:bg-purple-950/50 py-1 border-purple-900/40 shadow-sm'
@@ -600,46 +538,68 @@ function UserMessageBubble({
             )}
           </div>
         )}
+      </div>
 
-        {/* User Message Footer (Matches official OpenCode screenshot): Timestamp + Copy + Native Revert */}
-        <div className="flex items-center justify-end gap-1.5 mt-2.5 pt-1 text-[11px] text-zinc-400 select-none border-t border-zinc-800/40">
-          {formattedTime && (
-            <span className="text-[10px] text-zinc-400/80 font-mono tracking-tight mr-1">
-              {formattedTime}
-            </span>
-          )}
-          <button
-            onClick={handleCopy}
-            className="hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800 text-zinc-400"
-            title={tr('复制', 'Copy', 'Kopieren')}
+      {/* User Message Footer (Matches official Antigravity screenshot): Target / Time / Copy / Undo */}
+      <div className="flex items-center justify-end gap-2 mt-1.5 text-[11px] text-zinc-400 select-none pr-1">
+        {isReverted && (
+          <span className="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono text-zinc-400">
+            {t.chat.revertedBadge}
+          </span>
+        )}
+
+        {(agentName || modelName) && (
+          <span
+            className="flex items-center gap-1 text-[10px] text-zinc-500 font-mono"
+            title={`Agent: ${agentName || 'Default'}${modelName ? ` | Model: ${modelName}` : ''}`}
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <ArrowRight className="w-2.5 h-2.5 text-zinc-500" />
+            <span>{agentName || 'Default'}</span>
+            {modelName && <span className="text-zinc-400">({modelName})</span>}
+          </span>
+        )}
+
+        {formattedTime && (
+          <span className="text-[10px] text-zinc-500 font-mono tracking-tight">
+            {formattedTime}
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800 text-zinc-400 cursor-pointer"
+          title={tr('复制提示词', 'Copy prompt', 'Prompt kopieren')}
+          aria-label={tr('复制提示词', 'Copy prompt', 'Prompt kopieren')}
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+
+        {onRevertToMessage && (
+          <button
+            type="button"
+            onClick={() => onRevertToMessage(message.info.id)}
+            disabled={isBusy || isReverting || isReverted}
+            className={`p-1 rounded transition-all group/undo relative cursor-pointer ${
+              isBusy || isReverting || isReverted
+                ? 'opacity-30 cursor-not-allowed text-zinc-600'
+                : 'text-zinc-400 hover:text-amber-300 hover:bg-amber-950/50'
+            }`}
+            title={t.chat.undoUpToThisPoint}
+            aria-label={t.chat.undoUpToThisPoint}
+          >
+            {isReverting ? (
+              <RotateCcw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            ) : (
+              <Undo2 className="w-3.5 h-3.5 transition-transform group-hover/undo:-rotate-12" />
+            )}
           </button>
-          {onRevertToMessage && (
-            <button
-              onClick={() => onRevertToMessage(message.info.id)}
-              disabled={isBusy || isReverting || isReverted}
-              className={`p-1 rounded transition-all group/undo relative ${
-                isBusy || isReverting || isReverted
-                  ? 'opacity-30 cursor-not-allowed text-zinc-600'
-                  : 'text-zinc-400 hover:text-amber-300 hover:bg-amber-950/50'
-              }`}
-              title={t.chat.undoUpToThisPoint}
-              aria-label={t.chat.undoUpToThisPoint}
-            >
-              {isReverting ? (
-                <RotateCcw className="w-3.5 h-3.5 animate-spin text-amber-400" />
-              ) : (
-                <Undo2 className="w-3.5 h-3.5 transition-transform group-hover/undo:-rotate-12" />
-              )}
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Checkpoint Divider if this message is the revert boundary */}
       {isRevertPoint && (
-        <div className="w-full max-w-2xl flex items-center gap-2 my-3 select-none text-[11px] text-amber-400/80 font-mono">
+        <div className="w-full self-center flex items-center gap-2 my-3 select-none text-[11px] text-amber-400/80 font-mono">
           <div className="h-px bg-amber-500/30 flex-1" />
           <span className="flex items-center gap-1.5 bg-amber-950/60 border border-amber-800/50 px-2.5 py-0.5 rounded-full text-amber-300 shadow-sm">
             <RotateCcw className="w-3 h-3 text-amber-400" />
@@ -818,14 +778,14 @@ export function MessageBubble({
             <span key={id} id={`msg_${id}`} data-message-id={id} className="sr-only" />
           ))}
       <div
-        className={`w-full border border-[#2d313a] rounded-xl shadow-sm transition-all ${
+        className={`w-full transition-all ${
           isZenMode
-            ? 'p-5 sm:p-6 rounded-2xl bg-[#12151a]/85 border-[#343b46] shadow-md'
-            : 'p-4 sm:p-5 bg-[#121417]/70'
+            ? 'py-3 px-1'
+            : 'py-2 px-1'
         }`}
       >
         {/* Assistant Header: Per-message actual author & model badges */}
-        <div className="flex flex-wrap items-center justify-between pb-2.5 mb-3 border-b border-[#1f2228] text-xs text-zinc-400 gap-2">
+        <div className="flex flex-wrap items-center justify-between pb-1.5 mb-2.5 text-xs text-zinc-400 gap-2">
           {/* Left: Real Author Agent & Model Badges */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* Agent Badge */}
