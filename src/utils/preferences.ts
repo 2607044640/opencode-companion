@@ -14,6 +14,7 @@ export type LanguagePreference = 'system' | 'zh-CN' | 'en-US' | 'de-DE'
 export interface UserPreferences {
   showReasoning: boolean
   autoCollapsePrompt: boolean
+  autoCollapseResponse?: boolean
   collapseToolBatch: boolean
   collapseSidebarOnStartup?: boolean
   autoGitCheckpoint?: boolean
@@ -91,6 +92,7 @@ export const THEME_PRESETS: Record<string, { label: string; colors: ThemeColors 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   showReasoning: true,
   autoCollapsePrompt: true,
+  autoCollapseResponse: false,
   collapseToolBatch: true,
   collapseSidebarOnStartup: false,
   autoGitCheckpoint: true,

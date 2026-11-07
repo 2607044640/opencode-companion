@@ -119,7 +119,7 @@ export const ManageModelsContent: React.FC<ManageModelsContentProps> = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t.models.searchPlaceholder}
             autoFocus
-            className="w-full pl-9 pr-3 py-2 bg-[#0d0f13] border border-[#272a32] focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 rounded-lg text-zinc-200 text-xs placeholder:text-zinc-500 focus:outline-none transition-all"
+            className="w-full pl-9 pr-3 py-2 bg-[#0d0f13] border border-[#272a32] focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 rounded-lg text-zinc-200 text-xs placeholder:text-zinc-500 focus:outline-none transition-all"
           />
           {searchQuery && (
             <button
@@ -172,7 +172,7 @@ export const ManageModelsContent: React.FC<ManageModelsContentProps> = ({
                     type="button"
                     onClick={() => handleToggleProvider(provider)}
                     className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
-                      allModelsOn ? 'bg-purple-600' : 'bg-zinc-700/80'
+                      allModelsOn ? 'bg-sky-500' : 'bg-zinc-700/80'
                     }`}
                     title={`Toggle all ${provider.name || provider.id} models`}
                   >
@@ -214,7 +214,7 @@ export const ManageModelsContent: React.FC<ManageModelsContentProps> = ({
                           type="button"
                           onClick={() => handleToggleModel(provider.id, mId, mObj.name)}
                           className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
-                            isVisible ? 'bg-purple-600' : 'bg-zinc-700/80'
+                            isVisible ? 'bg-sky-500' : 'bg-zinc-700/80'
                           }`}
                           title={`Toggle ${mObj.name || mId}`}
                         >

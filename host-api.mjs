@@ -481,6 +481,67 @@ export function resolveRoutingConfig(customPath = null) {
   }
 }
 
+export function readFileFromWorkspace(rawPath) {
+  if (!rawPath || typeof rawPath !== 'string') {
+    return { ok: false, error: 'invalid path' }
+  }
+  let p = rawPath.trim()
+  if (p.startsWith('file:///')) p = p.slice(7)
+  else if (p.startsWith('file://')) p = p.slice(7)
+  p = p.replace(/#L\d+(?:-\d+)?$/i, '').replace(/:\d+(?::\d+)?$/, '')
+  if (/^\/[a-zA-Z]:[/\\\\]/.test(p)) p = p.slice(1)
+
+  const jailMappings = [
+    { jail: '/home/developer/projects/APISpace', win: 'C:/APISpace' },
+    { jail: '/workspace/projects/APISpace', win: 'C:/APISpace' },
+    { jail: '/home/developer/projects/AICore', win: 'C:/AICore' },
+    { jail: '/workspace/projects/AICore', win: 'C:/AICore' },
+    { jail: '/home/developer/projects/AISpace', win: 'C:/Godot/AISpace' },
+    { jail: '/workspace/projects/AISpace', win: 'C:/Godot/AISpace' },
+    { jail: '/home/developer/projects/ObsidianNote', win: 'C:/ObsidianNote' },
+    { jail: '/workspace/projects/ObsidianNote', win: 'C:/ObsidianNote' },
+    { jail: '/home/developer/projects/ObsidianDev', win: 'C:/ObsidianDev' },
+    { jail: '/workspace/projects/ObsidianDev', win: 'C:/ObsidianDev' },
+  ]
+  for (const m of jailMappings) {
+    if (p.startsWith(m.jail)) {
+      p = p.replace(m.jail, m.win)
+      break
+    }
+  }
+
+  const candidates = []
+  if (/^[a-zA-Z]:[/\\]/.test(p)) {
+    candidates.push(p.replace(/\\/g, '/'))
+  } else {
+    const cleanRel = p.replace(/^[/\\]+/, '')
+    const workspaceBases = ['C:/Godot/AISpace', 'C:/APISpace', 'C:/AICore', 'C:/ObsidianNote', 'C:/ObsidianDev']
+    for (const base of workspaceBases) {
+      candidates.push(`${base}/${cleanRel}`)
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (isSensitiveGitPath(candidate)) continue
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        const content = fs.readFileSync(candidate, 'utf8')
+        const fileName = path.basename(candidate)
+        return {
+          ok: true,
+          filePath: candidate.replace(/\//g, '\\'),
+          fileName,
+          content,
+          lineCount: content.split('\n').length,
+          byteSize: Buffer.byteLength(content, 'utf8'),
+        }
+      }
+    } catch {}
+  }
+
+  return { ok: false, error: `File not found: ${rawPath}` }
+}
+
 export async function handleHostApi(req, res) {
   const rawUrl = req.url || ''
   const queryAt = rawUrl.indexOf('?')
@@ -492,13 +553,29 @@ export async function handleHostApi(req, res) {
     url !== '/api/routing-config' &&
     url !== '/api/skills' &&
     url !== '/api/model-profiles' &&
-    url !== '/api/open-external'
+    url !== '/api/open-external' &&
+    url !== '/api/file-content'
   ) {
     return false
   }
 
   if (req.method === 'OPTIONS') {
     sendOptions(res)
+    return true
+  }
+
+  if (url === '/api/file-content') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const targetPath = query.get('path') || ''
+    if (!targetPath) {
+      sendJson(res, 400, { ok: false, error: 'path query parameter is required' })
+      return true
+    }
+    const result = readFileFromWorkspace(targetPath)
+    sendJson(res, result.ok ? 200 : 404, result)
     return true
   }
 

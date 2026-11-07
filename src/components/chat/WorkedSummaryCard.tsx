@@ -22,7 +22,12 @@ interface WorkedSummaryCardProps {
   runKnown?: boolean
 }
 
-export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown = true }: WorkedSummaryCardProps) {
+export function WorkedSummaryCard({
+  turn,
+  messageId,
+  isBusy: _isBusy,
+  runKnown = true,
+}: WorkedSummaryCardProps) {
   const { isZh } = useI18n()
   const { openTurn } = useDiffDrawer()
   const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
@@ -41,6 +46,18 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
   // Collapsed by default once turn is completed, auto-expanded when live
   const [expanded, setExpanded] = useState(isEffectivelyLive)
   const userInteractedRef = useRef(false)
+
+  useEffect(() => {
+    const handleCollapseAll = () => {
+      if (!isEffectivelyLive) {
+        setExpanded(false)
+      }
+    }
+    window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    return () => {
+      window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    }
+  }, [isEffectivelyLive])
 
   // Single source-of-truth live clock
   const [now, setNow] = useState(() => Date.now())
@@ -116,10 +133,10 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
                   files: turnFiles,
                 })
               }}
-              className="flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-950/70 hover:bg-emerald-900/80 border border-emerald-700/60 text-emerald-300 font-mono text-[10px] font-medium transition-colors ml-1 cursor-pointer"
+              className="flex items-center gap-1 px-1.5 py-0.2 rounded bg-zinc-800/90 hover:bg-zinc-700/80 border border-zinc-700/60 text-zinc-300 hover:text-white font-mono text-[10px] font-medium transition-colors ml-1 cursor-pointer"
               title={tr('点击打开审查面板查看本轮差异', 'Click to review turn diffs', 'Klicken, um Runden-Diffs zu prüfen')}
             >
-              <FileCode className="w-3 h-3 text-emerald-400" />
+              <FileCode className="w-3 h-3 text-zinc-400" />
               <span>
                 {editCount} {editCount === 1 ? tr('处改动', 'diff') : tr('处改动', 'diffs')}
               </span>
@@ -127,7 +144,7 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
           )}
 
           {isEffectivelyLive && (
-            <span className="hidden sm:inline text-[10px] text-purple-400 animate-pulse font-mono truncate">
+            <span className="hidden sm:inline text-[10px] text-sky-400 animate-pulse font-mono truncate">
               {isThinking ? tr('思考中...', 'Thinking...') : tr('正在执行步骤...', 'Executing step...')}
             </span>
           )}
@@ -140,7 +157,7 @@ export function WorkedSummaryCard({ turn, messageId, isBusy: _isBusy, runKnown =
               <span className="hidden sm:inline">{tr('确认中', 'Checking', 'Prüfen')}</span>
             </span>
           ) : isEffectivelyLive ? (
-            <span className="flex items-center gap-1 text-purple-400 font-mono text-[10px]">
+            <span className="flex items-center gap-1 text-sky-400 font-mono text-[10px]">
               <Loader2 className="w-3 h-3 animate-spin" />
               <span className="hidden sm:inline">{isThinking ? tr('思考中', 'Thinking') : tr('运行中', 'Running')}</span>
             </span>

@@ -191,7 +191,7 @@ export function ShortcutMenu({
                 className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-2">
-                  <Cpu className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
+                  <Cpu className="w-3.5 h-3.5 text-zinc-400 group-hover:scale-110 transition-transform" />
                   <span>{isZh ? '模型路由面板' : 'Model Router'}</span>
                 </div>
                 <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">

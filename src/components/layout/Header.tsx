@@ -218,7 +218,7 @@ export function Header({
                 }}
                 className={`group flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-t-md cursor-pointer border-t-2 transition-all min-w-[50px] w-auto ${tabWidthClass} ${
                   isActive
-                    ? 'bg-[#181824] text-[#f1f5f9] border-t-purple-500 font-medium border-x border-[#262638] shadow-sm'
+                    ? 'bg-[#181824] text-[#f1f5f9] border-t-sky-400 font-medium border-x border-[#262638] shadow-sm'
                     : 'bg-[#12121a]/80 text-zinc-400 border-t-transparent hover:bg-[#161622] hover:text-zinc-200 border-x border-[#1c1c2a]'
                 }`}
               >
@@ -230,7 +230,7 @@ export function Header({
                     className={`min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center select-none shadow-sm cursor-pointer transition-all ${
                       isCopied
                         ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
-                        : 'bg-amber-950/80 text-amber-400 border border-amber-800/40 hover:brightness-125 hover:border-amber-600/80 active:scale-95'
+                        : 'bg-zinc-800/90 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500 hover:bg-zinc-700/80 active:scale-95'
                     }`}
                     title={
                       isZh
@@ -250,7 +250,7 @@ export function Header({
                 {/* Unread marker (blue dot) */}
                 {!isDraft && Boolean(unreadSessionIds?.includes(tabId)) && (
                   <span
-                    className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] ring-1 ring-blue-400/50 shrink-0 animate-pulse"
+                    className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
                     title={isZh ? '新消息未读' : 'Unread response'}
                   />
                 )}
@@ -276,7 +276,7 @@ export function Header({
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()}
                     autoFocus
-                    className="bg-[#0f1115] text-[#e6edf3] border border-orange-500/80 rounded px-1.5 py-0.5 text-xs outline-none min-w-[70px] max-w-[180px] focus:ring-1 focus:ring-orange-500/50"
+                    className="bg-[#0f1115] text-[#e6edf3] border border-zinc-600 focus:border-sky-400 rounded px-1.5 py-0.5 text-xs outline-none min-w-[70px] max-w-[180px] focus:ring-1 focus:ring-sky-400/30"
                   />
                 ) : (
                   <span

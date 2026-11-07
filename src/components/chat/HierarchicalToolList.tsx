@@ -78,7 +78,7 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
 
           <div className="flex items-center gap-2 shrink-0 ml-2">
             {hasRunning ? (
-              <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+              <Loader2 className="w-3 h-3 text-sky-400 animate-spin" />
             ) : hasWarnings ? (
               <DelayedTooltip
                 content={tr('浏览提示 (如搜索未匹配或文件未找到)', 'Exploration notices (e.g. search misses or files not found)')}
@@ -122,7 +122,7 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
                   {it.kind === 'file' ? (
                     <Eye className="w-3.5 h-3.5 text-blue-400/80 shrink-0 group-hover:text-blue-300 transition-colors" />
                   ) : (
-                    <Search className="w-3.5 h-3.5 text-purple-400/80 shrink-0 group-hover:text-purple-300 transition-colors" />
+                    <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0 group-hover:text-zinc-200 transition-colors" />
                   )}
                   <span
                     className={`truncate select-text flex-1 transition-colors ${
@@ -225,7 +225,7 @@ function CommandGroupCard({ items }: { items: CommandItem[] }) {
 
         <div className="flex items-center gap-2 shrink-0 ml-2">
           {hasRunning ? (
-            <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+            <Loader2 className="w-3 h-3 text-sky-400 animate-spin" />
           ) : hasError ? (
             <DelayedTooltip content={tr('命令执行失败', 'Command execution failed')} variant="error" placement="top-end">
               <span className="flex items-center text-rose-400">
@@ -359,8 +359,8 @@ function ThoughtGroupCard({
         className="flex items-center justify-between px-2.5 py-1.5 hover:bg-zinc-800/50 cursor-pointer select-none transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Brain className={`w-3.5 h-3.5 ${isLive ? 'text-purple-400 animate-pulse' : 'text-purple-400/80'} shrink-0`} />
-          <span className="font-medium text-purple-300 truncate">
+          <Brain className={`w-3.5 h-3.5 ${isLive ? 'text-sky-400 animate-pulse' : 'text-zinc-400'} shrink-0`} />
+          <span className="font-medium text-zinc-300 truncate">
             {title}
           </span>
         </div>

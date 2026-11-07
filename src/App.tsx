@@ -607,7 +607,7 @@ export default function App() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#14171d]/60 hover:bg-[#1c212a] border border-zinc-700/40 hover:border-zinc-500/80 text-zinc-400 hover:text-zinc-100 shadow-xl backdrop-blur-md transition-all duration-300 opacity-25 hover:opacity-100 group-hover:opacity-100 cursor-pointer"
               title={t.zen.exitZenTitle(shortcuts.zenMode?.label || 'F11')}
             >
-              <Minimize2 className="w-3.5 h-3.5 text-zinc-400 group-hover:text-purple-400 transition-colors" />
+              <Minimize2 className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-200 transition-colors" />
               <span className="text-xs font-medium tracking-wide">{t.zen.exitZenLabel}</span>
               <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/60 shadow-inner">
                 {shortcuts.zenMode?.label || 'F11'} / Esc

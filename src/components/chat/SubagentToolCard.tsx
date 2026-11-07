@@ -290,21 +290,8 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
   }
 
   // Color scheme badge for subagent types
-  const getTypeBadgeStyle = (type: string) => {
-    const t = type.toLowerCase()
-    if (t.includes('explore')) {
-      return 'bg-blue-950/60 text-blue-300 border-blue-800/50'
-    }
-    if (t.includes('plan')) {
-      return 'bg-purple-950/60 text-purple-300 border-purple-800/50'
-    }
-    if (t.includes('exec') || t.includes('build')) {
-      return 'bg-emerald-950/60 text-emerald-300 border-emerald-800/50'
-    }
-    if (t.includes('scout') || t.includes('research')) {
-      return 'bg-amber-950/60 text-amber-300 border-amber-800/50'
-    }
-    return 'bg-cyan-950/60 text-cyan-300 border-cyan-800/50'
+  const getTypeBadgeStyle = (_type: string) => {
+    return 'bg-zinc-800 text-zinc-300 border-zinc-700/60'
   }
 
   return (
@@ -316,12 +303,12 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
       >
         <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap sm:flex-nowrap">
           {/* Subagent Main Icon */}
-          <div className="w-5 h-5 rounded flex items-center justify-center bg-cyan-950/70 border border-cyan-800/50 text-cyan-300 shrink-0">
+          <div className="w-5 h-5 rounded flex items-center justify-center bg-zinc-800 border border-zinc-700/60 text-zinc-200 shrink-0">
             <Bot className="w-3.5 h-3.5" />
           </div>
 
           {/* Subagent Identifier Pill */}
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-cyan-950/60 text-cyan-300 border border-cyan-800/50 shrink-0">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700/60 shrink-0">
             Subagent
           </span>
 
@@ -334,9 +321,9 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
             {subagentType}
           </span>
 
-          {/* Subagent Model Pill (Matching Figure 2/3 style) */}
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-950/50 text-purple-300 border border-purple-800/40 shrink-0 flex items-center gap-1">
-            <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+          {/* Subagent Model Pill (Matching Antigravity style) */}
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700/60 shrink-0 flex items-center gap-1">
+            <Sparkles className="w-2.5 h-2.5 text-zinc-400" />
             <span>
               {cleanModelName}
               {providerName ? ` (${providerName})` : ''}
@@ -355,7 +342,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
         {/* Right Status & Controls */}
         <div className="flex items-center gap-2 shrink-0 ml-2">
           {isRunning ? (
-            <span className="flex items-center gap-1 text-purple-400 font-mono text-[10px]">
+            <span className="flex items-center gap-1 text-sky-400 font-mono text-[10px]">
               <Loader2 className="w-3 h-3 animate-spin" />
               <span>运行中</span>
             </span>
@@ -459,16 +446,16 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
 
           {/* Prompt Section (任务提示词 / 展开提示词 UI - Matching Figure 2) */}
           {promptText && (
-            <div className="rounded-lg border border-purple-900/30 bg-[#121118]/70 p-2.5">
+            <div className="rounded-lg border border-zinc-800 bg-[#12141a] p-2.5">
               <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-1.5 text-xs text-purple-300 font-medium">
-                  <FileText className="w-3 h-3 text-purple-400" />
+                <div className="flex items-center gap-1.5 text-xs text-zinc-300 font-medium">
+                  <FileText className="w-3 h-3 text-zinc-400" />
                   <span>{tr('子代理任务提示词', 'Subagent Mission Prompt', 'Subagent-Missions-Prompt')}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => handleCopy(promptText, 'prompt')}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-purple-300/80 hover:text-purple-200 hover:bg-purple-950/60 transition-colors"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
                 >
                   {copiedType === 'prompt' ? (
                     <>
@@ -503,7 +490,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
                   />
                 )}
 
-                {/* Expand / Collapse Button matching Figure 2 purple style */}
+                {/* Expand / Collapse Button matching Antigravity clean style */}
                 {isPromptCollapsible && (
                   <button
                     type="button"
@@ -511,7 +498,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
                     className={`w-full mt-2 pt-1 flex items-center justify-center gap-1.5 text-[10px] font-medium transition-all select-none rounded border ${
                       isPromptExpanded
                         ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/30 hover:bg-zinc-800/60 py-1 border-zinc-800'
-                        : 'text-purple-300 hover:text-purple-100 bg-purple-950/40 hover:bg-purple-950/70 py-1 border-purple-900/50 shadow-sm'
+                        : 'text-zinc-300 hover:text-white bg-zinc-800/60 hover:bg-zinc-700/80 py-1 border-zinc-700/60 shadow-sm'
                     }`}
                   >
                     {isPromptExpanded ? (
@@ -521,7 +508,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
                       </>
                     ) : (
                       <>
-                        <ChevronDown className="w-3 h-3 text-purple-400" />
+                        <ChevronDown className="w-3 h-3 text-zinc-400" />
                         <span>
                           {tr('展开完整提示词', 'Expand Full Prompt', 'Vollständigen Prompt anzeigen')}{' '}
                           <span className="font-mono opacity-80">
@@ -592,7 +579,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
                     className={`w-full mt-2.5 pt-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-all select-none rounded border ${
                       isResultExpanded
                         ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/30 hover:bg-zinc-800/60 py-1.5 border-zinc-800'
-                        : 'text-purple-300 hover:text-purple-100 bg-purple-950/40 hover:bg-purple-950/70 py-1.5 border-purple-900/50 shadow-sm'
+                        : 'text-zinc-300 hover:text-white bg-zinc-800/60 hover:bg-zinc-700/80 py-1.5 border-zinc-700/60 shadow-sm'
                     }`}
                   >
                     {isResultExpanded ? (
@@ -602,7 +589,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
                       </>
                     ) : (
                       <>
-                        <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
+                        <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
                         <span>
                           {tr('展开完整结果', 'Expand Full Result', 'Vollständiges Ergebnis anzeigen')}{' '}
                           <span className="font-mono text-[10px] opacity-80">

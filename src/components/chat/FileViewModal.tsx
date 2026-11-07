@@ -192,6 +192,49 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
   const [copiedContent, setCopiedContent] = useState(false)
   const [copiedPath, setCopiedPath] = useState(false)
 
+  const [fetchedContent, setFetchedContent] = useState<string | null>(null)
+  const [fetchedPath, setFetchedPath] = useState<string | null>(null)
+  const [isFetching, setIsFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!item) return
+    setFetchedContent(null)
+    setFetchedPath(null)
+    setFetchError(null)
+
+    // If item already has output or error, no need to fetch
+    if (item.output || item.error) return
+
+    const targetPath = item.fullPath || item.pathOrQuery
+    if (!targetPath) return
+
+    let cancelled = false
+    setIsFetching(true)
+
+    fetch(`/api/file-content?path=${encodeURIComponent(targetPath)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return
+        if (data.ok && typeof data.content === 'string') {
+          setFetchedContent(data.content)
+          if (data.filePath) setFetchedPath(data.filePath)
+        } else {
+          setFetchError(data.error || 'Failed to read file')
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setFetchError(err.message || 'Network error')
+      })
+      .finally(() => {
+        if (!cancelled) setIsFetching(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [item])
+
   useEffect(() => {
     if (!item) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -207,15 +250,23 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
 
   const parsed = useMemo(() => {
     if (!item) return null
+    if (fetchedContent !== null) {
+      return parseExploreFileContent({
+        ...item,
+        output: fetchedContent,
+        fullPath: fetchedPath || item.fullPath,
+      })
+    }
     return parseExploreFileContent(item)
-  }, [item])
+  }, [item, fetchedContent, fetchedPath])
 
   if (!item || !parsed) return null
   if (typeof document === 'undefined') return null
 
-  const isRunning = item.status === 'running' || item.status === 'pending'
-  const isError = item.status === 'error'
+  const isRunning = isFetching || item.status === 'running' || item.status === 'pending'
+  const isError = Boolean(fetchError) || item.status === 'error'
   const hasNoContent = parsed.lines.length === 0 || (parsed.lines.length === 1 && !parsed.lines[0].text)
+  const errorMessage = fetchError || item.error || item.warningTooltip || tr('未能在输出中获取到该文件内容', 'Unable to retrieve file content from output')
 
   const handleCopyContent = () => {
     navigator.clipboard.writeText(parsed.cleanText)
@@ -342,7 +393,7 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
                 <span>{tr('文件读取失败或无响应', 'Failed to read file or no response')}</span>
               </div>
               <div className="text-[11px] font-mono text-zinc-400">
-                {item.error || item.warningTooltip || tr('未能在输出中获取到该文件内容', 'Unable to retrieve file content from output')}
+                {errorMessage}
               </div>
             </div>
           ) : hasNoContent ? (

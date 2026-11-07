@@ -264,7 +264,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           title={`中转站额度与账单监视器: ${summary.hasProviders ? summary.totalFormatted : '中转额度'}`}
           aria-expanded={isOpen}
         >
-          <Coins className="w-4 h-4 text-amber-400" />
+          <Coins className="w-4 h-4 text-zinc-400" />
           {summary.hasProviders && (
             <span
               className={`absolute top-2 right-2 w-1.5 h-1.5 rounded-full ${
@@ -327,7 +327,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           {/* Header Row */}
           <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-[#242832]">
             <div className="flex items-center gap-1.5">
-              <Coins className="w-4 h-4 text-amber-400" />
+              <Coins className="w-4 h-4 text-zinc-400" />
               <span className="font-semibold text-xs text-zinc-100">中转站额度中心</span>
               <span
                 className="text-[9px] text-zinc-400 font-mono bg-[#1c202a] px-1.5 py-0.5 rounded border border-[#2d3240]"

@@ -651,6 +651,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   />
                 </div>
 
+                {/* Auto Collapse Long AI Responses */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{tr('自动折叠超长 AI 回答', 'Auto Collapse Long AI Responses', 'Lange KI-Antworten automatisch einklappen')}</div>
+                    <div className="text-[11px] text-zinc-500">{tr('超长模型回答默认折叠显示，可通过右侧长按钮或快捷键展开', 'Long responses collapsed by default, expandable via right button or shortcut', 'Lange Antworten standardmäßig einklappen')}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.autoCollapseResponse || false}
+                    onChange={(e) => updatePreferences({ autoCollapseResponse: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
+                {/* Dialogue Expand / Collapse Quick Actions & Shortcuts */}
+                <div className="flex items-center justify-between py-2.5 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{tr('对话全屏伸缩快捷键', 'Dialogue Expand / Collapse Shortcuts', 'Dialog-Ein-/Ausklappen-Tastenkombinationen')}</div>
+                    <div className="text-[11px] text-zinc-500">{tr('快捷键：Ctrl+Shift+O 展开所有对话，Ctrl+Shift+C 收缩所有对话', 'Shortcuts: Ctrl+Shift+O to expand all dialogues, Ctrl+Shift+C to collapse all', 'Tastenkombination: Ctrl+Shift+O zum Ausklappen, Ctrl+Shift+C zum Einklappen')}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('opencode-expand-all-dialogues'))}
+                      className="px-2.5 py-1 text-xs text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      title="Ctrl + Shift + O"
+                    >
+                      <span>{tr('展开全部', 'Expand All', 'Alle ausklappen')}</span>
+                      <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">Ctrl+Shift+O</kbd>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('opencode-collapse-all-dialogues'))}
+                      className="px-2.5 py-1 text-xs text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      title="Ctrl + Shift + C"
+                    >
+                      <span>{tr('收缩全部', 'Collapse All', 'Alle einklappen')}</span>
+                      <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">Ctrl+Shift+C</kbd>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Collapse Left Sidebar on Startup */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
@@ -920,7 +962,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                       const badgeStyles: Record<ShortcutCategory, string> = {
                         map: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
                         dialogue: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-                        workspace: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                        workspace: 'bg-zinc-800 text-zinc-300 border-zinc-700/60',
                         general: 'bg-zinc-500/15 text-zinc-400 border-zinc-600/30',
                       }
                       const badgeLabels: Record<ShortcutCategory, string> = {

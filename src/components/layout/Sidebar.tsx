@@ -38,6 +38,7 @@ import { TokenStatsWidget } from './TokenStatsWidget'
 import { RelayHubDropdown } from './RelayHubDropdown'
 import { ShortcutMenu } from './ShortcutMenu'
 import { DaemonStatusDot } from './DaemonStatusDot'
+import { OpenCodeLogo } from '../common/OpenCodeLogo'
 import { matchCanonicalWorkspace } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
 import {
@@ -380,8 +381,12 @@ export function Sidebar({
   if (isOpen === false) {
     return (
       <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between">
-        {/* Top: Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
+        {/* Top: OpenCode Logo + Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
         <div className="flex flex-col items-center gap-1.5">
+          <div className="p-1 text-zinc-200 select-none mb-0.5" title="OpenCode">
+            <OpenCodeLogo className="w-4 h-4 text-[#f1f5f9] hover:brightness-125 transition-all" />
+          </div>
+
           {/* Toggle Sidebar [|] */}
           <button
             type="button"
@@ -478,8 +483,8 @@ export function Sidebar({
               <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
             ) : sessionStatus?.type === 'busy' ? (
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-60" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
               </span>
             ) : sessionStatus?.type === 'retry' ? (
               <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
@@ -545,8 +550,12 @@ export function Sidebar({
     <aside className="w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none">
       {/* 1. Top Action Buttons Bar (图4功能 - 并列一行，纯图标，带悬浮说明) */}
       <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#1f1f2c] bg-[#12121a]">
-        {/* Left: Sidebar Toggle, Back, Forward */}
+        {/* Left: OpenCode Logo, Sidebar Toggle, Back, Forward */}
         <div className="flex items-center gap-1">
+          <div className="p-1 text-zinc-200 select-none mr-0.5" title="OpenCode">
+            <OpenCodeLogo className="w-4 h-4 text-[#f1f5f9] hover:brightness-125 transition-all" />
+          </div>
+
           {/* Toggle Sidebar [|] */}
           <div className="relative group">
             <button
@@ -733,7 +742,7 @@ export function Sidebar({
           <div className="space-y-1">
             <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold text-[#8b949e] uppercase tracking-wider">
               <span className="flex items-center gap-1.5">
-                <Pin className="w-3 h-3 text-orange-400 rotate-45" />
+                <Pin className="w-3 h-3 text-zinc-400 rotate-45" />
                 {isZh ? '置顶会话' : 'Pinned Conversations'}
               </span>
               <span className="text-[10px] text-zinc-500 font-mono">
@@ -802,10 +811,10 @@ export function Sidebar({
                     }}
                     className={`group relative flex flex-col px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                       isActive
-                        ? 'bg-[#1c212a] text-[#f0f6fc] border border-orange-500/40 shadow-sm'
+                        ? 'bg-[#1f202b] text-white border border-transparent shadow-sm'
                         : 'text-[#c9d1d9] hover:bg-[#161920] hover:text-white border border-transparent'
-                    } ${isDragging ? 'opacity-40 border-dashed border-orange-500/60' : ''} ${
-                      isDragOver ? 'ring-2 ring-orange-500/80 bg-orange-950/20 border-orange-500/60' : ''
+                    } ${isDragging ? 'opacity-40 border-dashed border-sky-500/60' : ''} ${
+                      isDragOver ? 'ring-2 ring-sky-500/80 bg-sky-950/20 border-sky-500/60' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1">
@@ -822,18 +831,18 @@ export function Sidebar({
                       <div className="flex items-center gap-1 shrink-0">
                         {isSessionUnread(session.id, unreadSessionIds || []) ? (
                           <span
-                            className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] ring-1 ring-blue-400/50 shrink-0 animate-pulse"
+                            className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
                             title={isZh ? '新消息未读' : 'Unread'}
                           />
                         ) : isActive ? (
-                          <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                          <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
                         ) : (
                           <span className="text-[10px] text-zinc-500 font-mono">{timeLabel}</span>
                         )}
                         <button
                           type="button"
                           onClick={(e) => handleArchive(session.id, e)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-amber-400 rounded transition-opacity cursor-pointer"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-zinc-200 rounded transition-opacity cursor-pointer"
                           title={isZh ? '归档会话' : 'Archive session'}
                         >
                           <Archive className="w-3 h-3" />
@@ -841,7 +850,7 @@ export function Sidebar({
                         <button
                           type="button"
                           onClick={(e) => handleTogglePin(session.id, e)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-orange-400 rounded transition-opacity cursor-pointer"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-400 hover:text-zinc-200 rounded transition-opacity cursor-pointer"
                           title={isZh ? '取消置顶' : 'Unpin'}
                         >
                           <PinOff className="w-3 h-3" />
@@ -985,7 +994,7 @@ export function Sidebar({
                               }}
                               className={`group relative flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-all ${
                                 isActive
-                                  ? 'bg-[#1d232c] text-[#f0f6fc] border border-blue-500/40 font-medium'
+                                  ? 'bg-[#1f202b] text-white border border-transparent font-medium'
                                   : 'text-[#8b949e] hover:bg-[#15181e] hover:text-[#c9d1d9] border border-transparent'
                               }`}
                             >
@@ -993,11 +1002,11 @@ export function Sidebar({
                               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                 {isSessionUnread(session.id, unreadSessionIds || []) ? (
                                   <span
-                                    className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)] ring-1 ring-blue-400/50 shrink-0 animate-pulse"
+                                    className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
                                     title={isZh ? '新消息未读' : 'Unread'}
                                   />
                                 ) : isActive ? (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 animate-pulse" />
+                                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
                                 ) : (
                                   <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                                 )}
@@ -1023,7 +1032,7 @@ export function Sidebar({
                                     onClick={(e) => e.stopPropagation()}
                                     onMouseDown={(e) => e.stopPropagation()}
                                     autoFocus
-                                    className="bg-[#14171d] text-[#f0f6fc] border border-orange-500/80 rounded px-1.5 py-0.5 text-xs outline-none flex-1 min-w-0"
+                                    className="bg-[#14171d] text-[#f0f6fc] border border-zinc-600 focus:border-sky-400 rounded px-1.5 py-0.5 text-xs outline-none flex-1 min-w-0 focus:ring-1 focus:ring-sky-400/30"
                                   />
                                 ) : (
                                   <span
@@ -1048,19 +1057,19 @@ export function Sidebar({
                                   onClick={(e) => handleTogglePin(session.id, e)}
                                   className={`p-0.5 rounded transition-all cursor-pointer ${
                                     isPinned
-                                      ? 'text-orange-400 opacity-100'
-                                      : 'opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-orange-400'
+                                      ? 'text-zinc-300 opacity-100'
+                                      : 'opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-zinc-200'
                                   }`}
                                   title={isPinned ? (isZh ? '取消置顶' : 'Unpin') : (isZh ? '置顶此会话' : 'Pin session')}
                                 >
-                                  <Pin className={`w-3 h-3 ${isPinned ? 'fill-orange-400' : ''}`} />
+                                  <Pin className={`w-3 h-3 ${isPinned ? 'fill-zinc-300' : ''}`} />
                                 </button>
 
                                 {/* Archive button on hover */}
                                 <button
                                   type="button"
                                   onClick={(e) => handleArchive(session.id, e)}
-                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-500 hover:text-amber-400 transition-opacity cursor-pointer"
+                                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-500 hover:text-zinc-200 transition-opacity cursor-pointer"
                                   title={isZh ? '归档会话' : 'Archive session'}
                                 >
                                   <Archive className="w-3 h-3" />
@@ -1302,8 +1311,8 @@ export function Sidebar({
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
               ) : sessionStatus?.type === 'busy' ? (
                 <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-60" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500" />
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
                 </span>
               ) : sessionStatus?.type === 'retry' ? (
                 <AlertCircle className="w-3.5 h-3.5 text-amber-400" />

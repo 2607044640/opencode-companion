@@ -133,7 +133,7 @@ export function TokenStatsWidget({
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#14161c] hover:bg-[#1c1f26] border border-[#272a31] hover:border-zinc-600/70 text-[11px] font-mono text-zinc-300 hover:text-white transition-all cursor-pointer select-none shadow-sm"
           title={tooltipTitle}
         >
-          <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <Coins className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <TokenProgressRing
             percent={contextPercent}
             threshold={contextThreshold}

@@ -60,6 +60,9 @@ export interface ShortcutsMap {
   mapRearrange: ShortcutItem
   findInPage: ShortcutItem
   openModelRouter: ShortcutItem
+  expandAllConversations: ShortcutItem
+  collapseAllConversations: ShortcutItem
+  togglePinSession: ShortcutItem
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsMap = {
@@ -68,6 +71,22 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     description: '沉浸全屏阅读',
     label: 'F11',
     category: 'general',
+  },
+  expandAllConversations: {
+    key: 'o',
+    ctrlKey: true,
+    shiftKey: true,
+    description: '展开所有对话 (Expand All Dialogues)',
+    label: 'Ctrl + Shift + O',
+    category: 'dialogue',
+  },
+  collapseAllConversations: {
+    key: 'c',
+    ctrlKey: true,
+    shiftKey: true,
+    description: '收缩所有对话 (Collapse All Dialogues)',
+    label: 'Ctrl + Shift + C',
+    category: 'dialogue',
   },
   prevDialogue: {
     key: 'ArrowUp',
@@ -133,6 +152,14 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     ctrlKey: true,
     description: '关闭当前会话标签 (Close Tab)',
     label: 'Ctrl + W',
+    category: 'workspace',
+  },
+  togglePinSession: {
+    key: 'p',
+    ctrlKey: true,
+    shiftKey: true,
+    description: '置顶/取消置顶当前对话 (Pin/Unpin Conversation)',
+    label: 'Ctrl + Shift + P',
     category: 'workspace',
   },
   reopenClosedTab: {

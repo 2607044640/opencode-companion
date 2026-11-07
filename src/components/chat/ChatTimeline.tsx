@@ -35,7 +35,7 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
       className="w-full max-w-3xl mr-auto my-4 animate-in fade-in slide-in-from-bottom-2 duration-200"
     >
       <div
-        className={`w-full rounded-2xl border border-purple-500/20 bg-[#161622]/90 shadow-xl backdrop-blur-sm transition-all ${
+        className={`w-full rounded-2xl border border-zinc-800 bg-[#161722]/95 shadow-xl backdrop-blur-sm transition-all ${
           isZenMode ? 'p-5' : 'p-4'
         }`}
       >
@@ -51,22 +51,22 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
             <span className="font-semibold text-zinc-200">{badge.label}</span>
             {modelName && (
               <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800/80 text-[10px] font-mono text-zinc-300 border border-zinc-700/60">
-                <Cpu className="w-2.5 h-2.5 text-purple-400" />
+                <Cpu className="w-2.5 h-2.5 text-zinc-400" />
                 <span>{modelName}</span>
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-600/70 text-[11px] text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-400 shrink-0" />
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-950/60 border border-sky-600/50 text-[11px] text-sky-200 font-medium animate-pulse shadow-sm shadow-sky-900/30">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400 shrink-0" />
             <span>{tr('生成中…', 'Generating…', 'Generieren…')}</span>
           </div>
         </div>
 
         {/* Prominent Generating Body */}
-        <div className="py-3 px-3.5 rounded-lg bg-purple-950/25 border border-purple-900/40 flex items-center gap-3.5 shadow-inner">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-purple-900/50 border border-purple-700/60 shrink-0 text-purple-300 shadow-sm">
-            <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
+        <div className="py-3 px-3.5 rounded-lg bg-[#13141c] border border-zinc-800/80 flex items-center gap-3.5 shadow-inner">
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800/90 border border-zinc-700/60 shrink-0 text-sky-400 shadow-sm">
+            <Sparkles className="w-4 h-4 text-sky-400 animate-pulse" />
           </div>
 
           <div className="flex-1 min-w-0">
@@ -75,9 +75,9 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
                 {tr('正在思考与生成回复', 'Thinking & Generating Response', 'Denkt nach und generiert Antwort')}
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '300ms' }} />
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-0.5 truncate">
@@ -91,7 +91,7 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
         </div>
 
         {/* Breathing glowing gradient line */}
-        <div className="w-full h-0.5 mt-3 rounded-full bg-gradient-to-r from-purple-600/20 via-purple-500/80 to-purple-600/20 animate-pulse" />
+        <div className="w-full h-0.5 mt-3 rounded-full bg-gradient-to-r from-sky-500/10 via-sky-400/50 to-sky-500/10 animate-pulse" />
       </div>
     </div>
   )
@@ -148,6 +148,30 @@ export function ChatTimeline({
   const lastTargetIndexRef = useRef<number | null>(null)
   const lastTargetTimeRef = useRef<number>(0)
   const { prefs } = usePreferences()
+  const { isZh } = useI18n()
+
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const showToast = (msg: string) => {
+      setToastMessage(msg)
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => setToastMessage(null), 1600)
+    }
+    const onExpand = () =>
+      showToast(isZh ? '已展开所有对话 (Ctrl+Shift+O)' : 'Expanded all dialogues (Ctrl+Shift+O)')
+    const onCollapse = () =>
+      showToast(isZh ? '已收缩所有对话 (Ctrl+Shift+C)' : 'Collapsed all dialogues (Ctrl+Shift+C)')
+
+    window.addEventListener('opencode-expand-all-dialogues', onExpand)
+    window.addEventListener('opencode-collapse-all-dialogues', onCollapse)
+    return () => {
+      window.removeEventListener('opencode-expand-all-dialogues', onExpand)
+      window.removeEventListener('opencode-collapse-all-dialogues', onCollapse)
+      if (timer) clearTimeout(timer)
+    }
+  }, [isZh])
 
   const [isConfirmUndoOpen, setIsConfirmUndoOpen] = useState(false)
   const [confirmTargetMessageId, setConfirmTargetMessageId] = useState<string | null>(null)
@@ -648,12 +672,12 @@ export function ChatTimeline({
         <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
           {/* Centered Icon with Spinning Ring Animation (转圈动画) */}
           <div className="relative w-16 h-16 flex items-center justify-center mb-4">
-            <div className="absolute inset-0 rounded-full border-2 border-orange-500/20 border-t-orange-400 border-r-purple-400 animate-spin" />
+            <div className="absolute inset-0 rounded-full border-2 border-zinc-700/60 border-t-sky-400 animate-spin" />
             <div
-              className="absolute inset-1.5 rounded-full border border-purple-500/15 border-b-orange-300/70 animate-spin"
+              className="absolute inset-1.5 rounded-full border border-zinc-700/40 border-b-sky-300/70 animate-spin"
               style={{ animationDirection: 'reverse', animationDuration: '1.6s' }}
             />
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-orange-600/20 to-purple-600/20 border border-zinc-800/90 flex items-center justify-center text-orange-400 shadow-inner">
+            <div className="w-11 h-11 rounded-2xl bg-zinc-800/90 border border-zinc-700/70 flex items-center justify-center text-zinc-200 shadow-inner">
               <MessageSquare className="w-5 h-5 animate-pulse" />
             </div>
           </div>
@@ -667,19 +691,19 @@ export function ChatTimeline({
 
           {/* Three Floating / Bouncing Dots Animation (三个点上下浮动等待) */}
           <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-[#14161a] border border-[#24272c] shadow-sm">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-400 shrink-0" />
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400 shrink-0" />
             <span className="text-xs text-zinc-300 font-medium">正在加载对话</span>
             <span className="inline-flex items-center gap-1 ml-0.5">
               <span
-                className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce"
+                className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce"
                 style={{ animationDelay: '0ms', animationDuration: '0.9s' }}
               />
               <span
-                className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce"
+                className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce"
                 style={{ animationDelay: '160ms', animationDuration: '0.9s' }}
               />
               <span
-                className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce"
+                className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce"
                 style={{ animationDelay: '320ms', animationDuration: '0.9s' }}
               />
             </span>
@@ -687,7 +711,7 @@ export function ChatTimeline({
         </div>
       ) : visibleItems.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-600/20 to-purple-600/20 border border-zinc-800 flex items-center justify-center mb-4 text-orange-400 shadow-inner">
+          <div className="w-12 h-12 rounded-2xl bg-zinc-800/90 border border-zinc-700/70 flex items-center justify-center mb-4 text-zinc-300 shadow-inner">
             <MessageSquare className="w-6 h-6" />
           </div>
           <h2 className="text-lg font-semibold text-zinc-200 mb-1">OpenCode Companion</h2>
@@ -704,7 +728,7 @@ export function ChatTimeline({
                 onClick={() => onPromptSuggestion?.(s)}
                 className="flex-1 p-2.5 rounded-xl bg-[#181824] hover:bg-[#202030] border border-[#262638] text-left text-xs text-zinc-300 hover:text-white transition-all flex items-center gap-2 group cursor-pointer shadow-sm"
               >
-                <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0 group-hover:scale-110 transition-transform" />
+                <Sparkles className="w-3.5 h-3.5 text-zinc-400 group-hover:text-sky-400 shrink-0 group-hover:scale-110 transition-transform" />
                 <span className="truncate">{s}</span>
               </button>
             ))}
@@ -870,6 +894,14 @@ export function ChatTimeline({
         durationMs={1000}
         sessionId={activeSession?.id}
       />
+
+      {/* Floating Toast Notification for Expand/Collapse All Dialogues */}
+      {toastMessage && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-full bg-zinc-900/95 border border-zinc-700/80 text-xs font-medium text-zinc-100 shadow-2xl backdrop-blur-md flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150 pointer-events-none select-none">
+          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   )
 }

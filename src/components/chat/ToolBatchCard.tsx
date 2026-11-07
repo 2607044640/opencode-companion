@@ -49,7 +49,7 @@ export function ToolBatchCard({ tools }: ToolBatchCardProps) {
 
         <div className="flex items-center gap-2.5 shrink-0 ml-2">
           {hasRunning ? (
-            <span className="flex items-center gap-1 text-purple-400 font-mono text-[10px]">
+            <span className="flex items-center gap-1 text-sky-400 font-mono text-[10px]">
               <Loader2 className="w-3 h-3 animate-spin" />
               <span>运行中</span>
             </span>

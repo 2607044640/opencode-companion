@@ -252,7 +252,7 @@ export function FindInPageBar({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={isZh ? '在当前对话中查找...' : 'Find in conversation...'}
-          className="w-48 sm:w-60 pl-7 pr-2.5 py-1 bg-[#0c0e13] border border-[#272b35] focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 rounded-lg text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none transition-all"
+          className="w-48 sm:w-60 pl-7 pr-2.5 py-1 bg-[#0c0e13] border border-[#272b35] focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 rounded-lg text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none transition-all"
         />
       </div>
 
@@ -262,7 +262,7 @@ export function FindInPageBar({
           onClick={() => setMatchCase((prev) => !prev)}
           className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
             matchCase
-              ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
+              ? 'bg-sky-600/30 text-sky-300 border border-sky-500/50'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
           }`}
           title={isZh ? '区分大小写 (Match Case)' : 'Match Case'}
@@ -274,7 +274,7 @@ export function FindInPageBar({
           onClick={() => setMatchWholeWord((prev) => !prev)}
           className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
             matchWholeWord
-              ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
+              ? 'bg-sky-600/30 text-sky-300 border border-sky-500/50'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
           }`}
           title={isZh ? '全字匹配 (Match Whole Word)' : 'Match Whole Word'}
@@ -286,7 +286,7 @@ export function FindInPageBar({
           onClick={() => setUseRegex((prev) => !prev)}
           className={`px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors cursor-pointer ${
             useRegex
-              ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
+              ? 'bg-sky-600/30 text-sky-300 border border-sky-500/50'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
           }`}
           title={isZh ? '正则表达式 (Use Regex)' : 'Use Regular Expression'}

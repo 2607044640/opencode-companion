@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getShortcuts, matchesShortcut, type ShortcutsMap } from '../utils/shortcuts'
 import { getNextTabId, getPrevTabId, getTabIdByIndex } from '../utils/tab-navigation'
+import { togglePinSessionId } from '../utils/pinning'
 
 export interface UseGlobalShortcutsParams {
   activeSessionId: string | null
@@ -235,6 +236,60 @@ export function useGlobalShortcuts({
         e.preventDefault()
         e.stopPropagation()
         setIsModelRouterOpen((prev) => !prev)
+        return
+      }
+
+      const isCtrlShiftO =
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        ((e.key && e.key.toLowerCase() === 'o') || e.code === 'KeyO' || e.keyCode === 79)
+
+      if (isCtrlShiftO || (shortcuts.expandAllConversations && matchesShortcut(e, shortcuts.expandAllConversations))) {
+        e.preventDefault()
+        e.stopPropagation()
+        window.dispatchEvent(new CustomEvent('opencode-expand-all-dialogues'))
+        return
+      }
+
+      const isCtrlShiftC =
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        ((e.key && e.key.toLowerCase() === 'c') || e.code === 'KeyC' || e.keyCode === 67)
+
+      if (isCtrlShiftC || (shortcuts.collapseAllConversations && matchesShortcut(e, shortcuts.collapseAllConversations))) {
+        e.preventDefault()
+        e.stopPropagation()
+        window.dispatchEvent(new CustomEvent('opencode-collapse-all-dialogues'))
+        return
+      }
+
+      // Block browser native Print dialog (Ctrl+P / Ctrl+Shift+P) & Toggle Pin for Ctrl+Shift+P
+      const isCtrlP =
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        ((e.key && e.key.toLowerCase() === 'p') || e.code === 'KeyP' || e.keyCode === 80)
+
+      if (isCtrlP) {
+        e.preventDefault()
+        e.stopPropagation()
+
+        if (e.shiftKey || (shortcuts.togglePinSession && matchesShortcut(e, shortcuts.togglePinSession))) {
+          const currentId = activeSessionIdRef.current
+          if (currentId) {
+            const res = togglePinSessionId(currentId)
+            const isZh = typeof localStorage === 'undefined' || !localStorage.getItem('opencode_language')?.startsWith('en')
+            const msg = res.pinned
+              ? (isZh ? '已置顶当前对话 (Ctrl+Shift+P)' : 'Pinned conversation (Ctrl+Shift+P)')
+              : (isZh ? '已取消置顶当前对话 (Ctrl+Shift+P)' : 'Unpinned conversation (Ctrl+Shift+P)')
+            window.dispatchEvent(
+              new CustomEvent('opencode:toast', {
+                detail: { message: msg, duration: 2000 },
+              })
+            )
+          }
+        }
         return
       }
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -25,13 +25,15 @@ import { ToolCard } from './ToolCard'
 import { ToolBatchCard } from './ToolBatchCard'
 import { ReasoningCard } from './ReasoningCard'
 import { WorkedSummaryCard } from './WorkedSummaryCard'
-import { partitionAssistantTurn } from '../../utils/worked-summary'
+import { FileViewModal } from './FileViewModal'
+import { partitionAssistantTurn, type ExploreItem } from '../../utils/worked-summary'
 import { emptyAssistantChrome } from '../../utils/session-run-state'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n, tr } from '../../utils/i18n'
 import { evaluatePromptCollapsing } from './quick-jump'
 import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
 import { ImageLightboxModal, ImageThumbnailRow, type LightboxImage } from './ImageLightboxModal'
+import { cleanRawPath } from '../../utils/path-resolver'
 
 interface MessageBubbleProps {
   message: Message
@@ -61,65 +63,65 @@ export function getAgentBadge(agent?: string) {
   const name = (agent || '').toLowerCase()
   if (name.includes('sisyphus')) {
     return {
-      bg: 'bg-purple-950/80 text-purple-300 border-purple-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'S',
       label: agent || 'Sisyphus',
-      accent: 'border-l-purple-500',
+      accent: 'border-l-sky-500',
     }
   }
   if (name.includes('atlas')) {
     return {
-      bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'A',
       label: agent || 'Atlas',
-      accent: 'border-l-emerald-500',
+      accent: 'border-l-sky-500',
     }
   }
   if (name.includes('build')) {
     return {
-      bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'B',
       label: agent || 'build',
-      accent: 'border-l-emerald-500',
+      accent: 'border-l-sky-500',
     }
   }
   if (name.includes('plan')) {
     return {
-      bg: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'P',
       label: agent || 'plan',
-      accent: 'border-l-amber-500',
+      accent: 'border-l-sky-500',
     }
   }
   if (name.includes('scout')) {
     return {
-      bg: 'bg-blue-950/80 text-blue-300 border-blue-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'S',
       label: agent || 'scout',
-      accent: 'border-l-blue-500',
+      accent: 'border-l-sky-500',
     }
   }
   if (name.includes('compaction')) {
     return {
-      bg: 'bg-cyan-950/80 text-cyan-300 border-cyan-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'C',
       label: 'Compaction Engine',
-      accent: 'border-l-cyan-500',
+      accent: 'border-l-sky-500',
     }
   }
   if (name.includes('prometheus')) {
     return {
-      bg: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
+      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
       initial: 'P',
       label: agent || 'Prometheus',
-      accent: 'border-l-amber-500',
+      accent: 'border-l-sky-500',
     }
   }
   return {
-    bg: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+    bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
     initial: (agent?.charAt(0) || 'B').toUpperCase(),
     label: agent || 'build',
-    accent: 'border-l-orange-500',
+    accent: 'border-l-sky-500',
   }
 }
 
@@ -162,7 +164,27 @@ function parseThinkingFromText(rawText: string): ContentSegment[] {
   return segments.length > 0 ? segments : [{ type: 'text', content: rawText }]
 }
 
-function createMarkdownComponents(isZenMode?: boolean) {
+function extractFileTarget(href?: string, text?: string): string | null {
+  const candidate = (href || '').trim()
+  if (candidate && !candidate.startsWith('http://') && !candidate.startsWith('https://')) {
+    const clean = candidate.replace(/^file:\/\/\/?/, '')
+    if (/\.(md|ts|tsx|js|jsx|json|cs|gd|py|rs|go|txt|yaml|yml|toml|css|html|sh|c|h|cpp|hpp|sql|env)$/i.test(clean)) {
+      return clean
+    }
+    if (/[/\\][a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+$/i.test(clean)) {
+      return clean
+    }
+  }
+  if (text && (!candidate || !candidate.startsWith('http'))) {
+    const cleanText = text.trim().replace(/^[`'"]+|[`'"]+$/g, '')
+    if (/\.(md|ts|tsx|js|jsx|json|cs|gd|py|rs|go|txt|yaml|yml|toml|css|html|sh|c|h|cpp|hpp|sql|env)$/i.test(cleanText)) {
+      return cleanText
+    }
+  }
+  return null
+}
+
+function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (target: string) => void) {
   return {
     table: ({ children, ...props }: any) => (
       <div className="my-3.5 overflow-x-auto rounded-lg border border-[#272b33] bg-[#111317] shadow-sm">
@@ -235,7 +257,7 @@ function createMarkdownComponents(isZenMode?: boolean) {
       <hr className="my-3 border-t border-zinc-800" {...props} />
     ),
     blockquote: ({ children, ...props }: any) => (
-      <blockquote className="my-2.5 pl-3 border-l-2 border-purple-500/70 text-zinc-400 italic bg-purple-950/15 py-1 rounded-r text-xs sm:text-sm" {...props}>
+      <blockquote className="my-2.5 pl-3 border-l-2 border-zinc-600 text-zinc-400 italic bg-zinc-900/40 py-1 rounded-r text-xs sm:text-sm" {...props}>
         {children}
       </blockquote>
     ),
@@ -253,7 +275,7 @@ function createMarkdownComponents(isZenMode?: boolean) {
       const isInline = !className
       return isInline ? (
         <code
-          className={`bg-purple-950/25 text-[#c4b5fd] border border-purple-500/20 px-1.5 py-0.5 rounded-md font-mono font-medium ${
+          className={`bg-zinc-800/80 text-zinc-200 border border-zinc-700/60 px-1.5 py-0.5 rounded-md font-mono font-medium ${
             isZenMode ? 'text-xs sm:text-[13px]' : 'text-[11px] sm:text-xs'
           }`}
           {...props}
@@ -315,6 +337,27 @@ function createMarkdownComponents(isZenMode?: boolean) {
               }}
               className="text-blue-400 hover:text-blue-300 underline underline-offset-2 cursor-pointer font-medium"
               title={tr('点击立即切换至该会话', 'Click to switch to this session', 'Klicken, um zu dieser Sitzung zu wechseln')}
+            >
+              {children}
+            </a>
+          )
+        }
+      }
+
+      // Check if it's a file link (opens FileViewModal floating UI)
+      if (onOpenFile) {
+        const fileTarget = extractFileTarget(href, typeof children === 'string' ? children : '')
+        if (fileTarget) {
+          return (
+            <a
+              href={href || fileTarget}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onOpenFile(fileTarget)
+              }}
+              className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 cursor-pointer font-medium transition-colors"
+              title={tr('点击在浮窗中查看文件', 'Click to view file in floating window', 'Klicken, um Datei im Fenster anzuzeigen')}
             >
               {children}
             </a>
@@ -409,7 +452,7 @@ function UserMessageBubble({
   const { t, tr } = useI18n()
   const [copied, setCopied] = useState(false)
 
-  const { lineCount, charCount, isCollapsible, defaultCollapsed } = useMemo(
+  const { isCollapsible, defaultCollapsed } = useMemo(
     () =>
       evaluatePromptCollapsing(fullText, {
         autoCollapsePrompt,
@@ -420,6 +463,23 @@ function UserMessageBubble({
   )
 
   const [isExpanded, setIsExpanded] = useState(!defaultCollapsed)
+
+  useEffect(() => {
+    const handleExpandAll = () => {
+      setIsExpanded(true)
+    }
+    const handleCollapseAll = () => {
+      if (isCollapsible) {
+        setIsExpanded(false)
+      }
+    }
+    window.addEventListener('opencode-expand-all-dialogues', handleExpandAll)
+    window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    return () => {
+      window.removeEventListener('opencode-expand-all-dialogues', handleExpandAll)
+      window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    }
+  }, [isCollapsible])
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -459,12 +519,12 @@ function UserMessageBubble({
       id={`msg_${message.info.id}`}
       className="w-full my-3 flex flex-col items-end"
     >
-      {/* User Message Bubble: Auto-sized according to content length, capped at ~2/3 width */}
+      {/* User Message: Frameless style matching AI response, auto-sized, capped at ~2/3 width */}
       <div
-        className={`w-fit max-w-[88%] sm:max-w-[75%] lg:max-w-[67%] bg-[#1a1a26] border border-[#28283c] rounded-2xl px-4.5 py-3 text-zinc-100 shadow-sm transition-all break-words select-text ${
+        className={`w-fit max-w-[88%] sm:max-w-[75%] lg:max-w-[67%] text-zinc-100 transition-all break-words select-text ${
           isZenMode
-            ? 'text-[15px] leading-relaxed py-4.5 px-5.5 bg-[#1c1c2a] border-[#2e2e44] shadow-md'
-            : 'text-sm'
+            ? 'text-[15px] leading-relaxed py-1.5 px-0.5'
+            : 'text-sm leading-relaxed py-1 px-0.5'
         }`}
       >
         {/* Attached Images (Square Thumbnails in a Row - matching Image 2 & 3) */}
@@ -483,57 +543,48 @@ function UserMessageBubble({
           )
         })()}
 
-        {/* Prompt Text with Auto-Collapse */}
+        {/* Prompt Text with Auto-Collapse & Right-Side Adaptive Long Button */}
         {fullText && (
-          <div className="relative">
-            <div
-              className={`whitespace-pre-wrap leading-relaxed text-zinc-100 transition-all ${
-                isCollapsible && !isExpanded ? 'max-h-24 overflow-hidden' : ''
-              }`}
-            >
-              {fullText}
+          <div className="flex items-stretch gap-2 w-full">
+            <div className="flex-1 min-w-0 relative">
+              <div
+                className={`whitespace-pre-wrap leading-relaxed text-zinc-100 transition-all ${
+                  isCollapsible && !isExpanded ? 'max-h-24 overflow-hidden' : ''
+                }`}
+              >
+                {fullText}
+              </div>
+
+              {/* Bottom gradient fade mask when collapsed */}
+              {isCollapsible && !isExpanded && (
+                <div
+                  onClick={() => setIsExpanded(true)}
+                  className={`absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t ${
+                    isZenMode
+                      ? 'from-[#101016] via-[#101016]/90'
+                      : 'from-[#13131a] via-[#13131a]/90'
+                  } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
+                  title={tr('点击展开完整提示词', 'Click to expand full prompt', 'Klicken, um vollständigen Prompt anzuzeigen')}
+                />
+              )}
             </div>
 
-            {/* Bottom gradient fade mask when collapsed */}
-            {isCollapsible && !isExpanded && (
-              <div
-                onClick={() => setIsExpanded(true)}
-                className={`absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t ${
-                  isZenMode
-                    ? 'from-[#1c1c2a] via-[#1c1c2a]/90'
-                    : 'from-[#1a1a26] via-[#1a1a26]/90'
-                } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
-                title={tr('点击展开完整提示词', 'Click to expand full prompt', 'Klicken, um vollständigen Prompt anzuzeigen')}
-              />
-            )}
-
-            {/* Expand / Collapse Toggle Bar */}
+            {/* Right Side Vertical Strip Button for Human Inputs (User Messages) */}
             {isCollapsible && (
               <button
                 type="button"
                 onClick={() => setIsExpanded(!isExpanded)}
-                className={`w-full mt-2 pt-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-all select-none rounded border cursor-pointer ${
-                  isExpanded
-                    ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/30 hover:bg-zinc-800/60 py-1 border-zinc-800'
-                    : 'text-purple-300 hover:text-purple-100 bg-purple-950/30 hover:bg-purple-950/50 py-1 border-purple-900/40 shadow-sm'
-                }`}
+                className="group/side-btn flex items-center justify-center w-3 hover:w-3.5 shrink-0 self-stretch rounded-full py-1 cursor-pointer select-none focus:outline-none transition-all"
+                title={isExpanded ? tr('点击收起提示词', 'Click to collapse prompt', 'Prompt einklappen') : tr('点击展开完整提示词', 'Click to expand full prompt', 'Prompt ausklappen')}
+                aria-label={isExpanded ? tr('收起提示词', 'Collapse prompt') : tr('展开提示词', 'Expand prompt')}
               >
-                {isExpanded ? (
-                  <>
-                    <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>{tr('收起完整提示词', 'Collapse full prompt', 'Vollständigen Prompt einklappen')}</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
-                    <span>
-                      {tr('展开完整提示词', 'Expand full prompt', 'Vollständigen Prompt anzeigen')}{' '}
-                      <span className="font-mono text-[10px] opacity-80">
-                        ({lineCount} {tr('行', 'lines', 'Zeilen')} / {charCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')})
-                      </span>
-                    </span>
-                  </>
-                )}
+                <div className="w-1.5 group-hover/side-btn:w-2.5 h-full rounded-full bg-zinc-800/60 group-hover/side-btn:bg-zinc-700/90 border border-zinc-700/40 group-hover/side-btn:border-zinc-500/70 transition-all duration-150 flex items-center justify-center shadow-sm">
+                  {isExpanded ? (
+                    <ChevronUp className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
+                  ) : (
+                    <ChevronDown className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
+                  )}
+                </div>
               </button>
             )}
           </div>
@@ -639,7 +690,7 @@ export function MessageBubble({
   const { t, tr } = useI18n()
   const { openTurn: openDiffTurn } = useDiffDrawer()
   const [copied, setCopied] = useState(false)
-  const [isReportExpanded, setIsReportExpanded] = useState(true)
+  const [isReportExpanded, setIsReportExpanded] = useState(!prefs.autoCollapseResponse)
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -665,9 +716,68 @@ export function MessageBubble({
   const isAnswerCollapsible =
     (answerCharCount > 360 || answerLineCount > 6) && !turn.isLive
 
+  useEffect(() => {
+    const handleExpandAll = () => {
+      setIsReportExpanded(true)
+    }
+    const handleCollapseAll = () => {
+      if (isAnswerCollapsible) {
+        setIsReportExpanded(false)
+      }
+    }
+    window.addEventListener('opencode-expand-all-dialogues', handleExpandAll)
+    window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    return () => {
+      window.removeEventListener('opencode-expand-all-dialogues', handleExpandAll)
+      window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    }
+  }, [isAnswerCollapsible])
+
+  const [activeFileModalItem, setActiveFileModalItem] = useState<ExploreItem | null>(null)
+
+  const handleOpenFileModal = useCallback((targetPath: string) => {
+    const clean = cleanRawPath(targetPath)
+    const fileName = clean.split(/[/\\]/).filter(Boolean).pop() || clean
+
+    // 1. Search in turn.groups for matching ExploreItem or edit
+    let matchingOutput: string | undefined
+    let matchingFullPath: string | undefined
+    for (const group of turn.groups) {
+      if (group.kind === 'explore') {
+        const found = group.items.find(
+          (it) =>
+            it.pathOrQuery.toLowerCase().includes(fileName.toLowerCase()) ||
+            (it.fullPath && it.fullPath.toLowerCase().includes(fileName.toLowerCase()))
+        )
+        if (found) {
+          matchingOutput = found.output
+          matchingFullPath = found.fullPath
+          break
+        }
+      } else if (group.kind === 'edit') {
+        if (group.item.filePath.toLowerCase().includes(fileName.toLowerCase())) {
+          matchingFullPath = group.item.filePath
+          break
+        }
+      }
+    }
+
+    const item: ExploreItem = {
+      partId: `md_file_${Date.now()}`,
+      tool: 'read',
+      pathOrQuery: clean,
+      fullPath: matchingFullPath || clean,
+      kind: 'file',
+      status: 'completed',
+      output: matchingOutput,
+    }
+
+    setActiveFileModalItem(item)
+  }, [turn.groups])
+
   const markdownComponents = useMemo(
-    () => createMarkdownComponents(isZenMode),
-    [isZenMode]
+    () => createMarkdownComponents(isZenMode, handleOpenFileModal),
+    [isZenMode, handleOpenFileModal]
   )
 
   const rawTextParts = message.parts
@@ -808,7 +918,7 @@ export function MessageBubble({
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300 border border-zinc-700/60"
                 title={`Provider: ${providerName || 'default'} | Model: ${modelName}`}
               >
-                <Cpu className="w-2.5 h-2.5 text-purple-400" />
+                <Cpu className="w-2.5 h-2.5 text-zinc-400" />
                 <span>{modelName}</span>
                 {providerName && (
                   <span className="text-zinc-500 text-[9px]">({providerName})</span>
@@ -825,8 +935,8 @@ export function MessageBubble({
 
             {/* Live Generating Pill */}
             {isTurnGenerating && (
-              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950/80 border border-purple-600/70 text-[11px] text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
-                <Loader2 className="w-3 h-3 animate-spin text-purple-400" />
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-950/60 border border-sky-600/50 text-[11px] text-sky-200 font-medium animate-pulse shadow-sm shadow-sky-900/30">
+                <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
                 <span>{tr('生成中…', 'Generating…', 'Generieren…')}</span>
               </span>
             )}
@@ -848,7 +958,7 @@ export function MessageBubble({
                 className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900 text-[10px] font-mono text-zinc-400 border border-zinc-800"
                 title={`Input: ${tokens.input} | Output: ${tokens.output} | Reasoning: ${tokens.reasoning}`}
               >
-                <Coins className="w-2.5 h-2.5 text-amber-500/80" />
+                <Coins className="w-2.5 h-2.5 text-zinc-500" />
                 <span>
                   {formatTokens(tokens.output)} out
                   {tokens.reasoning > 0 ? ` (${formatTokens(tokens.reasoning)} r)` : ''}
@@ -872,7 +982,7 @@ export function MessageBubble({
                     files: turnFiles,
                   })
                 }}
-                className="flex items-center gap-1 px-2 py-0.5 hover:bg-emerald-950/60 text-emerald-400 hover:text-emerald-200 rounded text-[11px] transition-colors border border-emerald-800/40 cursor-pointer"
+                className="flex items-center gap-1 px-2 py-0.5 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded text-[11px] transition-colors border border-zinc-700/60 cursor-pointer"
                 title={tr('在审查面板查看本轮文件差异', 'Review turn file diffs', 'Datei-Diffs dieser Runde prüfen')}
               >
                 <FileCode className="w-3 h-3" />
@@ -898,7 +1008,7 @@ export function MessageBubble({
               {/* Top Antigravity-Style Collapsible Tool Calling & Thinking Bar */}
               <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} runKnown={runKnown} />
 
-              {/* Assistant Attached Images (Square Thumbnails in a Row - matching Image 2) */}
+              {/* Assistant Attached Images (Square Thumbnails in a Row) */}
               {turn.fileParts.length > 0 && (
                 <ImageThumbnailRow
                   images={turn.fileParts}
@@ -906,45 +1016,11 @@ export function MessageBubble({
                 />
               )}
 
-              {/* Main Response Markdown Surface (Directly underneath the collapsed tools bar) */}
+              {/* Main Response Markdown Surface with Right-Side Adaptive Button */}
               {turn.answerParts.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-[#1f2228]/80">
-                  {/* Model Response Header: Title + Collapse/Expand Badge matching User Prompt Style */}
-                  <div className="flex items-center justify-between py-1 px-1 mb-2 text-xs text-zinc-400">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Sparkles className="w-3.5 h-3.5 text-orange-400/80 shrink-0" />
-                      <span className="font-semibold text-zinc-300">
-                        {tr('模型回答 / 汇报', 'Model Response / Report', 'Modellantwort / Bericht')}
-                      </span>
-                    </div>
-                    {isAnswerCollapsible && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setIsReportExpanded(!isReportExpanded)}
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-purple-300 hover:text-purple-200 bg-purple-950/40 hover:bg-purple-950/70 border border-purple-800/40 transition-colors"
-                          title={isReportExpanded ? tr('收起回答 (露出一部分)', 'Collapse response (show partial)', 'Antwort einklappen (Teilansicht)') : tr('展开完整回答', 'Expand full response', 'Vollständige Antwort anzeigen')}
-                        >
-                          {isReportExpanded ? (
-                            <>
-                              <ChevronUp className="w-3 h-3 text-purple-400" />
-                              <span>{tr('收起', 'Collapse', 'Einklappen')}</span>
-                            </>
-                          ) : (
-                            <>
-                              <ChevronDown className="w-3 h-3 text-purple-400" />
-                              <span>{tr('展开', 'Expand', 'Ausklappen')}</span>
-                            </>
-                          )}
-                        </button>
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          {answerLineCount} {tr('行', 'lines', 'Zeilen')} · {answerCharCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Partial-reveal content container: shows top lines with bottom fade mask when collapsed */}
-                  <div className="relative">
+                <div className="mt-2.5 flex items-stretch gap-2 w-full">
+                  {/* Response Markdown Content */}
+                  <div className="flex-1 min-w-0 relative">
                     <div
                       className={`space-y-3 transition-all ${
                         isAnswerCollapsible && !isReportExpanded
@@ -979,48 +1055,38 @@ export function MessageBubble({
                       })}
                     </div>
 
-                    {/* Bottom gradient fade mask when collapsed - allows clicking to expand */}
+                    {/* Bottom gradient fade mask when collapsed - clicking expands */}
                     {isAnswerCollapsible && !isReportExpanded && (
                       <div
                         onClick={() => setIsReportExpanded(true)}
                         className={`absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t ${
                           isZenMode
-                            ? 'from-[#12151a] via-[#12151a]/90'
-                            : 'from-[#121417] via-[#121417]/90'
+                            ? 'from-[#101016] via-[#101016]/90'
+                            : 'from-[#13131a] via-[#13131a]/90'
                         } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
                         title={tr('点击展开完整回答', 'Click to expand full response', 'Klicken, um vollständige Antwort anzuzeigen')}
                       />
                     )}
-
-                    {/* Expand / Collapse Toggle Bar at the bottom matching UserMessageBubble */}
-                    {isAnswerCollapsible && (
-                      <button
-                        onClick={() => setIsReportExpanded(!isReportExpanded)}
-                        className={`w-full mt-2 pt-1 flex items-center justify-center gap-1.5 text-[11px] font-medium transition-all select-none rounded border ${
-                          isReportExpanded
-                            ? 'text-zinc-400 hover:text-zinc-200 bg-zinc-800/30 hover:bg-zinc-800/60 py-1 border-zinc-800'
-                            : 'text-purple-300 hover:text-purple-100 bg-purple-950/30 hover:bg-purple-950/50 py-1 border-purple-900/40 shadow-sm'
-                        }`}
-                      >
-                        {isReportExpanded ? (
-                          <>
-                            <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
-                            <span>{tr('收起完整回答', 'Collapse full response', 'Vollständige Antwort einklappen')}</span>
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown className="w-3.5 h-3.5 text-purple-400" />
-                            <span>
-                              {tr('展开完整回答', 'Expand full response', 'Vollständige Antwort anzeigen')}{' '}
-                              <span className="font-mono text-[10px] opacity-80">
-                                ({answerLineCount} {tr('行', 'lines', 'Zeilen')} / {answerCharCount.toLocaleString()} {tr('字', 'chars', 'Zeichen')})
-                              </span>
-                            </span>
-                          </>
-                        )}
-                      </button>
-                    )}
                   </div>
+
+                  {/* Right Side Vertical Strip Button for AI Responses */}
+                  {isAnswerCollapsible && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReportExpanded(!isReportExpanded)}
+                      className="group/side-btn flex items-center justify-center w-3 hover:w-3.5 shrink-0 self-stretch rounded-full py-1 cursor-pointer select-none focus:outline-none transition-all"
+                      title={isReportExpanded ? tr('点击收起回答', 'Click to collapse response', 'Antwort einklappen') : tr('点击展开完整回答', 'Click to expand full response', 'Vollständige Antwort anzeigen')}
+                      aria-label={isReportExpanded ? tr('收起回答', 'Collapse response') : tr('展开完整回答', 'Expand response')}
+                    >
+                      <div className="w-1.5 group-hover/side-btn:w-2.5 h-full rounded-full bg-zinc-800/60 group-hover/side-btn:bg-zinc-700/90 border border-zinc-700/40 group-hover/side-btn:border-zinc-500/70 transition-all duration-150 flex items-center justify-center shadow-sm">
+                        {isReportExpanded ? (
+                          <ChevronUp className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
+                        ) : (
+                          <ChevronDown className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
+                        )}
+                      </div>
+                    </button>
+                  )}
                 </div>
               )}
             </>
@@ -1206,6 +1272,14 @@ export function MessageBubble({
           onClose={() => setIsLightboxOpen(false)}
           images={lightboxImages}
           initialIndex={lightboxIndex}
+        />
+      )}
+
+      {/* File Viewer Modal (Floating UI from Markdown Links) */}
+      {activeFileModalItem && (
+        <FileViewModal
+          item={activeFileModalItem}
+          onClose={() => setActiveFileModalItem(null)}
         />
       )}
     </div>

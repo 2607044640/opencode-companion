@@ -89,7 +89,7 @@ export function ToolCard({ part, isLive }: ToolCardProps) {
         return <Eye className="w-3.5 h-3.5 text-blue-400" />
       case 'grep':
       case 'find':
-        return <Search className="w-3.5 h-3.5 text-purple-400" />
+        return <Search className="w-3.5 h-3.5 text-zinc-400" />
       default:
         return <Terminal className="w-3.5 h-3.5 text-zinc-400" />
     }
@@ -112,7 +112,7 @@ export function ToolCard({ part, isLive }: ToolCardProps) {
         <div className="flex items-center gap-2 shrink-0 ml-2">
           {/* Status Indicator */}
           {isRunning ? (
-            <span className="flex items-center gap-1 text-purple-400">
+            <span className="flex items-center gap-1 text-sky-400">
               <Loader2 className="w-3 h-3 animate-spin" />
               <span className="text-[10px]">Running</span>
             </span>

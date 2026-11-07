@@ -181,14 +181,17 @@ export function TabContextMenu({
           togglePinSessionId(tabId)
           onClose()
         }}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
       >
-        <Pin className="w-3.5 h-3.5 text-orange-400" />
-        <span>
-          {isSessionPinned(tabId, getPinnedSessionIds())
-            ? (isZh ? '取消置顶' : 'Unpin Tab')
-            : (isZh ? '置顶会话' : 'Pin Tab')}
+        <span className="flex items-center gap-2">
+          <Pin className="w-3.5 h-3.5 text-orange-400" />
+          <span>
+            {isSessionPinned(tabId, getPinnedSessionIds())
+              ? (isZh ? '取消置顶' : 'Unpin Tab')
+              : (isZh ? '置顶会话' : 'Pin Tab')}
+          </span>
         </span>
+        <span className="text-[10px] font-mono text-zinc-500">Ctrl+Shift+P</span>
       </button>
 
       {/* Rename */}

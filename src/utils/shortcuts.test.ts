@@ -36,13 +36,16 @@ describe('shortcuts matching and registration', () => {
     }
 
     const dialogueKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'dialogue')
-    assert.equal(dialogueKeys.length, 7)
+    assert.equal(dialogueKeys.length, 9)
+    assert.ok(dialogueKeys.includes('expandAllConversations'))
+    assert.ok(dialogueKeys.includes('collapseAllConversations'))
     for (const k of dialogueKeys) {
       assert.equal(DEFAULT_SHORTCUTS[k].category, 'dialogue')
     }
 
     const workspaceKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'workspace')
-    assert.equal(workspaceKeys.length, 6)
+    assert.equal(workspaceKeys.length, 7)
+    assert.ok(workspaceKeys.includes('togglePinSession'))
     for (const k of workspaceKeys) {
       assert.equal(DEFAULT_SHORTCUTS[k].category, 'workspace')
     }
@@ -180,6 +183,52 @@ describe('shortcuts matching and registration', () => {
     assert.equal(matchesShortcut(plainT, DEFAULT_SHORTCUTS.reopenClosedTab), false)
   })
 
+  it('matches Ctrl + Shift + O for expandAllConversations and Ctrl + Shift + C for collapseAllConversations', () => {
+    const ctrlShiftO = {
+      key: 'o',
+      code: 'KeyO',
+      ctrlKey: true,
+      shiftKey: true,
+      altKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(ctrlShiftO, DEFAULT_SHORTCUTS.expandAllConversations), true)
+    assert.equal(matchesShortcut(ctrlShiftO, DEFAULT_SHORTCUTS.collapseAllConversations), false)
+
+    const ctrlShiftC = {
+      key: 'c',
+      code: 'KeyC',
+      ctrlKey: true,
+      shiftKey: true,
+      altKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(ctrlShiftC, DEFAULT_SHORTCUTS.collapseAllConversations), true)
+    assert.equal(matchesShortcut(ctrlShiftC, DEFAULT_SHORTCUTS.expandAllConversations), false)
+  })
+
+  it('matches Ctrl + Shift + P for togglePinSession', () => {
+    const ctrlShiftP = {
+      key: 'p',
+      code: 'KeyP',
+      ctrlKey: true,
+      shiftKey: true,
+      altKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(ctrlShiftP, DEFAULT_SHORTCUTS.togglePinSession), true)
+
+    const plainP = {
+      key: 'p',
+      code: 'KeyP',
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(plainP, DEFAULT_SHORTCUTS.togglePinSession), false)
+  })
+
   it('getShortcuts() populates newly introduced tab shortcuts if missing in storage', () => {
     const shortcuts = getShortcuts()
     assert.ok(shortcuts.reopenClosedTab)
@@ -190,6 +239,9 @@ describe('shortcuts matching and registration', () => {
     assert.ok(shortcuts.nextDialogue)
     assert.ok(shortcuts.jumpToTop)
     assert.ok(shortcuts.jumpToBottom)
+    assert.ok(shortcuts.expandAllConversations)
+    assert.ok(shortcuts.collapseAllConversations)
+    assert.ok(shortcuts.togglePinSession)
   })
 
   it('DEFAULT_SHORTCUTS defines jumpToTop and jumpToBottom as double-press shortcuts', () => {

@@ -91,7 +91,7 @@ export function TodoBanner({ todos, isZenMode }: TodoBannerProps) {
                 <div
                   key={todo.id || idx}
                   className={`flex items-start gap-2 text-xs py-1 px-2 rounded ${
-                    isInProgress ? 'bg-purple-950/30 text-purple-200' : 'text-zinc-300'
+                    isInProgress ? 'bg-sky-950/30 text-sky-200' : 'text-zinc-300'
                   }`}
                 >
                   {isDone ? (
@@ -99,7 +99,7 @@ export function TodoBanner({ todos, isZenMode }: TodoBannerProps) {
                   ) : (
                     <Circle
                       className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
-                        isInProgress ? 'text-purple-400' : 'text-zinc-600'
+                        isInProgress ? 'text-sky-400' : 'text-zinc-600'
                       }`}
                     />
                   )}

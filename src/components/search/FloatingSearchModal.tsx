@@ -1036,7 +1036,7 @@ function FloatingSearchContent({
                           <span>{t.search.userRole} #{hit.turnIndex}</span>
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-950/80 text-purple-300 border border-purple-700/50 flex items-center gap-1 shrink-0">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700/60 flex items-center gap-1 shrink-0">
                           <Bot className="w-2.5 h-2.5" />
                           <span>{t.search.assistantRole} #{hit.turnIndex}</span>
                         </span>
