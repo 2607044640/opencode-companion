@@ -271,7 +271,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
     </div>
   }
 
-  return <div className={`session-board-overlay ${recycling ? 'sb-recycling' : ''} ${archiving ? 'sb-archiving' : ''} ${renaming ? 'sb-renaming' : ''}`} role="dialog" aria-modal="true" aria-label={zh ? '会话整理看板' : 'Session board'} data-floating-modal ref={root} tabIndex={-1}
+  return <div className={`session-board-overlay ${recycling ? 'sb-recycling' : ''} ${archiving ? 'sb-archiving' : ''} ${renaming ? 'sb-renaming' : ''} ${dragging ? 'sb-dragging' : ''}`} role="dialog" aria-modal="true" aria-label={zh ? '会话整理看板' : 'Session board'} data-floating-modal ref={root} tabIndex={-1}
     onMouseDown={event => { if (event.target === event.currentTarget || (event.target instanceof HTMLElement && ['MAIN', 'SECTION', 'ASIDE'].includes(event.target.tagName))) root.current?.focus() }}
     onFocusCapture={event => { if (isEditableTarget(event.target)) { recycleHeld.current = false; archiveHeld.current = false; f2Held.current = false; setRecycling(false); setArchiving(false); setRenaming(false) } }}
     onKeyDown={event => {
