@@ -1057,15 +1057,15 @@ export function PromptInput({
         onDrop={handleDrop}
         className={`relative rounded-2xl border shadow-2xl transition-all focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-sky-500/20 ${
           isDragging
-            ? 'border-sky-500/80 ring-2 ring-sky-500/30 bg-[#161924]'
+            ? 'border-sky-500/80 ring-2 ring-sky-500/30 bg-[#13131a]'
             : isZenMode
-            ? 'bg-[#181824]/95 backdrop-blur-md border-[#2b2b3f] hover:border-zinc-700'
-            : 'bg-[#181824]/95 backdrop-blur-md border-[#262638] hover:border-zinc-700'
+            ? 'bg-[#101016]/95 backdrop-blur-md border-[#2b2b3f] hover:border-zinc-700'
+            : 'bg-[#13131a] border-[#262638] hover:border-zinc-700'
         }`}
       >
         {/* Drag and Drop Active Overlay */}
         {isDragging && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-[#12141a]/95 backdrop-blur-xs border-2 border-dashed border-sky-500/80 pointer-events-none select-none transition-all">
+          <div className="absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-[#13131a]/95 backdrop-blur-xs border-2 border-dashed border-sky-500/80 pointer-events-none select-none transition-all">
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1a1e27] border border-sky-500/50 text-sky-300 text-xs font-medium shadow-2xl animate-in zoom-in-95 duration-100">
               <FileUp className="w-4 h-4 text-sky-400 animate-bounce" />
               <span>{isZh ? '释放以注入图片预览缩略图或 @文件引用' : 'Drop to inject images or @file mentions'}</span>
@@ -1225,7 +1225,9 @@ export function PromptInput({
                   setShowAgentMenu(!showAgentMenu)
                   setShowModelMenu(false)
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1c1d27] hover:bg-[#242533] border border-zinc-800 text-zinc-300 hover:text-white transition-colors text-xs"
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md ${
+                  isZenMode ? 'bg-[#101016]' : 'bg-[#13131a]'
+                } hover:bg-zinc-800/60 border border-zinc-800 text-zinc-300 hover:text-white transition-colors text-xs`}
               >
                 <Bot className="w-3 h-3 text-zinc-400" />
                 <span className="font-medium truncate max-w-[140px]">{selectedAgent}</span>
@@ -1283,7 +1285,9 @@ export function PromptInput({
                   setShowModelMenu(!showModelMenu)
                   setShowAgentMenu(false)
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1c1d27] hover:bg-[#242533] border border-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer text-xs"
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md ${
+                  isZenMode ? 'bg-[#101016]' : 'bg-[#13131a]'
+                } hover:bg-zinc-800/60 border border-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer text-xs`}
                 title="Select model"
               >
                 <Sparkles className="w-3 h-3 text-zinc-400" />
@@ -1398,7 +1402,9 @@ export function PromptInput({
               <button
                 type="button"
                 onClick={onToggleSideQuestion}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1a1d24] hover:bg-[#232731] border border-sky-500/30 text-sky-200 text-xs transition-colors cursor-pointer group shadow-sm select-none"
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md ${
+                  isZenMode ? 'bg-[#101016]' : 'bg-[#13131a]'
+                } hover:bg-[#1a1d24] border border-sky-500/30 text-sky-200 text-xs transition-colors cursor-pointer group shadow-sm select-none`}
                 title={
                   isZh
                     ? `查看 ${sideQuestionCount} 个侧边提问 (View ${sideQuestionCount} side question${sideQuestionCount > 1 ? 's' : ''})`

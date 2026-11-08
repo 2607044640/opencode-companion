@@ -50,8 +50,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
   const [focusedGroup, setFocusedGroup] = useState<string | null>(null)
   const [pinned, setPinned] = useState(getPinnedSessionIds)
   const [archived, setArchived] = useState(getArchivedSessionIds)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [toast, setToast] = useState<{ message: string; isError?: boolean; key: number } | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [deleting, setDeleting] = useState<DragItem | null>(null)
   const [dragging, setDragging] = useState<DragItem | null>(null)
@@ -59,7 +58,16 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
   const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null)
   const [showAllUngrouped, setShowAllUngrouped] = useState(false)
   const hoverTargetRef = useRef<HoverTarget | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
   const lastActionAt = useRef(0)
+  const showToast = (message: string, isError = false) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    setToast({ message, isError, key: Date.now() })
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null)
+      toastTimerRef.current = null
+    }, 1500)
+  }
   const setHover = (target: HoverTarget | null) => {
     hoverTargetRef.current = target
     setHoverTarget(target)
@@ -80,21 +88,20 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
       saveSessionBoard(next, localStorage)
       boardRef.current = next
       setBoard(next)
-      setError('')
-    } catch { setError(zh ? '保存失败，未应用改动。请检查浏览器存储空间。' : 'Could not save. Change was not applied; check browser storage.') }
+    } catch { showToast(zh ? '保存失败，未应用改动。请检查浏览器存储空间。' : 'Could not save. Change was not applied; check browser storage.', true) }
   }
 
   const recycle = (id: string) => {
     lastActionAt.current = Date.now()
     commit(moveBoardSession(boardRef.current, id, null))
-    setNotice(zh ? '已移回待整理底栏' : 'Moved to tray')
+    showToast(zh ? '已移回待整理底栏' : 'Moved to tray')
   }
 
   const archive = (id: string) => {
     lastActionAt.current = Date.now()
     const res = toggleArchiveSessionId(id)
     setArchived(res.archivedIds)
-    setNotice(res.archived ? (zh ? '已归档会话' : 'Archived conversation') : (zh ? '已取消归档会话' : 'Unarchived conversation'))
+    showToast(res.archived ? (zh ? '已归档会话' : 'Archived conversation') : (zh ? '已取消归档会话' : 'Unarchived conversation'))
   }
 
   const finishDrag = () => { dragged.current = null; setDragging(null); setDropTarget('') }
@@ -131,7 +138,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
           if (target.groupId) {
             recycle(target.session.id)
           } else {
-            setNotice(zh ? '该会话已在待整理底栏中' : 'Conversation is already in tray')
+            showToast(zh ? '该会话已在待整理底栏中' : 'Conversation is already in tray')
           }
         }
       } else if (target.kind === 'group') {
@@ -155,6 +162,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
     window.addEventListener('blur', resetHover)
     window.addEventListener('dragend', handleDragEnd)
     return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
       window.removeEventListener('storage', sync)
       window.removeEventListener('opencode_pinned_sessions_updated', status)
       window.removeEventListener('opencode_archived_sessions_updated', status)
@@ -212,7 +220,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
       } else {
         api.updateSession(editor.sessionId, { title: name }).catch(() => {})
       }
-      setNotice(zh ? '已重命名会话' : 'Renamed conversation')
+      showToast(zh ? '已重命名会话' : 'Renamed conversation')
       setEditor(null)
       return
     }
@@ -321,7 +329,6 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
       <span className="sb-table-label"><Columns3 size={12} /> Table</span>
       <button onClick={onClose} aria-label={zh ? '关闭看板' : 'Close board'} title="Esc"><X size={16} /></button>
     </header>
-    {(error || notice) && <div className={`sb-notice ${error ? 'sb-error' : ''}`} role="status">{error || notice}<button onClick={() => { setError(''); setNotice('') }} aria-label="Dismiss">×</button></div>}
     <div className="sb-body">
       <main className="sb-board" onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget('') }}>
         <div className="sb-columns">
@@ -398,6 +405,11 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
         </div>
       </div>
     </footer>
+    {toast && (
+      <div key={toast.key} className={`sb-toast ${toast.isError ? 'sb-toast-error' : ''}`} role="status" aria-live="polite">
+        {toast.message}
+      </div>
+    )}
     {editor && <div className="sb-editor-shade"><form className="sb-editor" onSubmit={event => { event.preventDefault(); editCommit() }}><label>{editor.kind === 'session' ? (zh ? '重命名会话' : 'Rename Conversation') : editor.id ? (zh ? '重命名' : 'Rename') : editor.kind === 'group' ? 'New Group' : 'New Column'}<input autoFocus maxLength={100} value={editor.value} onChange={event => setEditor({ ...editor, value: event.target.value })} onKeyDown={event => { if (isIMEActive(event) && event.key === 'Enter') event.preventDefault() }} /></label><div><button type="button" onClick={() => setEditor(null)}>{zh ? '取消' : 'Cancel'}</button><button type="submit" disabled={!editor.value.trim()}>{zh ? '保存' : 'Save'}</button></div></form></div>}
     {deleting && <div className="sb-confirm-scope"><CountdownConfirmDialog isOpen title={zh ? '移除组织容器？' : 'Remove this container?'} description={zh ? '其中会话将移回待整理区，历史会保留。' : 'Conversations return to the ungrouped pool. History is preserved.'} onConfirm={deleteItem} onClose={() => setDeleting(null)} isDestructive /></div>}
   </div>
