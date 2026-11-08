@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Coins, Sparkles } from 'lucide-react'
 import type { Message, Session } from '../../types/opencode'
 import { useI18n } from '../../utils/i18n'
@@ -39,6 +39,45 @@ export function TokenStatsWidget({
   const [modelProfiles, setModelProfiles] = useState<ModelProfilesData | null>(null)
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isPinnedRef = useRef(false)
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    }
+  }, [])
+
+  const handleMouseEnter = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+    setIsOpen(true)
+  }, [])
+
+  const handleMouseLeave = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+    }
+    closeTimerRef.current = setTimeout(() => {
+      if (!isPinnedRef.current) {
+        setIsOpen(false)
+      }
+    }, 350)
+  }, [])
+
+  const handleToggle = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+    setIsOpen((prev) => {
+      const next = !prev
+      isPinnedRef.current = next
+      return next
+    })
+  }, [])
 
   // Resolve current active model ID and context ceiling
   const currentModelId = resolveActiveSessionModelId(
@@ -63,6 +102,18 @@ export function TokenStatsWidget({
       isMounted = false
     }
   }, [currentModelId, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+        isPinnedRef.current = false
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
 
   const tokenLimit = getTokenLimit(currentModelId, modelProfiles)
 
@@ -107,13 +158,13 @@ export function TokenStatsWidget({
     <div
       ref={containerRef}
       className="relative group/tokens shrink-0"
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {compact ? (
         <button
           type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
+          onClick={handleToggle}
           className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none ${
             isOpen
               ? 'bg-[#1e222a] border border-zinc-500 shadow-md'
@@ -135,7 +186,7 @@ export function TokenStatsWidget({
       ) : (
         <div
           tabIndex={0}
-          onClick={() => setIsOpen((prev) => !prev)}
+          onClick={handleToggle}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#14161c] hover:bg-[#1c1f26] border border-[#272a31] hover:border-zinc-600/70 text-[11px] font-mono text-zinc-300 hover:text-white transition-all cursor-pointer select-none shadow-sm"
           title={tooltipTitle}
         >
@@ -161,7 +212,9 @@ export function TokenStatsWidget({
       {isOpen && (
         <div
           style={popoverStyle}
-          className="absolute z-50 w-72 rounded-xl border border-[#2a2e38] bg-[#12141a]/98 backdrop-blur-md p-3.5 shadow-2xl text-xs select-none animate-in fade-in zoom-in-95 duration-100"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className="absolute z-50 w-72 rounded-xl border border-[#2a2e38] bg-[#12141a]/98 backdrop-blur-md p-3.5 shadow-2xl text-xs select-none animate-in fade-in zoom-in-95 duration-100 before:absolute before:-left-3.5 before:top-0 before:bottom-0 before:w-4 before:content-['']"
         >
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-zinc-800/80">
             <span className="font-semibold text-zinc-200 flex items-center gap-1.5">

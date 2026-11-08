@@ -38,17 +38,41 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
   const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
   const [floatingDelta, setFloatingDelta] = useState<{ id: number; text: string } | null>(null)
   const deltaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isPinnedRef = useRef(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     return () => {
       if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
     }
   }, [])
 
   // Listen for storage changes from settings modal
   const reloadProviders = useCallback(() => {
     setProviders(getRelayProviders())
+  }, [])
+
+  // Hover grace period management (prevents popover disappearing when moving mouse to top-right buttons)
+  const handleMouseEnter = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+    reloadProviders()
+    setIsOpen(true)
+  }, [reloadProviders])
+
+  const handleMouseLeave = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+    }
+    closeTimerRef.current = setTimeout(() => {
+      if (!isPinnedRef.current) {
+        setIsOpen(false)
+      }
+    }, 350)
   }, [])
 
   // Auto-sync presets on mount: ensures any new gateway channels (e.g. 稳定中转 Flash 3.7) are auto-imported
@@ -110,6 +134,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false)
+        isPinnedRef.current = false
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -209,8 +234,16 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
 
   // Triggered on clicking the coin icon: refreshes and plays 2-second light blue floating animation
   const handleCoinClick = async () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
     reloadProviders()
-    setIsOpen((prev) => !prev)
+    setIsOpen((prev) => {
+      const next = !prev
+      isPinnedRef.current = next
+      return next
+    })
 
     try {
       const snapResult = await refreshAll(undefined, 'manual_click')
@@ -293,17 +326,18 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
     <div
       className="relative shrink-0"
       ref={dropdownRef}
-      onMouseEnter={() => {
-        reloadProviders()
-        setIsOpen(true)
-      }}
-      onMouseLeave={() => setIsOpen(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {/* 2-Second Floating Delta Cost Animation Badge (浅蓝色扣费浮现动画) */}
       {floatingDelta && (
         <div
           key={floatingDelta.id}
-          className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 z-50 whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border border-sky-400/70 text-sky-300 font-mono font-bold text-[11px] shadow-[0_0_14px_rgba(56,189,248,0.6)] animate-relay-cost-float select-none"
+          className={`pointer-events-none absolute z-[70] whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border border-sky-400/80 text-sky-300 font-mono font-bold text-[11px] shadow-[0_0_16px_rgba(56,189,248,0.65)] select-none ${
+            compact || popoverPlacement === 'right'
+              ? 'left-full ml-3 bottom-1.5 animate-relay-cost-float-right'
+              : '-top-6 left-1/2 -translate-x-1/2 animate-relay-cost-float'
+          }`}
         >
           {floatingDelta.text}
         </div>
@@ -372,11 +406,13 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
         </button>
       )}
 
-      {/* Floating Popover Card */}
+      {/* Floating Popover Card (with hit bridge to prevent closing on gap movement) */}
       {isOpen && (
         <div
           style={popoverStyle}
-          className="absolute z-50 w-80 rounded-xl border border-[#2a2e38] bg-[#12141a]/98 backdrop-blur-md p-3.5 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-150 text-xs select-none"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className="absolute z-50 w-80 rounded-xl border border-[#2a2e38] bg-[#12141a]/98 backdrop-blur-md p-3.5 shadow-2xl animate-in fade-in slide-in-from-top-1 duration-150 text-xs select-none before:absolute before:-left-3.5 before:top-0 before:bottom-0 before:w-4 before:content-['']"
         >
           {/* Header Row */}
           <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-[#242832]">
@@ -396,6 +432,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                 type="button"
                 onClick={() => {
                   setIsOpen(false)
+                  isPinnedRef.current = false
                   setIsAnalyticsOpen(true)
                 }}
                 className="p-1 text-zinc-400 hover:text-sky-300 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
@@ -405,29 +442,40 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
               </button>
 
               {summary.hasProviders && (
-                <button
-                  onClick={async () => {
-                    const snapResult = await refreshAll(undefined, 'manual_click')
-                    if (snapResult && snapResult.deltaFormatted) {
-                      setFloatingDelta({ id: Date.now(), text: snapResult.deltaFormatted })
-                      if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
-                      deltaTimerRef.current = setTimeout(() => {
-                        setFloatingDelta(null)
-                      }, 2000)
-                    }
-                  }}
-                  disabled={isRefreshingAll}
-                  className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
-                  title="刷新全部中转站额度 (应用开启时每10分钟自动刷新)"
-                >
-                  <RefreshCw
-                    className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin text-sky-400' : ''}`}
-                  />
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={async () => {
+                      const snapResult = await refreshAll(undefined, 'manual_click')
+                      if (snapResult && snapResult.deltaFormatted) {
+                        setFloatingDelta({ id: Date.now(), text: snapResult.deltaFormatted })
+                        if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
+                        deltaTimerRef.current = setTimeout(() => {
+                          setFloatingDelta(null)
+                        }, 2000)
+                      }
+                    }}
+                    disabled={isRefreshingAll}
+                    className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
+                    title="刷新全部中转站额度 (应用开启时每10分钟自动刷新)"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin text-sky-400' : ''}`}
+                    />
+                  </button>
+                  {isOpen && floatingDelta && (
+                    <div
+                      key={`hdr-${floatingDelta.id}`}
+                      className="pointer-events-none absolute -bottom-7 right-0 z-[80] whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border border-sky-400/80 text-sky-300 font-mono font-bold text-[10px] shadow-[0_0_14px_rgba(56,189,248,0.65)] animate-relay-cost-float select-none"
+                    >
+                      {floatingDelta.text}
+                    </div>
+                  )}
+                </div>
               )}
               <button
                 onClick={() => {
                   setIsOpen(false)
+                  isPinnedRef.current = false
                   onOpenSettings?.()
                 }}
                 className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
@@ -545,6 +593,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
               <button
                 onClick={() => {
                   setIsOpen(false)
+                  isPinnedRef.current = false
                   onOpenSettings?.()
                 }}
                 className="text-sky-400 hover:text-sky-300 font-medium hover:underline flex items-center gap-1 cursor-pointer"

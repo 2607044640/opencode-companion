@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw, ArrowDown } from 'lucide-react'
-import type { Message, SessionStatusPayload, Session } from '../../types/opencode'
+import { AlertTriangle, Sparkles, MessageSquare, Loader2, Cpu, RotateCcw, ArrowDown, Folder, FolderPlus, FolderX, Check } from 'lucide-react'
+import type { Message, SessionStatusPayload, Session, Project } from '../../types/opencode'
 import { MessageBubble, getAgentBadge } from './MessageBubble'
+import { NewProjectModal } from './NewProjectModal'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
 import { extractDraftFromMessage } from '../../utils/draft'
 import { TimelineQuickJump } from './TimelineQuickJump'
@@ -121,6 +122,10 @@ interface ChatTimelineProps {
   onCloseFind?: () => void
   /** True while the active session transcript is still arriving. */
   messagesLoading?: boolean
+  projects?: Project[]
+  selectedProjectId?: string | null
+  onSelectProject?: (projectId: string | null) => void
+  onNewProject?: (name: string, path: string) => Promise<void> | void
 }
 
 export function ChatTimeline({
@@ -143,6 +148,10 @@ export function ChatTimeline({
   isFindOpen,
   onCloseFind,
   messagesLoading = false,
+  projects = [],
+  selectedProjectId = null,
+  onSelectProject,
+  onNewProject,
 }: ChatTimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -152,9 +161,45 @@ export function ChatTimeline({
   const { prefs } = usePreferences()
   const { isZh } = useI18n()
   const { zoomLevel, zoomIn, zoomOut, resetZoom } = useTimelineZoom()
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false)
 
-  // Ctrl + Wheel: smoothly scale conversation font zoom level
+  const orderedProjects = useMemo(() => {
+    const canonicalOrder = ['APISpace', 'ObsidianNote', 'ObsidianDev', 'AISpace']
+    const canonicalList: Project[] = []
+    const others: Project[] = []
+
+    for (const name of canonicalOrder) {
+      const found = projects.find(
+        (p) =>
+          p.name?.toLowerCase() === name.toLowerCase() ||
+          p.worktree?.toLowerCase().endsWith(name.toLowerCase())
+      )
+      if (found) {
+        canonicalList.push(found)
+      } else {
+        canonicalList.push({
+          id: name.toLowerCase(),
+          name,
+          worktree: name === 'AISpace' ? '/home/developer/projects/AISpace' : `C:\\${name}`,
+        } as Project)
+      }
+    }
+
+    for (const p of projects) {
+      if (p.id === 'global' || p.worktree === '/') continue
+      const pName = (p.name || '').toLowerCase()
+      const pWorktree = (p.worktree || '').toLowerCase()
+      if (pName === 'aicore' || pWorktree.endsWith('/aicore') || pWorktree === 'c:/aicore') continue
+      if (!canonicalList.some((cp) => cp.id === p.id || cp.name?.toLowerCase() === pName)) {
+        others.push(p)
+      }
+    }
+    return [...canonicalList, ...others]
+  }, [projects])
+
+  // Ctrl + Wheel: smoothly scale conversation font zoom level (only when timeline zoom widget is enabled)
   useEffect(() => {
+    if (!prefs.showTimelineZoomWidget) return
     const container = containerRef.current
     if (!container) return
 
@@ -172,7 +217,7 @@ export function ChatTimeline({
     return () => {
       container.removeEventListener('wheel', handleWheel)
     }
-  }, [zoomIn, zoomOut])
+  }, [zoomIn, zoomOut, prefs.showTimelineZoomWidget])
 
   // Mouse upper side button & shortcut: toggle dialogue block at screen center
   useEffect(() => {
@@ -718,12 +763,6 @@ export function ChatTimeline({
     return () => clearTimeout(timer)
   }, [targetMessageId, messages, onTargetMessageScrolled, scrollElementIntoContainer])
 
-  const suggestions = [
-    '列出当前工作区的所有文件结构',
-    '检查并优化当前代码模块',
-    '运行测试并给出审查意见',
-  ]
-
   return (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* In-Page Find Bar (Ctrl+F) */}
@@ -749,7 +788,7 @@ export function ChatTimeline({
       )}
 
       {/* Floating Timeline Font Zoom Controller Widget */}
-      {!isConfirmUndoOpen && (prefs.showTimelineZoomWidget ?? true) && (
+      {!isConfirmUndoOpen && Boolean(prefs.showTimelineZoomWidget) && (
         <div className={`absolute z-30 pointer-events-none ${isZenMode ? 'bottom-5 right-8' : 'bottom-3 right-8'}`}>
           <TimelineZoomWidget
             zoomLevel={zoomLevel}
@@ -813,34 +852,106 @@ export function ChatTimeline({
           </div>
         </div>
       ) : visibleItems.length === 0 ? (
-        <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
-          <div className="w-12 h-12 rounded-2xl bg-zinc-800/90 border border-zinc-700/70 flex items-center justify-center mb-4 text-zinc-300 shadow-inner">
-            <MessageSquare className="w-6 h-6" />
+        <div className="h-full flex flex-col items-center justify-center p-6 select-none animate-in fade-in duration-200">
+          {/* Header */}
+          <div className="text-center mb-6">
+            <h2 className="text-base font-semibold text-zinc-100 tracking-wide">
+              {isZh ? '选择本次会话工作区' : 'Select Workspace'}
+            </h2>
+            <p className="text-xs text-zinc-500 mt-1 max-w-md">
+              {isZh
+                ? '点击卡片切换目标项目，发送首条消息时正式在此工作区创建会话'
+                : 'Choose a workspace below. Your session will be created once you send the first prompt.'}
+            </p>
           </div>
-          <h2 className="text-lg font-semibold text-zinc-200 mb-1">OpenCode Companion</h2>
-          <p className="text-xs text-zinc-400 max-w-sm mb-6">
-            {isZenMode
-              ? '当前处于沉浸全屏阅读模式。在此模式下可心无旁骛地与 AI 进行深度阅读与交互。'
-              : '独立运行在 Windows 宿主的 OpenCode 伴侣工作台，实时串联 WSL2 守护进程。'}
-          </p>
 
-          <div className="flex flex-col sm:flex-row gap-2 max-w-md w-full">
-            {suggestions.map((s, idx) => (
-              <button
-                key={idx}
-                onClick={() => onPromptSuggestion?.(s)}
-                className="flex-1 p-2.5 rounded-xl bg-[#181824] hover:bg-[#202030] border border-[#262638] text-left text-xs text-zinc-300 hover:text-white transition-all flex items-center gap-2 group cursor-pointer shadow-sm"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-zinc-400 group-hover:text-sky-400 shrink-0 group-hover:scale-110 transition-transform" />
-                <span className="truncate">{s}</span>
-              </button>
-            ))}
+          {/* Canonical Workspace Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-lg mb-4">
+            {orderedProjects.map((proj) => {
+              const pName = proj.name || proj.id
+              const isSelected = selectedProjectId
+                ? proj.id === selectedProjectId ||
+                  proj.name?.toLowerCase() === selectedProjectId.toLowerCase() ||
+                  Boolean(proj.associatedIds?.includes(selectedProjectId))
+                : pName.toLowerCase() === 'apispace' || pName.toLowerCase() === 'aispace'
+
+              return (
+                <button
+                  type="button"
+                  key={proj.id}
+                  onClick={() => onSelectProject?.(proj.id)}
+                  className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer group ${
+                    isSelected
+                      ? 'bg-sky-500/10 border-sky-500/60 shadow-lg shadow-sky-950/20 ring-1 ring-sky-500/30'
+                      : 'bg-[#151722]/90 border-[#242636] hover:bg-[#1c1f2e] hover:border-zinc-700'
+                  }`}
+                >
+                  <div
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                      isSelected
+                        ? 'bg-sky-500/20 text-sky-400'
+                        : 'bg-zinc-800/80 text-zinc-400 group-hover:text-zinc-200'
+                    }`}
+                  >
+                    <Folder className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-semibold truncate ${isSelected ? 'text-sky-300' : 'text-zinc-200'}`}>
+                        {pName}
+                      </span>
+                      {isSelected && (
+                        <span className="flex items-center gap-1 text-[11px] text-sky-400 font-mono font-medium">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>{isZh ? '当前' : 'Active'}</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-zinc-500 truncate mt-0.5 font-mono">
+                      {proj.worktree || `C:\\${pName}`}
+                    </p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Action Row: New Project, Quick Start, No Project */}
+          <div className="flex flex-wrap items-center justify-center gap-2 max-w-lg w-full pt-1">
+            <button
+              type="button"
+              onClick={() => setIsNewProjectOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#181824] hover:bg-[#202030] border border-[#262638] hover:border-zinc-700 text-xs text-zinc-300 hover:text-white transition-all cursor-pointer shadow-xs"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-sky-400" />
+              <span>{isZh ? '新建项目' : 'New Project'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onPromptSuggestion?.('快速分析当前代码库与架构')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#181824] hover:bg-[#202030] border border-[#262638] hover:border-zinc-700 text-xs text-zinc-300 hover:text-white transition-all cursor-pointer shadow-xs"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isZh ? '快速开始' : 'Quick Start'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectProject?.(null)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition-all cursor-pointer shadow-xs ${
+                !selectedProjectId
+                  ? 'bg-zinc-800 text-zinc-200 border-zinc-600'
+                  : 'bg-[#181824] hover:bg-[#202030] border-[#262638] hover:border-zinc-700 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <FolderX className="w-3.5 h-3.5 text-zinc-400" />
+              <span>{isZh ? '无特定项目' : 'No Project'}</span>
+            </button>
           </div>
         </div>
       ) : (
         <div
           style={{
-            zoom: zoomLevel !== 100 ? `${zoomLevel}%` : undefined,
+            zoom: prefs.showTimelineZoomWidget && zoomLevel !== 100 ? `${zoomLevel}%` : undefined,
           }}
           className={`mx-auto w-full transition-all duration-300 ${
             prefs.conversationWidth === 'narrow'
@@ -1001,6 +1112,18 @@ export function ChatTimeline({
         containerRef={containerRef}
         durationMs={1000}
         sessionId={activeSession?.id}
+      />
+
+      {/* New Project Modal on Timeline */}
+      <NewProjectModal
+        isOpen={isNewProjectOpen}
+        onClose={() => setIsNewProjectOpen(false)}
+        onConfirm={async (name, path) => {
+          if (onNewProject) {
+            await onNewProject(name, path)
+          }
+          setIsNewProjectOpen(false)
+        }}
       />
     </div>
   )

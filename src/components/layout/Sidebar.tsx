@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   PanelLeftClose,
+  Columns3,
   PanelLeftOpen,
   ArrowLeft,
   ArrowRight,
@@ -31,12 +32,13 @@ import {
   FileDown,
   FileText,
 } from 'lucide-react'
-import type { Project, Session, Message, SessionStatusPayload } from '../../types/opencode'
+import type { Project, Session, Message, SessionStatusPayload, TodoItem } from '../../types/opencode'
 import type { SessionGroup } from '../../hooks/useSessions'
 import type { SettingsTab } from '../settings/SettingsModal'
 import { TokenStatsWidget } from './TokenStatsWidget'
 import { RelayHubDropdown } from './RelayHubDropdown'
 import { ShortcutMenu } from './ShortcutMenu'
+import { TodoButton } from '../chat/TodoButton'
 import { useDaemonHeartbeat } from '../../utils/daemon-heartbeat'
 import { api, matchCanonicalWorkspace } from '../../services/api'
 import { exportSessionToMarkdown, extractSessionPrompts } from '../../utils/export-markdown'
@@ -79,6 +81,7 @@ interface SidebarProps {
   activeSessionId: string | null
   activeSession?: Session | null
   messages?: Message[]
+  todos?: TodoItem[] | null
   sessionStatus?: SessionStatusPayload
   runKnown?: boolean
   unreadSessionIds?: string[]
@@ -90,6 +93,7 @@ interface SidebarProps {
   onSearchChange: (q: string) => void
   onOpenSettings: (tab?: SettingsTab) => void
   onOpenSearch?: () => void
+  onOpenSessionBoard?: () => void
   onOpenScheduledTasks?: () => void
   onOpenBackgroundTasks?: () => void
   onOpenSubagentTopology?: () => void
@@ -132,6 +136,7 @@ export function Sidebar({
   activeSessionId,
   activeSession,
   messages = [],
+  todos,
   sessionStatus,
   runKnown = true,
   unreadSessionIds,
@@ -143,6 +148,7 @@ export function Sidebar({
   onSearchChange,
   onOpenSettings,
   onOpenSearch,
+  onOpenSessionBoard,
   onOpenScheduledTasks,
   onOpenBackgroundTasks,
   onOpenSubagentTopology,
@@ -424,6 +430,11 @@ export function Sidebar({
           >
             <PanelLeftOpen className="w-4 h-4" />
           </button>
+          <button type="button" onClick={onOpenSessionBoard}
+            className="p-2 rounded-md text-[#8b949e] hover:text-sky-400 hover:bg-[#1f232b]"
+            title={isZh ? '会话整理看板 (Ctrl+Shift+A)' : 'Session board (Ctrl+Shift+A)'} aria-label={isZh ? '会话整理看板' : 'Session board'}>
+            <Columns3 className="w-4 h-4" />
+          </button>
 
           {/* Toggle Top Bar (Ctrl+Shift+B) */}
           <button
@@ -448,8 +459,17 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* Bottom Cluster: Token Stats + Relay Hub + Three-Dot Tools/Export Menu + Settings */}
+        {/* Bottom Cluster: Todo List + Token Stats + Relay Hub + Three-Dot Tools/Export Menu + Settings */}
         <div className="flex flex-col items-center gap-2">
+          {/* Todo List Button (strictly shown only when active session has todos) */}
+          {todos && todos.length > 0 && (
+            <TodoButton
+              todos={todos}
+              compact
+              placement="right"
+            />
+          )}
+
           {/* Token Stats Ring (compact with hover popover) */}
           <TokenStatsWidget
             activeSession={activeSession}
@@ -617,6 +637,12 @@ export function Sidebar({
               <kbd className="text-[9px] font-mono text-zinc-400 bg-zinc-800 px-1 py-0.5 rounded">Ctrl+K</kbd>
             </div>
           </div>
+
+          <button type="button" onClick={onOpenSessionBoard}
+            className="p-1.5 rounded-md text-[#8b949e] hover:text-sky-400 hover:bg-[#1f232b] transition-colors"
+            title={isZh ? '会话整理看板 (Ctrl+Shift+A)' : 'Session board (Ctrl+Shift+A)'} aria-label={isZh ? '会话整理看板' : 'Session board'}>
+            <Columns3 className="w-4 h-4" />
+          </button>
 
           {/* Scheduled Tasks (⏱) */}
           <div className="relative group">
@@ -1230,6 +1256,9 @@ export function Sidebar({
           </button>
 
           <div className="flex items-center gap-1.5">
+            {todos && todos.length > 0 && (
+              <TodoButton todos={todos} compact placement="top" />
+            )}
             <a
               href="https://opencode.ai/docs"
               target="_blank"

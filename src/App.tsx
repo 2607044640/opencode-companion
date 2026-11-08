@@ -8,6 +8,7 @@ import { extractDraftFromMessage } from './utils/draft'
 import { SettingsModal, type SettingsTab } from './components/settings/SettingsModal'
 import { FloatingMapModal } from './components/map/FloatingMapModal'
 import { FloatingSearchModal } from './components/search/FloatingSearchModal'
+import { FloatingSessionBoardModal } from './components/search/FloatingSessionBoardModal'
 import { DiffDrawerProvider } from './components/diff/DiffDrawerContext'
 import { DiffSidebarDrawer } from './components/diff/DiffSidebarDrawer'
 import { useSessions, DRAFT_SESSION_ID } from './hooks/useSessions'
@@ -70,12 +71,24 @@ export default function App() {
   }, [])
   const [isMapOpen, setIsMapOpen] = useState(false)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isSessionBoardOpen, setIsSessionBoardOpen] = useState(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
   const [isBackgroundTasksOpen, setIsBackgroundTasksOpen] = useState(false)
   const [isSubagentTopologyOpen, setIsSubagentTopologyOpen] = useState(false)
   const [isModelRouterOpen, setIsModelRouterOpen] = useState(false)
   const [modelRouterTab, setModelRouterTab] = useState<'workflow' | 'relay'>('workflow')
+  useEffect(() => {
+    if (!isSessionBoardOpen) return
+    setIsSearchOpen(false)
+    setIsMapOpen(false)
+    setIsSettingsOpen(false)
+    setIsSubagentTopologyOpen(false)
+    setIsModelRouterOpen(false)
+    setIsScheduledTasksOpen(false)
+    setIsBackgroundTasksOpen(false)
+    setIsFindOpen(false)
+  }, [isSessionBoardOpen])
   const { t, lang } = useI18n()
   const isZh = lang === 'zh-CN'
 
@@ -601,6 +614,8 @@ export default function App() {
     setMapTargetSessionId,
     isSearchOpen,
     setIsSearchOpen,
+    isSessionBoardOpen,
+    setIsSessionBoardOpen,
     isFindOpen,
     setIsFindOpen,
     isModelRouterOpen,
@@ -656,6 +671,9 @@ export default function App() {
             groupedSessions={groupedSessions}
             sessions={sessions}
             activeSessionId={activeSessionId}
+            activeSession={activeSession}
+            messages={messages}
+            todos={todos}
             unreadSessionIds={unreadSessionIds}
             busySessionIds={effectiveBusySessionIds}
             onSelectSession={handleSelectSessionWithHistory}
@@ -670,6 +688,7 @@ export default function App() {
             onSearchChange={setSearchQuery}
             onOpenSettings={() => handleOpenSettings()}
             onOpenSearch={() => setIsSearchOpen(true)}
+            onOpenSessionBoard={() => setIsSessionBoardOpen(true)}
             onOpenScheduledTasks={() => setIsScheduledTasksOpen(true)}
             onOpenBackgroundTasks={() => setIsBackgroundTasksOpen(true)}
             onOpenSubagentTopology={() => setIsSubagentTopologyOpen(true)}
@@ -678,8 +697,6 @@ export default function App() {
             canGoForward={canGoForward}
             onHistoryBack={handleHistoryBack}
             onHistoryForward={handleHistoryForward}
-            messages={messages}
-            activeSession={activeSession}
             sessionStatus={sessionStatus}
             runKnown={runKnown}
             onOpenMapAndLocate={handleOpenMapAndLocate}
@@ -790,6 +807,10 @@ export default function App() {
                 isFindOpen={isFindOpen}
                 onCloseFind={() => setIsFindOpen(false)}
                 messagesLoading={messagesLoading || sessionsLoading}
+                projects={projects}
+                selectedProjectId={selectedProjectId}
+                onSelectProject={setSelectedProjectId}
+                onNewProject={async () => { await refresh() }}
               />
 
               <div
@@ -920,6 +941,19 @@ export default function App() {
           unreadSessionIds={unreadSessionIds}
           busySessionIds={effectiveBusySessionIds}
         />
+
+        {isSessionBoardOpen && <FloatingSessionBoardModal
+          onClose={() => setIsSessionBoardOpen(false)}
+          sessions={sessions}
+          projects={projects}
+          initialSelectedProjectId={selectedProjectId}
+          activeSessionId={activeSessionId}
+          unreadSessionIds={unreadSessionIds}
+          busySessionIds={effectiveBusySessionIds}
+          onSelectSession={(id) => { markSessionRead(id); handleSelectSessionWithHistory(id) }}
+          onNewSession={handleNewSession}
+          onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
+        />}
 
         <ScheduledTasksModal
           isOpen={isScheduledTasksOpen}

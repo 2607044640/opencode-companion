@@ -52,6 +52,7 @@ import {
   stripAssistantErrors,
 } from './chat-stream-reducers'
 import { useChatRevert } from './useChatRevert'
+import { clearUserStop, isTurnUserStopped, markSystemAbort, markUserStop } from './stop-registry'
 
 export type { PromptAttachment }
 
@@ -102,7 +103,7 @@ export function useChatStream(
   const autoRetriedTurnKeyRef = useRef<string | null>(null)
   const autoRecoveryCountRef = useRef(0)
   const autoRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const retryRef = useRef<() => Promise<void>>(async () => {})
+  const retryRef = useRef<(opts?: { auto?: boolean }) => Promise<void>>(async () => {})
   const repetitionArmedRef = useRef(false)
   const lastActivityAtRef = useRef(0)
   const stallProbeCountRef = useRef(0)
@@ -141,6 +142,15 @@ export function useChatStream(
     goOnFlightRef.current = false
   }, [])
 
+  /**
+   * Single Stop oracle for every automatic recovery path. Combines the in-hook flag with the
+   * durable registry and the history tail, so a Stop survives tab switches and reloads.
+   */
+  const isUserStopped = useCallback(
+    () => userAbortedRef.current || isTurnUserStopped(currentSessionIdRef.current, messagesRef.current),
+    []
+  )
+
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
     sessionBusyRef.current = false
     setTurnEnd(kind)
@@ -174,7 +184,7 @@ export function useChatStream(
   const maybeSendGoOn = useCallback(
     (rawErrorInput?: unknown): boolean | 'terminal' => {
       if (goOnFlightRef.current) return true
-      if (userAbortedRef.current || repetitionArmedRef.current || revertingRef.current) return false
+      if (isUserStopped() || repetitionArmedRef.current || revertingRef.current) return false
 
       const activeId = currentSessionIdRef.current
       if (!activeId || activeId === '__draft__') return false
@@ -282,7 +292,7 @@ export function useChatStream(
             autoRecoveryTimerRef.current = null
             if (
               currentSessionIdRef.current !== activeId ||
-              userAbortedRef.current ||
+              isUserStopped() ||
               revertingRef.current ||
               sessionBusyRef.current ||
               isSendingRef.current
@@ -296,6 +306,7 @@ export function useChatStream(
               const targetModel = freshTurn.rootUserMessage?.info.model || last?.info.model
               void sendPromptRef
                 .current(GO_ON_TEXT, {
+                  isAutoRetry: true,
                   agent: last?.info.agent || freshTurn.rootUserMessage?.info.agent,
                   model: targetModel
                     ? { providerID: targetModel.providerID, modelID: targetModel.modelID }
@@ -306,7 +317,7 @@ export function useChatStream(
                 })
               return
             }
-            void retryRef.current().finally(() => {
+            void retryRef.current({ auto: true }).finally(() => {
               goOnFlightRef.current = false
             })
           }, 1500)
@@ -358,7 +369,7 @@ export function useChatStream(
           autoRecoveryTimerRef.current = null
           if (
             currentSessionIdRef.current !== activeId ||
-            userAbortedRef.current ||
+            isUserStopped() ||
             revertingRef.current ||
             sessionBusyRef.current ||
             isSendingRef.current
@@ -397,6 +408,7 @@ export function useChatStream(
           const targetModel = freshTurn.rootUserMessage?.info.model || last?.info.model
           void sendPromptRef
             .current(GO_ON_TEXT, {
+              isAutoRetry: true,
               agent: last?.info.agent || freshTurn.rootUserMessage?.info.agent,
               model: targetModel
                 ? { providerID: targetModel.providerID, modelID: targetModel.modelID }
@@ -507,7 +519,7 @@ export function useChatStream(
 
           if (
             mergedOpts.abortedByUser ||
-            userAbortedRef.current ||
+            isUserStopped() ||
             revertingRef.current ||
             isSendingRef.current ||
             sessionBusyRef.current
@@ -521,7 +533,7 @@ export function useChatStream(
         .catch((err) => {
           const mergedOpts = reconcilingOptionsRef.current
           console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
-          if (mergedOpts.abortedByUser || userAbortedRef.current || revertingRef.current) return
+          if (mergedOpts.abortedByUser || isUserStopped() || revertingRef.current) return
           if (maybeSendGoOn() === false) {
             const fallbackMsgs = mergedOpts.fallbackMessages || messagesRef.current
             finalizeCleanIdleTurn(activeId, fallbackMsgs, mergedOpts, mergedOpts.fallbackFuseKind)
@@ -535,7 +547,7 @@ export function useChatStream(
           }
         })
     },
-    [maybeSendGoOn, finalizeCleanIdleTurn]
+    [maybeSendGoOn, finalizeCleanIdleTurn, isUserStopped]
   )
 
   const stopRepetitionLoop = useCallback(
@@ -774,7 +786,7 @@ export function useChatStream(
 
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
-        if (userAbortedRef.current) {
+        if (isUserStopped()) {
           noteTurnEnd('user')
         }
         reconcileIdleHistory(activeId, { markCleanWhenWasBusy: wasBusyOnStatus })
@@ -834,7 +846,7 @@ export function useChatStream(
       noteActivity('idle')
       commitSessionStatus({ type: 'idle' })
 
-      const abortedByUser = userAbortedRef.current
+      const abortedByUser = isUserStopped()
 
       if (abortedByUser) {
         clearAutoRecoveryTimer()
@@ -890,7 +902,7 @@ export function useChatStream(
       if (!activeId || activeId === '__draft__') return
       if (
         goOnFlightRef.current ||
-        userAbortedRef.current ||
+        isUserStopped() ||
         revertingRef.current ||
         isSendingRef.current ||
         isErrorTerminalRef.current ||
@@ -981,6 +993,7 @@ export function useChatStream(
         if (stallProbeCountRef.current >= 2) {
           stallProbeCountRef.current = 0
           lastActivityAtRef.current = Date.now()
+          markSystemAbort(activeId)
           void api
             .abortSession(activeId)
             .catch(() => {})
@@ -1022,6 +1035,7 @@ export function useChatStream(
     stopRepetitionLoop,
     noteActivity,
     maybeSendGoOn,
+    isUserStopped,
     reconcileIdleHistory,
     clearAutoRecoveryTimer,
   ])
@@ -1042,6 +1056,14 @@ export function useChatStream(
       const hasAttachments = Boolean(options?.attachments && options.attachments.length > 0)
       if (!effectiveSessionId || (!hasText && !hasAttachments)) {
         return false
+      }
+
+      // Final gate for every automatic resend: a Stop is never overridden by recovery.
+      // Only a real user send (not isAutoRetry) lifts it.
+      if (options?.isAutoRetry) {
+        if (isUserStopped()) return false
+      } else {
+        clearUserStop(effectiveSessionId)
       }
 
       currentSessionIdRef.current = effectiveSessionId
@@ -1096,7 +1118,15 @@ export function useChatStream(
         setIsSending(false)
       }
     },
-    [sessionId, noteTurnEnd, commitSessionStatus, commitTerminalError, noteActivity, clearAutoRecoveryTimer]
+    [
+      sessionId,
+      noteTurnEnd,
+      commitSessionStatus,
+      commitTerminalError,
+      noteActivity,
+      clearAutoRecoveryTimer,
+      isUserStopped,
+    ]
   )
 
   useEffect(() => {
@@ -1113,6 +1143,7 @@ export function useChatStream(
       if (!running && opts?.preempt) return
       if (!opts?.preempt) {
         userAbortedRef.current = true
+        markUserStop(sessionId)
       }
       setError(null)
       commitSessionStatus({ type: 'idle' })
@@ -1130,10 +1161,15 @@ export function useChatStream(
     [sessionId, noteTurnEnd, commitSessionStatus, commitTerminalError, clearAutoRecoveryTimer]
   )
 
-  const retry = useCallback(async () => {
+  const retry = useCallback(async (opts?: { auto?: boolean }) => {
     setError(null)
     commitTerminalError(false)
     if (!sessionId) return
+    if (opts?.auto !== true) {
+      // Manual Retry is an explicit user action: it lifts a previous Stop.
+      userAbortedRef.current = false
+      clearUserStop(sessionId)
+    }
 
     const msgs = messagesRef.current
     const turn = inspectCurrentTurnRecovery(msgs, GO_ON_TEXT)
@@ -1141,6 +1177,7 @@ export function useChatStream(
     if (turn.turnHasAnyOutput) {
       const last = turn.lastAssistantMessage
       await sendPrompt(GO_ON_TEXT, {
+        isAutoRetry: opts?.auto === true,
         agent: last?.info.agent || turn.rootUserMessage?.info.agent,
         model: last?.info.model
           ? {

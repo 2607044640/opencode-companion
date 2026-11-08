@@ -19,8 +19,6 @@ import type { AgentInfo, ProviderInfo, Session, CommandItem, SkillItem, Project,
 import type { PromptAttachment } from '../../hooks/useChatStream'
 import { api, resolveAgentName } from '../../services/api'
 import { PromptPopover, type PopoverItem } from './PromptPopover'
-import { ProjectDropdown } from './ProjectDropdown'
-import { TodoButton } from './TodoButton'
 import { getShortcuts, matchesShortcut, isIMEActive, type ShortcutsMap } from '../../utils/shortcuts'
 import { isCuratedModel, resolveSeniorModel } from '../../utils/model-filter'
 import {
@@ -127,10 +125,7 @@ export function PromptInput({
   draftInjection,
   projects,
   selectedProjectId,
-  onSelectProject,
-  onNewProject,
   sessions,
-  todos,
   onSideQuestion,
   sideQuestionCount = 0,
   onToggleSideQuestion,
@@ -244,6 +239,24 @@ export function PromptInput({
       textareaRef.current.setSelectionRange(len, len)
     }
   }, [queueEditRequest])
+
+  const activeProjectName = useMemo(() => {
+    if (activeSession) {
+      if (activeSession.projectID && projects) {
+        const p = projects.find((proj) => proj.id === activeSession.projectID)
+        if (p) return p.name
+      }
+      if (activeSession.directory) {
+        const parts = activeSession.directory.replace(/\\/g, '/').split('/').filter(Boolean)
+        if (parts.length > 0) return parts[parts.length - 1]
+      }
+    }
+    if (selectedProjectId && projects) {
+      const p = projects.find((proj) => proj.id === selectedProjectId)
+      if (p) return p.name
+    }
+    return 'AISpace'
+  }, [activeSession, projects, selectedProjectId])
 
   useEffect(() => {
     const handleShortcutsUpdate = (e: Event) => {
@@ -1036,26 +1049,6 @@ export function PromptInput({
         />
       )}
 
-      {/* Project Selector Pill directly above prompt input (Image 2) */}
-      {!isZenMode && (
-        <div className="flex items-center justify-between mb-1.5 px-0">
-          <div className="flex items-center gap-1.5">
-            <ProjectDropdown
-              projects={projects || []}
-              selectedProjectId={selectedProjectId || null}
-              sessions={sessions || []}
-              onSelectProject={onSelectProject || (() => {})}
-              onNewProject={onNewProject}
-              onQuickStart={() => {
-                setText('快速分析当前代码库与架构')
-                textareaRef.current?.focus()
-              }}
-            />
-            {todos && todos.length > 0 && <TodoButton todos={todos} />}
-          </div>
-        </div>
-      )}
-
       <div
         ref={containerBoxRef}
         onDragEnter={handleDragEnter}
@@ -1216,9 +1209,12 @@ export function PromptInput({
               <ImageIcon className="w-3.5 h-3.5 text-zinc-400 hover:text-sky-400 transition-colors" />
             </button>
 
-            {/* Target Label */}
-            <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline" title="Agent and model target for your next prompt">
-              Target:
+            {/* Current Workspace Folder Name (Replaced 'Target:', no colon, matched font size) */}
+            <span
+              className="text-xs font-medium text-zinc-400 hidden sm:inline select-none truncate max-w-[140px]"
+              title={activeProjectName}
+            >
+              {activeProjectName}
             </span>
 
             {/* Agent Selector Dropdown (Primary agents only, M1) */}

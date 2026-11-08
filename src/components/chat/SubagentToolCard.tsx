@@ -388,7 +388,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
               window.dispatchEvent(new CustomEvent('opencode-open-subagent-topology'))
             }}
             className="p-1 text-zinc-400 hover:text-sky-300 rounded hover:bg-zinc-800 transition-colors"
-            title="查看智能体拓扑树与通讯监视 (Ctrl+Shift+A)"
+            title="查看智能体拓扑树与通讯监视 (Ctrl+Shift+Q)"
           >
             <Network className="w-3.5 h-3.5" />
           </button>

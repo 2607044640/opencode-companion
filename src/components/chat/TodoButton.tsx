@@ -7,14 +7,22 @@ import { useAutoPosition } from '../../hooks/useAutoPosition'
 
 export interface TodoButtonProps {
   todos?: TodoItem[] | null
+  compact?: boolean
+  placement?: 'top' | 'right' | 'bottom' | 'left'
 }
 
-export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
+export const TodoButton: React.FC<TodoButtonProps> = ({
+  todos,
+  compact = false,
+  placement = 'top',
+}) => {
   const { lang } = useI18n()
   const isZh = lang?.startsWith('zh') ?? true
   // Default strictly hidden ("默认就要隐藏，别闲得没事弄出来")
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  const isRightPlacement = placement === 'right'
 
   const {
     triggerRef,
@@ -23,12 +31,16 @@ export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
     alignClasses,
     style: autoStyle,
   } = useAutoPosition<HTMLButtonElement, HTMLDivElement>({
-    isOpen,
-    defaultPlacement: 'top',
+    isOpen: isOpen && !isRightPlacement,
+    defaultPlacement: placement === 'bottom' ? 'bottom' : 'top',
     defaultAlign: 'start',
     margin: 8,
     padding: 8,
   })
+
+  const computedStyle: React.CSSProperties = isRightPlacement
+    ? { left: '100%', bottom: 0, marginLeft: 10 }
+    : autoStyle || {}
 
   const stats = useMemo(() => getTodoStats(todos), [todos])
 
@@ -57,23 +69,35 @@ export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center select-none">
-      {/* Icon-only button beside '全部项目' (strictly no text) */}
+      {/* Button: compact icon in sidebar, or minimal icon-only button */}
       <button
         ref={triggerRef}
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`flex items-center justify-center w-6 h-6 rounded-md border transition-all cursor-pointer relative ${
-          isOpen
-            ? 'bg-[#1e222b] text-zinc-100 border-zinc-600 shadow-sm'
-            : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 border-transparent'
-        }`}
+        className={
+          compact
+            ? `relative flex items-center justify-center w-8 h-8 rounded-lg border transition-all cursor-pointer ${
+                isOpen
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-md'
+                  : 'bg-[#181a22] text-zinc-400 hover:text-zinc-200 hover:bg-[#20232d] border-[#272a32]'
+              }`
+            : `flex items-center justify-center w-6 h-6 rounded-md border transition-all cursor-pointer relative ${
+                isOpen
+                  ? 'bg-[#1e222b] text-zinc-100 border-zinc-600 shadow-sm'
+                  : 'bg-transparent text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 border-transparent'
+              }`
+        }
         title={formatTodoTooltip(todos, isZh)}
         aria-label={isZh ? '待办清单' : 'Todo List'}
       >
-        <CheckSquare className="w-3.5 h-3.5" />
+        <CheckSquare className={compact ? 'w-4 h-4' : 'w-3.5 h-3.5'} />
         {/* Subtle status badge indicator: sky blue if in-progress */}
         {stats.inProgress > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
+          <span
+            className={`absolute ${
+              compact ? '-top-0.5 -right-0.5 w-2 h-2 ring-2 ring-[#111317]' : '-top-0.5 -right-0.5 w-1.5 h-1.5'
+            } bg-sky-400 rounded-full animate-pulse`}
+          />
         )}
       </button>
 
@@ -81,8 +105,8 @@ export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
       {isOpen && (
         <div
           ref={dropdownRef}
-          style={autoStyle}
-          className={`absolute ${alignClasses} ${placementClasses} w-80 sm:w-96 rounded-xl border border-[#272a31] bg-[#14161b]/95 backdrop-blur-md shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col`}
+          style={computedStyle}
+          className={`absolute ${isRightPlacement ? '' : `${alignClasses} ${placementClasses}`} w-80 sm:w-96 rounded-xl border border-[#272a31] bg-[#14161b]/95 backdrop-blur-md shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col`}
           role="dialog"
           aria-label="Todo List"
         >

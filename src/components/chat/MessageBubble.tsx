@@ -1045,6 +1045,16 @@ export function MessageBubble({
     isCollapsed: isAnswerCollapsible && !isReportExpanded,
   })
 
+  // Keep assistant response expanded when it freshly completes generation (prevents auto-collapsing right upon finish)
+  const wasLiveRef = useRef(turn.isLive)
+  useEffect(() => {
+    if (wasLiveRef.current && !turn.isLive) {
+      setIsReportExpanded(true)
+      setDialogueExpandedState(message.info.id, true, allMessageIds)
+    }
+    wasLiveRef.current = turn.isLive
+  }, [turn.isLive, message.info.id, allMessageIds])
+
   useEffect(() => {
     const handleExpandAll = () => {
       setIsReportExpanded(true)

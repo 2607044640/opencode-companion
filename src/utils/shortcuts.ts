@@ -34,6 +34,8 @@ export interface ShortcutItem {
 }
 
 export interface ShortcutsMap {
+  toggleSessionBoard: ShortcutItem
+  toggleSubagentTopology: ShortcutItem
   zenMode: ShortcutItem
   toggleSidebar: ShortcutItem
   newSession: ShortcutItem
@@ -70,6 +72,8 @@ export interface ShortcutsMap {
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsMap = {
+  toggleSessionBoard: { key: 'a', ctrlKey: true, shiftKey: true, description: '会话整理看板 (Session Board)', label: 'Ctrl + Shift + A', category: 'workspace' },
+  toggleSubagentTopology: { key: 'q', ctrlKey: true, shiftKey: true, description: '子代理拓扑 (Subagent Topology)', label: 'Ctrl + Shift + Q', category: 'workspace' },
   zenMode: {
     key: 'F11',
     description: '沉浸全屏阅读',
@@ -307,10 +311,20 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
   },
 }
 
+export interface RecordedKeyFilter {
+  key: string
+  ctrlKey?: boolean
+  shiftKey?: boolean
+  altKey?: boolean
+  metaKey?: boolean
+  label: string
+}
+
 export function filterShortcutKeys(
   shortcuts: ShortcutsMap,
   category: ShortcutFilterCategory = 'all',
-  searchQuery = ''
+  searchQuery = '',
+  recordedFilter?: RecordedKeyFilter | null
 ): Array<keyof ShortcutsMap> {
   const q = searchQuery.trim().toLowerCase()
   return (Object.keys(shortcuts) as Array<keyof ShortcutsMap>).filter((k) => {
@@ -319,6 +333,19 @@ export function filterShortcutKeys(
     if (category !== 'all' && itemCategory !== category) {
       return false
     }
+
+    if (recordedFilter) {
+      const matchCtrl = Boolean(item.ctrlKey || item.metaKey) === Boolean(recordedFilter.ctrlKey || recordedFilter.metaKey)
+      const matchShift = Boolean(item.shiftKey) === Boolean(recordedFilter.shiftKey)
+      const matchAlt = Boolean(item.altKey) === Boolean(recordedFilter.altKey)
+      const itemKey = (item.key || '').toLowerCase()
+      const targetKey = (recordedFilter.key || '').toLowerCase()
+      const matchKey = itemKey === targetKey || item.label.toLowerCase() === recordedFilter.label.toLowerCase()
+      if (!matchCtrl || !matchShift || !matchAlt || !matchKey) {
+        return false
+      }
+    }
+
     if (!q) return true
     return (
       item.description.toLowerCase().includes(q) ||
@@ -346,6 +373,28 @@ export function getShortcuts(): ShortcutsMap {
               ...DEFAULT_SHORTCUTS[k],
               ...merged[k],
               category: DEFAULT_SHORTCUTS[k].category,
+            }
+          }
+        }
+        // First board upgrade: preserve existing custom actions without letting them
+        // shadow the newly reserved A/Q chords. Later user edits remain configurable.
+        if (!parsed.toggleSessionBoard && !parsed.toggleSubagentTopology) {
+          const reserved = ['a', 'q']
+          for (const k of Object.keys(DEFAULT_SHORTCUTS) as (keyof ShortcutsMap)[]) {
+            if (k === 'toggleSessionBoard' || k === 'toggleSubagentTopology') continue
+            const item = merged[k]
+            if (!(item.ctrlKey || item.metaKey) || !item.shiftKey || item.altKey || !reserved.includes(item.key.toLowerCase())) continue
+            const fallback = DEFAULT_SHORTCUTS[k]
+            const occupied = Object.entries(merged).some(([other, shortcut]) => other !== k &&
+              shortcut.key.toLowerCase() === fallback.key.toLowerCase() &&
+              Boolean(shortcut.ctrlKey || shortcut.metaKey) === Boolean(fallback.ctrlKey || fallback.metaKey) &&
+              Boolean(shortcut.shiftKey) === Boolean(fallback.shiftKey) && Boolean(shortcut.altKey) === Boolean(fallback.altKey))
+            if (!occupied) merged[k] = { ...fallback }
+            else {
+              const freeKey = Array.from({ length: 24 }, (_, index) => `F${index + 1}`).find(key =>
+                !Object.values(merged).some(shortcut => shortcut.key.toLowerCase() === key.toLowerCase() &&
+                  Boolean(shortcut.ctrlKey || shortcut.metaKey) && shortcut.shiftKey && shortcut.altKey))!
+              merged[k] = { ...item, key: freeKey, ctrlKey: true, metaKey: false, shiftKey: true, altKey: true, label: `Ctrl + Alt + Shift + ${freeKey}` }
             }
           }
         }

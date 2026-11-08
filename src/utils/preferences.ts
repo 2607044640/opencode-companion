@@ -105,7 +105,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   language: 'zh-CN',
   showModelSelector: true,
   showTimelineQuickJump: true,
-  showTimelineZoomWidget: true,
+  showTimelineZoomWidget: false,
   timelineZoom: 100,
   mouseSideButtonToggleDialogue: true,
   modelVisibility: {},
@@ -123,6 +123,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
 
 const STORAGE_KEY = 'opencode_companion_user_preferences'
 const SIDEBAR_PREF_INITIALIZED_KEY = 'opencode_sidebar_startup_pref_initialized'
+const ZOOM_WIDGET_DISABLED_KEY = 'opencode_timeline_zoom_disabled_default_v2'
 
 export function getPreferences(): UserPreferences {
   try {
@@ -142,6 +143,12 @@ export function getPreferences(): UserPreferences {
           prefs.collapseSidebarOnStartup = true
           localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
         }
+      }
+      // Explicit user request: disable custom timeline zoom controller by default (favor browser native zoom)
+      if (!localStorage.getItem(ZOOM_WIDGET_DISABLED_KEY)) {
+        localStorage.setItem(ZOOM_WIDGET_DISABLED_KEY, 'true')
+        prefs.showTimelineZoomWidget = false
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
       }
       return prefs
     }

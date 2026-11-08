@@ -333,7 +333,7 @@ export function ShortcutMenu({
                   <span>{isZh ? '智能体拓扑与通讯监视' : 'Subagent Topology & Monitor'}</span>
                 </div>
                 <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
-                  Ctrl+Shift+A
+                  Ctrl+Shift+Q
                 </kbd>
               </button>
             )}

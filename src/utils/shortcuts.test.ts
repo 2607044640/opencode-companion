@@ -13,6 +13,13 @@ import {
 } from './shortcuts'
 
 describe('shortcuts matching and registration', () => {
+  it('uses A for the session board and Q for topology, without matching plain select-all', () => {
+    const event = { key: 'a', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false } as KeyboardEvent
+    assert.equal(matchesShortcut(event, DEFAULT_SHORTCUTS.toggleSessionBoard), true)
+    assert.equal(matchesShortcut(event, DEFAULT_SHORTCUTS.toggleSubagentTopology), false)
+    assert.equal(matchesShortcut({ ...event, key: 'q' } as KeyboardEvent, DEFAULT_SHORTCUTS.toggleSubagentTopology), true)
+    assert.equal(matchesShortcut({ ...event, shiftKey: false } as KeyboardEvent, DEFAULT_SHORTCUTS.toggleSessionBoard), false)
+  })
   it('SHORTCUT_CATEGORIES defines all, map, dialogue, workspace, and general groups and filterShortcutKeys filters accurately', () => {
     const categoryIds = SHORTCUT_CATEGORIES.map((c) => c.id)
     assert.deepEqual(categoryIds, ['all', 'map', 'dialogue', 'workspace', 'general'])
@@ -48,7 +55,9 @@ describe('shortcuts matching and registration', () => {
     }
 
     const workspaceKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'workspace')
-    assert.equal(workspaceKeys.length, 7)
+    assert.equal(workspaceKeys.length, 9)
+    assert.ok(workspaceKeys.includes('toggleSessionBoard'))
+    assert.ok(workspaceKeys.includes('toggleSubagentTopology'))
     assert.ok(workspaceKeys.includes('togglePinSession'))
     for (const k of workspaceKeys) {
       assert.equal(DEFAULT_SHORTCUTS[k].category, 'workspace')
@@ -259,6 +268,23 @@ describe('shortcuts matching and registration', () => {
     assert.ok(shortcuts.expandAllConversations)
     assert.ok(shortcuts.collapseAllConversations)
     assert.ok(shortcuts.togglePinSession)
+  })
+
+  it('migrates legacy A/Q collisions while preserving custom actions and later board bindings', () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    let saved = JSON.stringify({ openSettings: { ...DEFAULT_SHORTCUTS.openSettings, key: 'a', ctrlKey: true, shiftKey: true } })
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => saved } })
+    try {
+      const migrated = getShortcuts()
+      assert.equal(migrated.toggleSessionBoard.key, 'a')
+      assert.equal(migrated.toggleSubagentTopology.key, 'q')
+      assert.equal(migrated.openSettings.key, DEFAULT_SHORTCUTS.openSettings.key)
+      saved = JSON.stringify({ toggleSessionBoard: { ...DEFAULT_SHORTCUTS.toggleSessionBoard, key: 'b' } })
+      assert.equal(getShortcuts().toggleSessionBoard.key, 'b')
+    } finally {
+      if (previous) Object.defineProperty(globalThis, 'localStorage', previous)
+      else Reflect.deleteProperty(globalThis, 'localStorage')
+    }
   })
 
   it('DEFAULT_SHORTCUTS defines jumpToTop and jumpToBottom as double-press shortcuts', () => {

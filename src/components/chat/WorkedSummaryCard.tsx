@@ -47,30 +47,35 @@ export function WorkedSummaryCard({
     turn.answerParts.length === 0 &&
     turn.groups.every((g) => g.kind === 'thought')
 
-  // Collapsed by default once turn is completed, auto-expanded when live
+  // Operations card is collapsed by default (默认收缩，不要展开)
   const [expanded, setExpanded] = useState(() => {
-    return getWorkedCardExpandedState(messageId, isEffectivelyLive)
+    return getWorkedCardExpandedState(messageId, false)
   })
   const userInteractedRef = useRef(false)
 
+  // When turn finishes generating, ensure operations card is collapsed
+  const wasLiveRef = useRef(isEffectivelyLive)
   useEffect(() => {
-    const handleCollapseAll = () => {
-      if (!isEffectivelyLive) {
+    if (wasLiveRef.current && !isEffectivelyLive) {
+      if (!userInteractedRef.current) {
         setExpanded(false)
         setWorkedCardExpandedState(messageId, false)
       }
     }
-    const handleExpandAll = () => {
-      setExpanded(true)
-      setWorkedCardExpandedState(messageId, true)
+    wasLiveRef.current = isEffectivelyLive
+  }, [isEffectivelyLive, messageId])
+
+  useEffect(() => {
+    const handleCollapseAll = () => {
+      setExpanded(false)
+      setWorkedCardExpandedState(messageId, false)
     }
+    // Do not expand operations on expand-all-dialogues; operations stay collapsed by default
     window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
-    window.addEventListener('opencode-expand-all-dialogues', handleExpandAll)
     return () => {
       window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
-      window.removeEventListener('opencode-expand-all-dialogues', handleExpandAll)
     }
-  }, [isEffectivelyLive, messageId])
+  }, [messageId])
 
   // Single source-of-truth live clock
   const [now, setNow] = useState(() => Date.now())

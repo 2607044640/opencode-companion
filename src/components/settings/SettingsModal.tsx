@@ -32,6 +32,7 @@ import {
   type ShortcutItem,
   type ShortcutFilterCategory,
   type ShortcutCategory,
+  type RecordedKeyFilter,
 } from '../../utils/shortcuts'
 import {
   usePreferences,
@@ -87,6 +88,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
   const [recordingKey, setRecordingKey] = useState<keyof ShortcutsMap | null>(null)
   const [shortcutSearch, setShortcutSearch] = useState('')
   const [shortcutCategory, setShortcutCategory] = useState<ShortcutFilterCategory>('all')
+  const [isRecordingFilterKey, setIsRecordingFilterKey] = useState(false)
+  const [recordedFilter, setRecordedFilter] = useState<RecordedKeyFilter | null>(null)
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
 
   // Models state
@@ -160,6 +163,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
   }, [recordingKey, shortcuts])
 
+  // Interactive keystroke filter recorder
+  useEffect(() => {
+    if (!isRecordingFilterKey) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Ignore standalone modifier presses
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+        return
+      }
+
+      // Escape cancels recording
+      if (e.key === 'Escape') {
+        setIsRecordingFilterKey(false)
+        return
+      }
+
+      const hasCtrl = e.ctrlKey || e.metaKey
+      const hasShift = e.shiftKey
+      const hasAlt = e.altKey
+
+      const parts: string[] = []
+      if (hasCtrl) parts.push('Ctrl')
+      if (hasAlt) parts.push('Alt')
+      if (hasShift) parts.push('Shift')
+      parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key)
+      const label = parts.join(' + ')
+
+      setRecordedFilter({
+        key: e.key,
+        ctrlKey: hasCtrl || undefined,
+        shiftKey: hasShift || undefined,
+        altKey: hasAlt || undefined,
+        label,
+      })
+      setIsRecordingFilterKey(false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true })
+  }, [isRecordingFilterKey])
+
   if (!isOpen) return null
 
   const handleTestHealth = async () => {
@@ -209,7 +256,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
     })
   }
 
-  const filteredShortcuts = filterShortcutKeys(shortcuts, shortcutCategory, shortcutSearch)
+  const filteredShortcuts = filterShortcutKeys(shortcuts, shortcutCategory, shortcutSearch, recordedFilter)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
@@ -746,6 +793,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   />
                 </div>
 
+                {/* Show Timeline Zoom Widget */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{t.settings.showTimelineZoomWidgetLabel}</div>
+                    <div className="text-[11px] text-zinc-500">{t.settings.showTimelineZoomWidgetDesc}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.showTimelineZoomWidget ?? false}
+                    onChange={(e) => updatePreferences({ showTimelineZoomWidget: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
                 {/* Collapse Tool Batches */}
                 <div className="flex items-center justify-between py-2 border-t border-zinc-800">
                   <div>
@@ -918,16 +979,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   </button>
                 </div>
 
-                {/* Search Bar */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-500" />
-                  <input
-                    type="text"
-                    placeholder={isZh ? '搜索快捷键 (Search shortcuts...)' : 'Search shortcuts...'}
-                    value={shortcutSearch}
-                    onChange={(e) => setShortcutSearch(e.target.value)}
-                    className="w-full bg-[#161820] border border-[#272a32] text-xs text-zinc-200 pl-8 pr-3 py-2 rounded-xl focus:outline-none focus:border-zinc-500"
-                  />
+                {/* Search Bar with Keystroke Recording Filter */}
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`relative flex-1 flex items-center bg-[#161820] border rounded-xl transition-all ${
+                      isRecordingFilterKey
+                        ? 'border-sky-500 ring-2 ring-sky-500/20 shadow-lg'
+                        : 'border-[#272a32] focus-within:border-zinc-500'
+                    }`}
+                  >
+                    <Search className="w-3.5 h-3.5 absolute left-3 text-zinc-500 pointer-events-none" />
+
+                    {recordedFilter ? (
+                      <div className="flex items-center gap-1.5 pl-8 pr-2 py-1.5 w-full">
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 font-mono text-xs shadow-xs">
+                          <Keyboard className="w-3 h-3 text-sky-400" />
+                          <span>{recordedFilter.label}</span>
+                          <button
+                            type="button"
+                            onClick={() => setRecordedFilter(null)}
+                            className="ml-1 hover:text-white hover:bg-sky-500/30 rounded p-0.5 cursor-pointer transition-colors"
+                            title={isZh ? '清除按键筛选' : 'Clear key filter'}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </span>
+                        <input
+                          type="text"
+                          placeholder={isZh ? '叠加文字搜索...' : 'Filter further by text...'}
+                          value={shortcutSearch}
+                          onChange={(e) => setShortcutSearch(e.target.value)}
+                          className="flex-1 bg-transparent text-xs text-zinc-200 outline-none px-1"
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder={
+                          isRecordingFilterKey
+                            ? isZh
+                              ? '请在键盘上按下快捷键组合 (如 Ctrl+Shift+A，按 Esc 取消)...'
+                              : 'Press key combination (e.g. Ctrl+Shift+A, Esc to cancel)...'
+                            : isZh
+                            ? '搜索快捷键，或点击右侧按钮按键筛选...'
+                            : 'Search shortcuts, or record keystroke to filter...'
+                        }
+                        value={shortcutSearch}
+                        onChange={(e) => setShortcutSearch(e.target.value)}
+                        readOnly={isRecordingFilterKey}
+                        className="w-full bg-transparent text-xs text-zinc-200 pl-8 pr-10 py-2 outline-none"
+                      />
+                    )}
+
+                    {/* Clear Text button if text search exists */}
+                    {shortcutSearch && !recordedFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setShortcutSearch('')}
+                        className="absolute right-2.5 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer"
+                        title={isZh ? '清空输入' : 'Clear text'}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Keystroke Recorder Filter Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsRecordingFilterKey((prev) => !prev)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer shrink-0 border ${
+                      isRecordingFilterKey
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-md animate-pulse'
+                        : recordedFilter
+                        ? 'bg-sky-950/40 text-sky-300 border-sky-800 hover:bg-sky-900/50'
+                        : 'bg-[#181a22] text-zinc-300 border-[#272a32] hover:bg-[#20232d] hover:text-white'
+                    }`}
+                    title={isZh ? '按下快捷键直接筛选对应功能 (如 Ctrl+Shift+A)' : 'Record keystrokes to filter (e.g. Ctrl+Shift+A)'}
+                  >
+                    <Keyboard
+                      className={`w-3.5 h-3.5 ${
+                        isRecordingFilterKey ? 'animate-bounce text-sky-400' : 'text-zinc-400'
+                      }`}
+                    />
+                    <span>
+                      {isRecordingFilterKey
+                        ? isZh
+                          ? '正在监听按键...'
+                          : 'Listening...'
+                        : isZh
+                        ? '按快捷键筛选'
+                        : 'Record Keys'}
+                    </span>
+                  </button>
                 </div>
 
                 {/* Category Filter Tabs (All / Map / Dialogue / Tabs / General) */}
@@ -937,7 +1081,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   aria-label="Shortcut Categories"
                 >
                   {SHORTCUT_CATEGORIES.map((cat) => {
-                    const count = filterShortcutKeys(shortcuts, cat.id, shortcutSearch).length
+                    const count = filterShortcutKeys(shortcuts, cat.id, shortcutSearch, recordedFilter).length
                     const isActive = shortcutCategory === cat.id
                     return (
                       <button
@@ -975,8 +1119,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                 {/* Shortcuts List */}
                 <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                   {filteredShortcuts.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-zinc-500 border border-dashed border-[#232733] rounded-xl">
-                      {isZh ? '该分类下暂无匹配的快捷键' : 'No matching shortcuts in this category'}
+                    <div className="py-8 text-center text-xs text-zinc-500 border border-dashed border-[#232733] rounded-xl space-y-1">
+                      <div>{isZh ? '该分类下暂无匹配的快捷键' : 'No matching shortcuts in this category'}</div>
+                      {recordedFilter && (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setRecordedFilter(null)}
+                            className="text-sky-400 hover:underline text-[11px] cursor-pointer inline-block mt-1"
+                          >
+                            {isZh ? `清除按键筛选「${recordedFilter.label}」` : `Clear key filter "${recordedFilter.label}"`}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     filteredShortcuts.map((key) => {

@@ -116,6 +116,8 @@ export interface TranslationDictionary {
     showModelSelectorDesc: string
     showTimelineQuickJumpLabel: string
     showTimelineQuickJumpDesc: string
+    showTimelineZoomWidgetLabel: string
+    showTimelineZoomWidgetDesc: string
     quickJumpUpTooltip: string
     quickJumpDownTooltip: string
     shortcutsTitle: string
@@ -317,6 +319,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       showModelSelectorDesc: '在底栏展示当前模型药丸胶囊与切换弹窗，关闭或按 Alt+M 可隐藏保持极简纯净',
       showTimelineQuickJumpLabel: '显示时间线快捷跳转悬浮按钮',
       showTimelineQuickJumpDesc: '在对话时间线右上角显示快捷跳转胶囊（支持点击与长按 1 秒极速跳转）',
+      showTimelineZoomWidgetLabel: '显示时间线字号缩放控制器',
+      showTimelineZoomWidgetDesc: '在时间线右下角显示浮动缩放胶囊（默认禁用，推荐使用浏览器原生 Ctrl+滚轮 缩放）',
       quickJumpUpTooltip: '点击：向上浏览对话 | 长按 1 秒：跳转到最顶部 (快捷键: ↑ / 双击 ↑)',
       quickJumpDownTooltip: '点击：向下浏览对话 | 长按 1 秒：直达最底部 (快捷键: ↓ / 双击 ↓)',
       shortcutsTitle: '键盘快捷键',
@@ -516,6 +520,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       showModelSelectorDesc: 'Display the model selector pill and popup in prompt bar, toggle off or press Alt+M to hide',
       showTimelineQuickJumpLabel: 'Show timeline quick-jump floating buttons',
       showTimelineQuickJumpDesc: 'Display floating jump pill at top-right (supports click and 1s long-press)',
+      showTimelineZoomWidgetLabel: 'Show timeline font zoom controller',
+      showTimelineZoomWidgetDesc: 'Display floating zoom pill at bottom-right (disabled by default, browser native Ctrl+Wheel recommended)',
       quickJumpUpTooltip: 'Click: Jump to previous dialogue | Hold 1s: Jump to top (Shortcut: ↑ / Double-tap ↑)',
       quickJumpDownTooltip: 'Click: Jump to next dialogue | Hold 1s: Jump to bottom (Shortcut: ↓ / Double-tap ↓)',
       shortcutsTitle: 'Keyboard Shortcuts',
@@ -715,6 +721,8 @@ export const translations: Record<SupportedLanguage, TranslationDictionary> = {
       showModelSelectorDesc: 'Modellauswahl-Pille und Popup unten anzeigen (Alt+M zum Ein-/Ausblenden)',
       showTimelineQuickJumpLabel: 'Schnellnavigations-Schaltflächen anzeigen',
       showTimelineQuickJumpDesc: 'Schaltflächen zum schnellen Springen oben/unten im Chatverlauf anzeigen',
+      showTimelineZoomWidgetLabel: 'Timeline-Schriftgrößen-Controller anzeigen',
+      showTimelineZoomWidgetDesc: 'Schwebendes Zoom-Widget unten rechts anzeigen (standardmäßig deaktiviert)',
       quickJumpUpTooltip: 'Klick: Nach oben scrollen | 1 Sek. halten: Ganz nach oben springen (↑ / Doppelklick ↑)',
       quickJumpDownTooltip: 'Klick: Nach unten scrollen | 1 Sek. halten: Ganz nach unten springen (↓ / Doppelklick ↓)',
       shortcutsTitle: 'Tastenkombinationen',

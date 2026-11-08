@@ -254,7 +254,7 @@ div.group\/code-block code {
   border-color: transparent transparent #0284c7 transparent;
 }
 
-/* 2-Second Floating Cost Delta Animation (中转站刷新浅蓝色扣费浮现动画) */
+/* 2-Second Floating Cost Delta Animation (中转站刷新浅蓝色扣费浮现动画 - 居中/上方) */
 @keyframes relayCostFloat {
   0% {
     opacity: 0;
@@ -276,4 +276,28 @@ div.group\/code-block code {
 
 .animate-relay-cost-float {
   animation: relayCostFloat 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 2-Second Floating Cost Delta Animation (中转站刷新浅蓝色扣费浮现动画 - 右侧/侧边栏紧凑模式) */
+@keyframes relayCostFloatRight {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.88);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.08);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-16px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.92);
+  }
+}
+
+.animate-relay-cost-float-right {
+  animation: relayCostFloatRight 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

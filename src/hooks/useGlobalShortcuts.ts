@@ -3,6 +3,7 @@ import { getShortcuts, matchesShortcut, type ShortcutsMap } from '../utils/short
 import { getNextTabId, getPrevTabId, getTabIdByIndex } from '../utils/tab-navigation'
 import { togglePinSessionId } from '../utils/pinning'
 import { zoomIn, zoomOut, resetZoom } from '../utils/timeline-zoom'
+import { getPreferences } from '../utils/preferences'
 
 export interface UseGlobalShortcutsParams {
   activeSessionId: string | null
@@ -14,6 +15,8 @@ export interface UseGlobalShortcutsParams {
   setMapTargetSessionId: React.Dispatch<React.SetStateAction<string | null>>
   isSearchOpen: boolean
   setIsSearchOpen: React.Dispatch<React.SetStateAction<boolean>>
+  isSessionBoardOpen: boolean
+  setIsSessionBoardOpen: React.Dispatch<React.SetStateAction<boolean>>
   isFindOpen: boolean
   setIsFindOpen: React.Dispatch<React.SetStateAction<boolean>>
   isModelRouterOpen: boolean
@@ -41,6 +44,8 @@ export function useGlobalShortcuts({
   setMapTargetSessionId,
   isSearchOpen,
   setIsSearchOpen,
+  isSessionBoardOpen,
+  setIsSessionBoardOpen,
   isFindOpen,
   setIsFindOpen,
   isModelRouterOpen,
@@ -113,6 +118,15 @@ export function useGlobalShortcuts({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return
+      if (matchesShortcut(e, shortcuts.toggleSessionBoard)) {
+        e.preventDefault()
+        e.stopPropagation()
+        setIsSessionBoardOpen(prev => !prev)
+        return
+      }
+      // The board owns its keyboard, including Escape, editing and focus trapping.
+      if (isSessionBoardOpen) return
       const isPlainF11 = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === 'F11'
       if (matchesShortcut(e, shortcuts.zenMode) || isPlainF11) {
         e.preventDefault()
@@ -357,13 +371,8 @@ export function useGlobalShortcuts({
         }
       }
 
-      // Subagent Topology & Communication Inspector (Ctrl+Shift+A)
-      const isCtrlShiftA =
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        !e.altKey &&
-        (e.key.toLowerCase() === 'a' || e.code === 'KeyA')
-      if (isCtrlShiftA) {
+      // Subagent Topology moved from A to Q for the session board.
+      if (matchesShortcut(e, shortcuts.toggleSubagentTopology)) {
         if (setIsSubagentTopologyOpen) {
           e.preventDefault()
           e.stopPropagation()
@@ -399,9 +408,10 @@ export function useGlobalShortcuts({
         return
       }
 
-      // Timeline Font Scaling & Zoom Shortcuts (Ctrl + +, Ctrl + -, Ctrl + 0)
+      // Timeline Font Scaling & Zoom Shortcuts (Ctrl + +, Ctrl + -, Ctrl + 0) - only if timeline zoom feature is enabled
       const isCtrlKey = (e.ctrlKey || e.metaKey) && !e.altKey
-      if (isCtrlKey) {
+      const prefs = getPreferences()
+      if (isCtrlKey && prefs.showTimelineZoomWidget) {
         if (
           e.key === '=' ||
           e.key === '+' ||
@@ -455,6 +465,8 @@ export function useGlobalShortcuts({
     isSettingsOpen,
     isMapOpen,
     isSearchOpen,
+    isSessionBoardOpen,
+    setIsSessionBoardOpen,
     isFindOpen,
     isModelRouterOpen,
     handleNewSession,

@@ -9,6 +9,7 @@ import {
 } from '../utils/revert-engine'
 import { isRunningStatus } from '../utils/session-run-state'
 import type { AutoRecoveryState } from './useChatStream'
+import { markUserStop } from './stop-registry'
 
 export interface UseChatRevertDeps {
   sessionId: string | null
@@ -63,6 +64,7 @@ export function useChatRevert({
       if (sessionBusyRef.current || isRunningStatus(sessionStatusRef.current)) {
         console.log('[Revert:Hook] Active prompt/retry in flight during revert, aborting session first:', sessionId)
         userAbortedRef.current = true
+        markUserStop(sessionId)
         try {
           await api.abortSession(sessionId)
         } catch (err) {
