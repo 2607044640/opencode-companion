@@ -17,9 +17,8 @@ export const DEFAULT_WORKSPACE_MAPPINGS = [
   { jail: '/home/developer/.config/opencode', win: 'C:\\AICore\\opencode-jail' },
 
   // 2. Desktop shortcuts
-  { jail: '/mnt/desktop', win: 'C:\\Users\\26070\\Desktop' },
-  { jail: '/mnt/c/Users/26070/Desktop', win: 'C:\\Users\\26070\\Desktop' },
-  { jail: '/home/developer/Desktop', win: 'C:\\Users\\26070\\Desktop' },
+  { jail: '/mnt/desktop', win: process.env.USERPROFILE ? `${process.env.USERPROFILE}\\Desktop` : 'C:\\Desktop' },
+  { jail: '/home/developer/Desktop', win: process.env.USERPROFILE ? `${process.env.USERPROFILE}\\Desktop` : 'C:\\Desktop' },
 
   // 3. Known workspace roots
   { jail: '/home/developer/projects/APISpace', win: 'C:\\APISpace' },

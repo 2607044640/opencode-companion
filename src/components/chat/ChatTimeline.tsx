@@ -180,7 +180,7 @@ export function ChatTimeline({
         canonicalList.push({
           id: name.toLowerCase(),
           name,
-          worktree: name === 'AISpace' ? '/home/developer/projects/AISpace' : `C:\\${name}`,
+          worktree: name === 'AISpace' ? 'C:\\Godot\\AISpace' : `C:\\${name}`,
         } as Project)
       }
     }

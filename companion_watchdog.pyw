@@ -217,7 +217,8 @@ def ensure_comfy_bridge():
 
     log("ComfyUI bridge not listening on guard port 51738. Starting silently...")
     bridge_script = r"C:\AI_Art\ComfyUI\comfy_win_bridge.py"
-    python_sys = r"C:\Users\26070\AppData\Local\Programs\Python\Python38\pythonw.exe"
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    python_sys = os.path.join(local_app_data, r"Programs\Python\Python38\pythonw.exe") if local_app_data else "pythonw.exe"
     flags = 0x00000008 | 0x00000200 | 0x08000000
     try:
         subprocess.Popen(

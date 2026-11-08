@@ -24,7 +24,7 @@ Load `docs/modules/<file>.md` only when changing that subsystem. Do not concaten
 | RelayGateway | [docs/modules/relay-gateway.md](docs/modules/relay-gateway.md) | Model selector, provider config, relay billing hub, settings token field. |
 | FeatureFlags | [docs/modules/plugin-system.md](docs/modules/plugin-system.md) | `UserPreferences` visibility toggles. No `src/plugins/` registry in this repo. |
 
-Agent skill (JIT, not this tree): `OpenCodeCompanionDev`. Daemon ops: `OpenCodeBackendOps`.
+Runtime operations: host service scripts in root; daemon configuration managed via WSL2 backend.
 
 ```text
 [Edge/Chrome 127.0.0.1:5173] --REST/SSE--> [WSL2 daemon 127.0.0.1:5001]
