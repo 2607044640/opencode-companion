@@ -171,7 +171,7 @@ export function ShortcutMenu({
                 className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
               >
                 <div className="flex items-center gap-2">
-                  <BookmarkPlus className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                  <BookmarkPlus className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
                   <span>{isZh ? '放入蓝图地图' : 'Add to Map'}</span>
                 </div>
                 <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
@@ -281,9 +281,9 @@ export function ShortcutMenu({
               >
                 <div className="flex items-center gap-2">
                   {isHeaderVisible ? (
-                    <PanelTopClose className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform" />
+                    <PanelTopClose className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
                   ) : (
-                    <PanelTopOpen className="w-3.5 h-3.5 text-orange-400 group-hover:scale-110 transition-transform" />
+                    <PanelTopOpen className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
                   )}
                   <span>
                     {isZh

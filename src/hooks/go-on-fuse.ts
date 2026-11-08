@@ -1,5 +1,5 @@
 import type { Message, TodoItem, ToolPart } from '../types/opencode'
-import { isAbortError } from '../services/api'
+import { isExplicitUserAbortError } from '../services/api'
 import { isTodoCompleted } from '../components/chat/todo-state'
 import {
   hasTurnContent,
@@ -108,8 +108,14 @@ export function hasOpenTodos(todos: readonly TodoItem[]): boolean {
 function hasRelayError(message: Message | undefined): boolean {
   const error = message?.info.error
   if (!error) return false
-  if (isAbortError(error)) return false
+  if (isExplicitUserAbortError(error)) return false
   return true
+}
+
+function hasVisibleAnswerText(message: Message): boolean {
+  return message.parts.some(
+    (part) => part.type === 'text' && Boolean((part as { text?: string }).text?.trim())
+  )
 }
 
 /**
@@ -168,13 +174,18 @@ export function decideGoOn(clock: GoOnClock): GoOnVerdict {
   if (hasRelayError(assistant)) return { act: 'send', reason: 'relay_error' }
   if (finishMeansCut(assistant.info.finish)) return { act: 'send', reason: 'cut_finish' }
   if (hasOpenTool(assistant)) return { act: 'send', reason: 'open_tool' }
-  if (assistant.info.finish === 'abort' && !isAbortError(assistant.info.error)) {
+  if (assistant.info.finish === 'abort' && !isExplicitUserAbortError(assistant.info.error)) {
     return { act: 'send', reason: 'relay_error' }
   }
   if (!hasTurnContent(assistant) && turnInspection.turnHasAnyOutput) {
     return { act: 'send', reason: 'relay_error' }
   }
+  if (!assistant.info.finish && !hasVisibleAnswerText(assistant)) {
+    // Assistant stopped mid-turn with no finish reason and no visible answer text
+    // (e.g. only step-start, reasoning, or tool calls before stream dropped).
+    return { act: 'send', reason: 'cut_finish' }
+  }
 
-  // Idle with no finish and no error is a clean stop the daemon already closed.
+  // Idle with visible answer text, no finish, and no error is a clean stop the daemon already closed.
   return { act: 'wait', reason: 'settled' }
 }

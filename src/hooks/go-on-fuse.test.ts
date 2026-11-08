@@ -206,4 +206,81 @@ describe('decideGoOn', () => {
     }))
     assert.deepEqual(verdict, { act: 'wait', reason: 'model_finished' })
   })
+
+  it('nudges with go on when backend emits generic MessageAbortedError without userAborted', () => {
+    const verdict = decideGoOn(clock({
+      userAborted: false,
+      messages: [
+        assistant({
+          finish: 'tool-calls',
+          parts: [{ id: 'p0', sessionID: 'ses_1', messageID: 'msg_a', type: 'text', text: 'partial progress' }],
+        }),
+        assistant({
+          finish: undefined,
+          error: { name: 'MessageAbortedError', data: { message: 'The operation was aborted' } },
+          parts: [{ id: 's1', sessionID: 'ses_1', messageID: 'msg_a', type: 'step-start' } as any],
+        }),
+      ],
+    }))
+    assert.deepEqual(verdict, { act: 'send', reason: 'relay_error' })
+  })
+
+  it('nudges with go on when assistant stops mid-turn with finish undefined and only step-start / tool / whitespace parts (ses_e47e7d1abffeZYqY3Jlc36sTVa)', () => {
+    const emptyTailAfterTools = decideGoOn(clock({
+      userAborted: false,
+      messages: [
+        {
+          info: { id: 'u1', sessionID: 'ses_1', role: 'user', time: { created: 1 } },
+          parts: [{ id: 'up1', sessionID: 'ses_1', messageID: 'u1', type: 'text', text: 'optimize assetvault' }],
+        },
+        assistant({
+          finish: 'tool-calls',
+          parts: [
+            { id: 't0', sessionID: 'ses_1', messageID: 'msg_a', type: 'text', text: ' ' },
+            {
+              id: 'tool_1',
+              sessionID: 'ses_1',
+              messageID: 'msg_a',
+              type: 'tool',
+              tool: 'grep',
+              state: { status: 'completed', input: { pattern: 'foo' } },
+            } as any,
+          ],
+        }),
+        assistant({
+          finish: undefined,
+          parts: [
+            { id: 's1', sessionID: 'ses_1', messageID: 'msg_a', type: 'step-start' } as any,
+            { id: 's2', sessionID: 'ses_1', messageID: 'msg_a', type: 'step-start' } as any,
+          ],
+        }),
+      ],
+    }))
+    assert.deepEqual(emptyTailAfterTools, { act: 'send', reason: 'relay_error' })
+
+    const toolOnlyWithoutAnswer = decideGoOn(clock({
+      userAborted: false,
+      messages: [
+        {
+          info: { id: 'u1', sessionID: 'ses_1', role: 'user', time: { created: 1 } },
+          parts: [{ id: 'up1', sessionID: 'ses_1', messageID: 'u1', type: 'text', text: 'optimize assetvault' }],
+        },
+        assistant({
+          finish: undefined,
+          parts: [
+            { id: 't0', sessionID: 'ses_1', messageID: 'msg_a', type: 'text', text: ' ' },
+            {
+              id: 'tool_1',
+              sessionID: 'ses_1',
+              messageID: 'msg_a',
+              type: 'tool',
+              tool: 'grep',
+              state: { status: 'completed', input: { pattern: 'foo' } },
+            } as any,
+          ],
+        }),
+      ],
+    }))
+    assert.deepEqual(toolOnlyWithoutAnswer, { act: 'send', reason: 'cut_finish' })
+  })
 })

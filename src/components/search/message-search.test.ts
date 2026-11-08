@@ -178,12 +178,12 @@ describe('searchSessionDocs', () => {
     const meta = {
       projectId: 'proj-1',
       projectName: 'Backend',
-      projectColorClass: 'text-amber-300',
+      projectColorClass: 'text-sky-300',
     }
     const hits = searchSessionDocs('ses-1', 'Redis Guide', sampleDocs, 'pipeline', meta)
     assert.equal(hits.length, 1)
     assert.equal(hits[0].projectName, 'Backend')
-    assert.equal(hits[0].projectColorClass, 'text-amber-300')
+    assert.equal(hits[0].projectColorClass, 'text-sky-300')
   })
 })
 

@@ -184,10 +184,10 @@ export function TabContextMenu({
           togglePinSessionId(tabId)
           onClose()
         }}
-        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
       >
         <span className="flex items-center gap-2">
-          <Pin className="w-3.5 h-3.5 text-orange-400" />
+          <Pin className="w-3.5 h-3.5 text-sky-400" />
           <span>
             {isSessionPinned(tabId, getPinnedSessionIds())
               ? (isZh ? '取消置顶' : 'Unpin Tab')
@@ -241,13 +241,13 @@ export function TabContextMenu({
             onShowInMap()
             onClose()
           }}
-          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-orange-950/30 transition-colors cursor-pointer"
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-sky-950/30 transition-colors cursor-pointer"
         >
           <span className="flex items-center gap-2">
-            <MapPin className="w-3.5 h-3.5 text-orange-400" />
+            <MapPin className="w-3.5 h-3.5 text-sky-400" />
             <span>{isZh ? '放入地图' : 'Add to Map'}</span>
           </span>
-          <span className="text-[10px] font-mono text-orange-500/70">Ctrl+M</span>
+          <span className="text-[10px] font-mono text-sky-500/70">Ctrl+M</span>
         </button>
       )}
 

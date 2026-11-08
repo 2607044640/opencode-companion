@@ -3,15 +3,15 @@ import { matchCanonicalWorkspace } from '../services/api'
 import { isSameOrSubdirectory } from './sidebar-helpers'
 
 export const PROJECT_COLOR_MAP: Record<string, string> = {
-  cyan: 'bg-cyan-950/60 text-cyan-300 border-cyan-700/50',
-  blue: 'bg-blue-950/60 text-blue-300 border-blue-700/50',
-  green: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50',
-  purple: 'bg-purple-950/60 text-purple-300 border-purple-700/50',
-  magenta: 'bg-pink-950/60 text-pink-300 border-pink-700/50',
-  pink: 'bg-pink-950/60 text-pink-300 border-pink-700/50',
-  amber: 'bg-amber-950/60 text-amber-300 border-amber-700/50',
-  orange: 'bg-orange-950/60 text-orange-300 border-orange-700/50',
-  mint: 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50',
+  cyan: 'bg-sky-950/60 text-sky-300 border-sky-700/50',
+  blue: 'bg-sky-950/60 text-sky-300 border-sky-700/50',
+  green: 'bg-sky-950/40 text-sky-200 border-sky-700/40',
+  purple: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  magenta: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  pink: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  amber: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  orange: 'bg-zinc-800 text-zinc-300 border-zinc-700',
+  mint: 'bg-sky-950/40 text-sky-200 border-sky-700/40',
 }
 
 export interface SessionProjectBadge {

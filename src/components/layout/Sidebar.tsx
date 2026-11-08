@@ -36,7 +36,6 @@ import { TokenStatsWidget } from './TokenStatsWidget'
 import { RelayHubDropdown } from './RelayHubDropdown'
 import { ShortcutMenu } from './ShortcutMenu'
 import { useDaemonHeartbeat } from '../../utils/daemon-heartbeat'
-import { OpenCodeLogo } from '../common/OpenCodeLogo'
 import { matchCanonicalWorkspace } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
 import {
@@ -398,12 +397,8 @@ export function Sidebar({
   if (isOpen === false) {
     return (
       <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between">
-        {/* Top: OpenCode Logo + Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
+        {/* Top: Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
         <div className="flex flex-col items-center gap-1.5">
-          <div className="p-1 text-zinc-200 select-none mb-0.5" title="OpenCode">
-            <OpenCodeLogo className="w-4 h-4 text-sky-400 hover:brightness-125 transition-all" />
-          </div>
-
           {/* Toggle Sidebar [|] */}
           <button
             type="button"
@@ -448,7 +443,7 @@ export function Sidebar({
             onClick={onToggleHeader}
             className={`p-2 rounded-md transition-colors cursor-pointer ${
               !isHeaderVisible
-                ? 'text-orange-400 hover:text-orange-300 hover:bg-[#1f232b]'
+                ? 'text-sky-400 hover:text-sky-300 hover:bg-[#1f232b]'
                 : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b]'
             }`}
             title={
@@ -518,12 +513,8 @@ export function Sidebar({
     <aside className="w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none">
       {/* 1. Top Action Buttons Bar (图4功能 - 并列一行，纯图标，带悬浮说明) */}
       <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#1f1f2c] bg-[#12121a]">
-        {/* Left: OpenCode Logo, Sidebar Toggle, Back, Forward */}
+        {/* Left: Sidebar Toggle, Back, Forward */}
         <div className="flex items-center gap-1">
-          <div className="p-1 text-zinc-200 select-none mr-0.5" title="OpenCode">
-            <OpenCodeLogo className="w-4 h-4 text-sky-400 hover:brightness-125 transition-all" />
-          </div>
-
           {/* Toggle Sidebar [|] */}
           <div className="relative group">
             <button
@@ -547,7 +538,7 @@ export function Sidebar({
               onClick={onToggleHeader}
               className={`p-1.5 rounded-md transition-colors cursor-pointer ${
                 !isHeaderVisible
-                  ? 'text-orange-400 hover:text-orange-300 hover:bg-[#1f232b]'
+                  ? 'text-sky-400 hover:text-sky-300 hover:bg-[#1f232b]'
                   : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b]'
               }`}
               title={
@@ -608,7 +599,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => onNewSession()}
-              className="p-1.5 rounded-md text-[#8b949e] hover:text-orange-400 hover:bg-[#1f232b] transition-colors cursor-pointer"
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-sky-400 hover:bg-[#1f232b] transition-colors cursor-pointer"
               title={isZh ? '新建会话 (Ctrl+N)' : 'New Conversation (Ctrl+N)'}
             >
               <Plus className="w-4 h-4" />
@@ -640,7 +631,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={onOpenScheduledTasks}
-              className="p-1.5 rounded-md text-[#8b949e] hover:text-orange-400 hover:bg-[#1f232b] transition-colors cursor-pointer"
+              className="p-1.5 rounded-md text-[#8b949e] hover:text-sky-400 hover:bg-[#1f232b] transition-colors cursor-pointer"
               title={isZh ? '计划任务调度 (Scheduled Tasks)' : 'Scheduled Tasks'}
             >
               <Clock className="w-4 h-4" />
@@ -1107,7 +1098,7 @@ export function Sidebar({
                 ) : (
                   <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                 )}
-                <Archive className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+                <Archive className="w-3.5 h-3.5 text-sky-400/80 shrink-0" />
                 <span className="truncate">{isZh ? '已归档会话' : 'Archived Conversations'}</span>
               </div>
               <span className="text-[10px] text-zinc-600 font-mono">
@@ -1116,7 +1107,7 @@ export function Sidebar({
             </div>
 
             {expandedProjects._archived && (
-              <div className="pl-5 pr-1 py-1 space-y-1 border-l border-amber-900/40 ml-3.5 mt-0.5">
+              <div className="pl-5 pr-1 py-1 space-y-1 border-l border-sky-900/40 ml-3.5 mt-0.5">
                 {(() => {
                   const currentLimit = folderLimits['_archived'] ?? DEFAULT_FOLDER_LIMIT
                   const { visibleItems, hasMore, remaining, nextStep } = getVisibleSessions(
@@ -1146,12 +1137,12 @@ export function Sidebar({
                       }}
                       className={`group relative flex items-center justify-between gap-1.5 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-all ${
                         isActive
-                          ? 'bg-[#1c1a17] text-amber-200 border border-amber-500/40 font-medium'
+                          ? 'bg-[#151922] text-sky-200 border border-sky-500/40 font-medium'
                           : 'text-zinc-500 hover:bg-[#15181e] hover:text-zinc-300 border border-transparent'
                       }`}
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        <Archive className="w-3 h-3 text-amber-500/60 shrink-0" />
+                        <Archive className="w-3 h-3 text-sky-500/60 shrink-0" />
                         <span
                           className="truncate text-left"
                           title={(session.title && session.title.trim()) || (isZh ? '未命名会话' : 'Untitled session')}
@@ -1169,7 +1160,7 @@ export function Sidebar({
                         <button
                           type="button"
                           onClick={(e) => handleUnarchive(session.id, e)}
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-amber-400 transition-opacity cursor-pointer"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-sky-400 transition-opacity cursor-pointer"
                           title={isZh ? '恢复会话 (取消归档)' : 'Unarchive session'}
                         >
                           <ArchiveRestore className="w-3 h-3" />
@@ -1199,7 +1190,7 @@ export function Sidebar({
                   <button
                     type="button"
                     onClick={(e) => handleSeeMore('_archived', e)}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 mt-1 rounded text-[11px] font-medium text-amber-300/80 hover:text-amber-200 bg-amber-950/20 hover:bg-amber-950/40 border border-amber-900/30 hover:border-amber-800/50 transition-all cursor-pointer group"
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 mt-1 rounded text-[11px] font-medium text-sky-300/80 hover:text-sky-200 bg-sky-950/20 hover:bg-sky-950/40 border border-sky-900/30 hover:border-sky-800/50 transition-all cursor-pointer group"
                     title={
                       isZh
                         ? `点击展开更多归档会话 (加载 +${nextStep} 个，还剩 ${remaining} 个)`
@@ -1207,13 +1198,13 @@ export function Sidebar({
                     }
                   >
                     <div className="flex items-center gap-1.5">
-                      <ChevronDown className="w-3 h-3 text-amber-500/70 group-hover:text-amber-400 transition-transform group-hover:translate-y-0.5" />
+                      <ChevronDown className="w-3 h-3 text-sky-500/70 group-hover:text-sky-400 transition-transform group-hover:translate-y-0.5" />
                       <span>{isZh ? '查看更多 (See more)' : 'See more'}</span>
-                      <span className="text-[10px] text-amber-500/60 font-mono">
+                      <span className="text-[10px] text-sky-500/60 font-mono">
                         (+{nextStep})
                       </span>
                     </div>
-                    <span className="text-[10px] text-amber-500/60 font-mono group-hover:text-amber-400">
+                    <span className="text-[10px] text-sky-500/60 font-mono group-hover:text-sky-400">
                       {remaining} {isZh ? '个未显示' : 'left'}
                     </span>
                   </button>
@@ -1295,9 +1286,9 @@ export function Sidebar({
               handleTogglePin(targetId)
               setContextMenu(null)
             }}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
           >
-            <Pin className="w-3.5 h-3.5 text-orange-400" />
+            <Pin className="w-3.5 h-3.5 text-sky-400" />
             <span>{isSessionPinned(contextMenu.sessionId, pinnedIds) ? (isZh ? '取消置顶' : 'Unpin') : (isZh ? '置顶会话' : 'Pin Session')}</span>
           </button>
 
@@ -1331,16 +1322,16 @@ export function Sidebar({
               handleToggleArchive(targetId)
               setContextMenu(null)
             }}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-amber-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
           >
             {isSessionArchived(contextMenu.sessionId, archivedIds) ? (
               <>
-                <ArchiveRestore className="w-3.5 h-3.5 text-amber-400" />
+                <ArchiveRestore className="w-3.5 h-3.5 text-sky-400" />
                 <span>{isZh ? '恢复会话 (取消归档)' : 'Restore Session'}</span>
               </>
             ) : (
               <>
-                <Archive className="w-3.5 h-3.5 text-amber-400" />
+                <Archive className="w-3.5 h-3.5 text-sky-400" />
                 <span>{isZh ? '归档会话' : 'Archive Session'}</span>
               </>
             )}
@@ -1369,13 +1360,13 @@ export function Sidebar({
                 onShowInMap(contextMenu.sessionId)
                 setContextMenu(null)
               }}
-              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-orange-300 hover:bg-orange-950/30 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-sky-950/30 transition-colors cursor-pointer"
             >
               <span className="flex items-center gap-2">
-                <MapPin className="w-3.5 h-3.5 text-orange-400" />
+                <MapPin className="w-3.5 h-3.5 text-sky-400" />
                 <span>{isZh ? '放入地图' : 'Add to Map'}</span>
               </span>
-              <span className="text-[10px] font-mono text-orange-500/70">Ctrl+M</span>
+              <span className="text-[10px] font-mono text-sky-500/70">Ctrl+M</span>
             </button>
           )}
 

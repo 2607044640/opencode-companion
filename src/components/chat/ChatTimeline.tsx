@@ -151,35 +151,6 @@ export function ChatTimeline({
   const { prefs } = usePreferences()
   const { isZh } = useI18n()
 
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const showToast = useCallback((msg: string) => {
-    setToastMessage(msg)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), 1600)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    const onExpand = () =>
-      showToast(isZh ? '已展开所有对话 (Ctrl+Shift+O)' : 'Expanded all dialogues (Ctrl+Shift+O)')
-    const onCollapse = () =>
-      showToast(isZh ? '已收缩所有对话 (Ctrl+Shift+C)' : 'Collapsed all dialogues (Ctrl+Shift+C)')
-
-    window.addEventListener('opencode-expand-all-dialogues', onExpand)
-    window.addEventListener('opencode-collapse-all-dialogues', onCollapse)
-    return () => {
-      window.removeEventListener('opencode-expand-all-dialogues', onExpand)
-      window.removeEventListener('opencode-collapse-all-dialogues', onCollapse)
-    }
-  }, [isZh, showToast])
-
   // Mouse upper side button & shortcut: toggle dialogue block at screen center
   useEffect(() => {
     let lastTriggerTime = 0
@@ -197,12 +168,6 @@ export function ChatTimeline({
             detail: { messageId: match.messageId },
           })
         )
-        const willExpand = !match.isExpanded
-        showToast(
-          willExpand
-            ? (isZh ? '已展开面前对话' : 'Expanded dialogue')
-            : (isZh ? '已收缩面前对话' : 'Collapsed dialogue')
-        )
 
         // Visual pulse indicator on the toggled dialogue block
         match.element.classList.remove('highlight-pulse')
@@ -211,8 +176,6 @@ export function ChatTimeline({
         setTimeout(() => {
           match.element?.classList.remove('highlight-pulse')
         }, 1200)
-      } else {
-        showToast(isZh ? '面前对话无需折叠' : 'Dialogue is already compact')
       }
     }
 
@@ -274,7 +237,7 @@ export function ChatTimeline({
       window.removeEventListener('auxclick', handleAuxClick, { capture: true })
       window.removeEventListener('opencode-toggle-center-dialogue', handleShortcutToggle)
     }
-  }, [isZh, prefs.mouseSideButtonToggleDialogue, showToast])
+  }, [isZh, prefs.mouseSideButtonToggleDialogue])
 
   const [isConfirmUndoOpen, setIsConfirmUndoOpen] = useState(false)
   const [confirmTargetMessageId, setConfirmTargetMessageId] = useState<string | null>(null)
@@ -902,9 +865,9 @@ export function ChatTimeline({
             !isErrorTerminal &&
             (Boolean(autoRecoveryState) || sessionStatus.type === 'retry') && (
               <div className="max-w-4xl mx-auto my-3 px-4">
-                <div className="rounded-lg bg-[#14171d] border border-purple-800/40 p-3 flex items-center justify-between gap-3 shadow-sm">
+                <div className="rounded-lg bg-[#14171d] border border-sky-800/40 p-3 flex items-center justify-between gap-3 shadow-sm">
                   <div className="flex items-center gap-2.5">
-                    <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                    <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
                     <span className="text-xs text-zinc-300 font-medium">
                       {autoRecoveryState?.mode === 'retry' ||
                       (!autoRecoveryState && sessionStatus.type === 'retry')
@@ -1000,14 +963,6 @@ export function ChatTimeline({
         durationMs={1000}
         sessionId={activeSession?.id}
       />
-
-      {/* Floating Toast Notification for Expand/Collapse All Dialogues */}
-      {toastMessage && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-full bg-zinc-900/95 border border-zinc-700/80 text-xs font-medium text-zinc-100 shadow-2xl backdrop-blur-md flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150 pointer-events-none select-none">
-          <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
     </div>
   )
 }

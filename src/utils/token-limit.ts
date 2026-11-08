@@ -389,13 +389,13 @@ export function getTokenColorClasses(threshold: TokenThreshold) {
     case 'green':
     default:
       return {
-        text: 'text-emerald-400',
-        stroke: '#22c55e',
-        bg: 'bg-emerald-400',
-        border: 'border-emerald-400/40',
-        badgeBg: 'bg-emerald-950/60',
-        badgeBorder: 'border-emerald-800/50',
-        badgeText: 'text-emerald-300',
+        text: 'text-sky-400',
+        stroke: '#38bdf8',
+        bg: 'bg-sky-400',
+        border: 'border-sky-400/40',
+        badgeBg: 'bg-sky-950/60',
+        badgeBorder: 'border-sky-800/50',
+        badgeText: 'text-sky-300',
       }
   }
 }

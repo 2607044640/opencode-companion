@@ -301,7 +301,7 @@ export const RelayHubSettings: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-[#f0f6fc] flex items-center gap-2">
-            <Coins className="w-5 h-5 text-amber-400" />
+            <Coins className="w-5 h-5 text-sky-400" />
             <span>中转站额度中心 (Relay Hub)</span>
           </h2>
           <p className="text-xs text-[#8b949e] mt-0.5">
@@ -318,13 +318,13 @@ export const RelayHubSettings: React.FC = () => {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1f2430] hover:bg-[#282f3f] border border-[#2d3445] text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-sm disabled:opacity-50"
               title="从本地网关自动同步可用中转站"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-sky-400' : ''}`} />
               <span>{isSyncing ? '同步中...' : '同步网关预设'}</span>
             </button>
             <button
               type="button"
               onClick={handleOpenAdd}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer shadow-sm"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>添加中转站</span>
@@ -552,7 +552,7 @@ export const RelayHubSettings: React.FC = () => {
         {providers.length === 0 ? (
           <div className="p-8 rounded-xl border border-dashed border-[#2b303c] bg-[#14161c] text-center space-y-3">
             <div className="w-10 h-10 mx-auto rounded-full bg-[#1b1f28] flex items-center justify-center text-zinc-400">
-              <Coins className="w-5 h-5 text-amber-400/70" />
+              <Coins className="w-5 h-5 text-sky-400/70" />
             </div>
             <div className="space-y-1">
               <div className="text-xs font-medium text-zinc-200">暂无中转站</div>
@@ -595,8 +595,8 @@ export const RelayHubSettings: React.FC = () => {
                           isItemError
                             ? 'bg-rose-500'
                             : isItemTesting
-                            ? 'bg-amber-400 animate-pulse'
-                            : 'bg-emerald-400'
+                            ? 'bg-sky-400 animate-pulse'
+                            : 'bg-sky-400'
                         }`}
                       />
                       <span className="text-xs font-semibold text-zinc-200">{p.name}</span>
@@ -627,7 +627,7 @@ export const RelayHubSettings: React.FC = () => {
                   {/* Right balance & actions */}
                   <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end border-t md:border-t-0 pt-2 md:pt-0 border-[#1e222c]">
                     <div className="text-right">
-                      <div className="text-sm font-mono font-bold text-emerald-400">
+                      <div className="text-sm font-mono font-bold text-sky-300">
                         {formatBalance(p.balance, p.currency)}
                       </div>
                       <div className="text-[10px] text-zinc-500">
@@ -643,7 +643,7 @@ export const RelayHubSettings: React.FC = () => {
                           href={p.redeemUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1.5 text-zinc-400 hover:text-blue-400 hover:bg-[#1d222d] rounded-lg transition-colors"
+                          className="p-1.5 text-zinc-400 hover:text-sky-300 hover:bg-[#1d222d] rounded-lg transition-colors"
                           title="打开充值/兑换页面"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
@@ -658,7 +658,7 @@ export const RelayHubSettings: React.FC = () => {
                         title="测试连接并刷新余额"
                       >
                         <RefreshCw
-                          className={`w-3.5 h-3.5 ${isItemTesting ? 'animate-spin text-amber-400' : ''}`}
+                          className={`w-3.5 h-3.5 ${isItemTesting ? 'animate-spin text-sky-400' : ''}`}
                         />
                       </button>
 

@@ -31,22 +31,22 @@ export function ReasoningCard({ part, title }: ReasoningCardProps) {
   }
 
   return (
-    <div className="my-2 rounded-lg border border-purple-900/30 bg-[#14121a]/90 overflow-hidden text-xs shadow-sm transition-all">
+    <div className="my-2 rounded-lg border border-[#262c38] bg-[#12151c]/90 overflow-hidden text-xs shadow-sm transition-all">
       {/* Header bar: Sleek, compact 28px height, auto-collapsed by default */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between px-3 py-1.5 bg-purple-950/20 hover:bg-purple-950/40 cursor-pointer transition-colors select-none"
+        className="flex items-center justify-between px-3 py-1.5 bg-[#161a22] hover:bg-[#1c222e] cursor-pointer transition-colors select-none"
       >
-        <div className="flex items-center gap-2 text-purple-300 min-w-0">
-          <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+        <div className="flex items-center gap-2 text-sky-300 min-w-0">
+          <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           <span className="font-medium text-[11px] truncate">
             {title || '思考过程 (Thinking Process)'}
           </span>
-          <span className="text-[10px] text-purple-400/60 font-mono shrink-0">
+          <span className="text-[10px] text-zinc-500 font-mono shrink-0">
             ({text.length.toLocaleString()} 字)
           </span>
           {durationStr && (
-            <span className="hidden sm:flex items-center gap-0.5 text-[10px] text-purple-400/50 font-mono shrink-0">
+            <span className="hidden sm:flex items-center gap-0.5 text-[10px] text-zinc-500 font-mono shrink-0">
               <Clock className="w-2.5 h-2.5" />
               <span>{durationStr}</span>
             </span>
@@ -57,13 +57,13 @@ export function ReasoningCard({ part, title }: ReasoningCardProps) {
           {text && (
             <button
               onClick={handleCopy}
-              className="p-1 text-purple-400/70 hover:text-purple-200 rounded hover:bg-purple-900/40 transition-colors"
+              className="p-1 text-zinc-400 hover:text-sky-200 rounded hover:bg-[#202736] transition-colors"
               title="复制思考过程"
             >
-              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copied ? <Check className="w-3 h-3 text-sky-400" /> : <Copy className="w-3 h-3" />}
             </button>
           )}
-          <button className="p-0.5 text-purple-400 hover:text-purple-200">
+          <button className="p-0.5 text-zinc-400 hover:text-sky-200">
             {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
         </div>
@@ -71,7 +71,7 @@ export function ReasoningCard({ part, title }: ReasoningCardProps) {
 
       {/* Expanded reasoning body: Capped height with custom scrollbar so it never hijacks the entire viewport */}
       {isExpanded && (
-        <div className="p-3.5 border-t border-purple-900/30 text-zinc-300 text-xs leading-relaxed whitespace-pre-wrap font-sans bg-[#0e0d13] max-h-96 overflow-y-auto selection:bg-purple-900/50 selection:text-white">
+        <div className="p-3.5 border-t border-[#262c38] text-zinc-300 text-xs leading-relaxed whitespace-pre-wrap font-sans bg-[#0c0e12] max-h-96 overflow-y-auto selection:bg-sky-900/50 selection:text-white">
           {text || <span className="italic text-zinc-600">Thinking in progress...</span>}
         </div>
       )}

@@ -18,7 +18,7 @@ export type RollbackAction =
   | { readonly kind: 'restore'; readonly path: string; readonly content?: string }
 
 const WRITE_TOOLS = new Set(['write', 'write_to_file', 'create'])
-const EDIT_TOOLS = new Set([
+export const EDIT_TOOLS = new Set([
   'edit',
   'write',
   'write_to_file',
@@ -28,6 +28,10 @@ const EDIT_TOOLS = new Set([
   'create',
 ])
 const READ_TOOLS = new Set(['read', 'view_file', 'cat'])
+
+export function isMutationToolName(toolName: unknown): boolean {
+  return typeof toolName === 'string' && EDIT_TOOLS.has(toolName.toLowerCase())
+}
 
 function assertNever(x: never): never {
   throw new Error(`Unexpected value: ${JSON.stringify(x)}`)

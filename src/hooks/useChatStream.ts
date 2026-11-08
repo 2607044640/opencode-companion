@@ -1,15 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type {
   Message,
-  MessagePart,
   TextPart,
-  ReasoningPart,
   FilePart,
   SessionStatusPayload,
   TodoItem,
   Session,
+  PromptAttachment,
 } from '../types/opencode'
-import { api, mergeMessageInfo, normalizeMessageInfo, normalizeMessagePart, extractRelayErrorMessage, isAbortError } from '../services/api'
+import {
+  api,
+  normalizeMessageInfo,
+  normalizeMessagePart,
+  extractRelayErrorMessage,
+  isAbortError,
+  isExplicitUserAbortError,
+} from '../services/api'
 import { sseManager } from '../services/sse'
 import {
   classifyEmptyIdleFuse,
@@ -25,8 +31,7 @@ import {
 } from './empty-idle-fuse'
 import { sanitizeMessageRepetition } from '../utils/repetition-fuse'
 import { maybeCommitGitCheckpoint } from '../utils/maybe-git-checkpoint'
-import { postExternalFileRollback } from '../services/host-api'
-import { executeRevertWithTimeout, withRevertTimeout, type RevertMode as EngineRevertMode } from '../utils/revert-engine'
+import type { RevertMode as EngineRevertMode } from '../utils/revert-engine'
 import {
   buildPromptParts,
   buildOptimisticMessage,
@@ -35,10 +40,18 @@ import {
 import { partitionAssistantTurn } from '../utils/worked-summary'
 import { isRunningStatus } from '../utils/session-run-state'
 import { decideGoOn, GO_ON_SILENCE_MS, GO_ON_TEXT, type GoOnActivity } from './go-on-fuse'
-
-import type {
-  PromptAttachment,
-} from '../types/opencode'
+import {
+  applyMessageUpdatedToMessages,
+  applyPartDeltaToMessages,
+  applyPartUpdatedToMessages,
+  collectRetryDeletionIds,
+  messageProgressSignature,
+  preserveInFlightAssistantError,
+  stampRelayErrorOnLastAssistant,
+  stampRepetitionLoopOnMessage,
+  stripAssistantErrors,
+} from './chat-stream-reducers'
+import { useChatRevert } from './useChatRevert'
 
 export type { PromptAttachment }
 
@@ -78,8 +91,6 @@ export function useChatStream(
     messagesRef.current = messages
   }, [messages])
 
-  // Track the ID of the pending optimistic user message so we can swap it with the
-  // real backend message when SSE fires — prevents the "sent twice" duplicate bug.
   const pendingOptimisticIdRef = useRef<string | null>(null)
   const userAbortedRef = useRef(false)
   const transitioningSessionIdRef = useRef<string | null>(null)
@@ -87,19 +98,17 @@ export function useChatStream(
   const sessionBusyRef = useRef(false)
   const isSendingRef = useRef(false)
   const lastSendTimestampRef = useRef(0)
-  /** Bumps on every status write so a late /session/status snapshot cannot clobber SSE, send, or abort. */
   const statusEpochRef = useRef(0)
   const autoRetriedTurnKeyRef = useRef<string | null>(null)
   const autoRecoveryCountRef = useRef(0)
   const autoRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const retryRef = useRef<() => Promise<void>>(async () => {})
-  /** One abort per user send. A live copier must not keep the SSE socket open. */
   const repetitionArmedRef = useRef(false)
-  /** Last SSE or local send. A few quiet seconds are not a dead relay. */
   const lastActivityAtRef = useRef(0)
-  /** How many automatic "go on" nudges this user turn already spent. */
+  const stallProbeCountRef = useRef(0)
   const goOnSentRef = useRef(0)
   const goOnFlightRef = useRef(false)
+  const isErrorTerminalRef = useRef(false)
   const todosRef = useRef<TodoItem[]>([])
   const sessionStatusRef = useRef<SessionStatusPayload>({ type: 'idle' })
   const runKnownRef = useRef(false)
@@ -133,7 +142,6 @@ export function useChatStream(
   }, [])
 
   const noteTurnEnd = useCallback((kind: 'clean' | 'error' | 'user') => {
-    // Clean transitions are gated by callers checking wasBusy before commitSessionStatus
     sessionBusyRef.current = false
     setTurnEnd(kind)
     setTurnEpoch((n) => n + 1)
@@ -141,11 +149,7 @@ export function useChatStream(
 
   const commitSessionStatus = useCallback((next: SessionStatusPayload, known = true) => {
     statusEpochRef.current += 1
-    if (isRunningStatus(next)) {
-      sessionBusyRef.current = true
-    } else {
-      sessionBusyRef.current = false
-    }
+    sessionBusyRef.current = isRunningStatus(next)
     sessionStatusRef.current = next
     setSessionStatus(next)
     if (known) {
@@ -154,21 +158,19 @@ export function useChatStream(
     }
   }, [])
 
+  const commitTerminalError = useCallback((value: boolean) => {
+    isErrorTerminalRef.current = value
+    setIsErrorTerminal(value)
+  }, [])
+
   const noteActivity = useCallback((kind: GoOnActivity) => {
     lastActivityAtRef.current = Date.now()
+    stallProbeCountRef.current = 0
     if (kind === 'delta' || kind === 'part') {
       setAutoRecoveryState(null)
     }
   }, [])
 
-  /**
-   * Unified automatic recovery engine:
-   * - If the turn has 0 output (`!turnHasAnyOutput`), automatically retries the turn (up to 5 times).
-   * - If the turn already has output (`turnHasAnyOutput`), NEVER deletes messages; automatically sends `go on` (up to 5 times).
-   * - Suppresses red error UI while auto-recovery is active (< 5 attempts).
-   * - Only surfaces a terminal error after 5 failed attempts or on a fatal non-retryable error.
-   * Returns `true` if an automatic recovery action was scheduled or is in flight.
-   */
   const maybeSendGoOn = useCallback(
     (rawErrorInput?: unknown): boolean | 'terminal' => {
       if (goOnFlightRef.current) return true
@@ -189,30 +191,27 @@ export function useChatStream(
 
       const lastMsg = currentMsgs[currentMsgs.length - 1]
       const rawErr = rawErrorInput ?? turn.lastAssistantMessage?.info.error
-      if (rawErr && isAbortError(rawErr)) {
+      if (rawErr && isExplicitUserAbortError(rawErr)) {
         return false
       }
 
-      // 1. Check repetition loop first
       if (turn.lastAssistantMessage && sanitizeMessageRepetition(turn.lastAssistantMessage).hasLoop) {
-        setIsErrorTerminal(true)
+        commitTerminalError(true)
         setAutoRecoveryState(null)
         setError(REPETITION_LOOP_ERROR_MESSAGE)
         noteTurnEnd('error')
         return 'terminal'
       }
 
-      // 2. Check fatal non-retryable errors (context overflow, invalid API key, quota)
       if (rawErr && isFatalNonRetryableError(rawErr)) {
         const fatalText = extractRelayErrorMessage(rawErr as any) || String(rawErr)
-        setIsErrorTerminal(true)
+        commitTerminalError(true)
         setAutoRecoveryState(null)
         setError(fatalText)
         noteTurnEnd('error')
         return 'terminal'
       }
 
-      // If a prompt or "go on" was just dispatched within the last 2.5s and no error fired, wait
       if (
         !rawErrorInput &&
         lastMsg?.info.role === 'user' &&
@@ -221,7 +220,7 @@ export function useChatStream(
         return false
       }
 
-      // 4. Branch A: Completely empty turn (0 characters, 0 tool calls emitted in this turn)
+      // Branch A: Completely empty turn (0 characters, 0 tool calls emitted in this turn)
       if (!turn.turnHasAnyOutput) {
         const lastAssistant = turn.lastAssistantMessage
         const rawCreated = Number(lastAssistant?.info.time?.created || 0)
@@ -244,7 +243,7 @@ export function useChatStream(
         const isEmptyFailure =
           fuse.kind === 'empty_response' ||
           fuse.kind === 'system_abort' ||
-          (Boolean(rawErr) && !isAbortError(rawErr)) ||
+          (Boolean(rawErr) && !isExplicitUserAbortError(rawErr)) ||
           (Boolean(turn.rootUserMessage) && !turn.lastAssistantMessage && !sessionBusyRef.current)
 
         if (!isEmptyFailure) return false
@@ -266,20 +265,15 @@ export function useChatStream(
           autoRetriedTurnKeyRef.current = turn.turnKey
           goOnFlightRef.current = true
           setError(null)
-          setIsErrorTerminal(false)
+          commitTerminalError(false)
           setAutoRecoveryState({
             attempt: nextAttempt,
             max: MAX_AUTO_RECOVERY_ATTEMPTS,
             mode: 'retry',
           })
 
-          // Strip transient error from the empty shell so no red card flashes during backoff
           if (turn.lastAssistantMessage?.info.error) {
-            const cleaned = messagesRef.current.map((m) =>
-              m.info.id === turn.lastAssistantMessage?.info.id
-                ? { ...m, info: { ...m.info, error: undefined } }
-                : m
-            )
+            const cleaned = stripAssistantErrors(messagesRef.current, turn.lastAssistantMessage.info.id)
             messagesRef.current = cleaned
             setMessages(cleaned)
           }
@@ -298,7 +292,6 @@ export function useChatStream(
             }
             const freshTurn = inspectCurrentTurnRecovery(messagesRef.current, GO_ON_TEXT)
             if (freshTurn.turnHasAnyOutput) {
-              // Content arrived in the meantime -> never delete; send go on instead
               const last = freshTurn.lastAssistantMessage
               const targetModel = freshTurn.rootUserMessage?.info.model || last?.info.model
               void sendPromptRef
@@ -320,18 +313,17 @@ export function useChatStream(
           return true
         }
 
-        // Empty-turn retries exhausted (>= 5 attempts)
         const errMsg =
           (rawErr ? extractRelayErrorMessage(rawErr as any) : null) ||
           (fuse.kind === 'system_abort' ? SYSTEM_ABORT_MESSAGE : EMPTY_RESPONSE_MESSAGE)
-        setIsErrorTerminal(true)
+        commitTerminalError(true)
         setAutoRecoveryState(null)
         setError(errMsg)
         noteTurnEnd('error')
         return 'terminal'
       }
 
-      // 5. Branch B: Turn already has output (>= 1 char or tool call) -> NEVER delete; auto-send 'go on'
+      // Branch B: Turn already has output (>= 1 char or tool call) -> NEVER delete; auto-send 'go on'
       const verdict = decideGoOn({
         lastActivityAt: lastActivityAtRef.current,
         now: Date.now(),
@@ -345,7 +337,7 @@ export function useChatStream(
 
       const needsGoOn =
         verdict.act === 'send' ||
-        (Boolean(rawErr) && !isAbortError(rawErr) && usedAttempts < MAX_AUTO_RECOVERY_ATTEMPTS)
+        (Boolean(rawErr) && !isExplicitUserAbortError(rawErr) && usedAttempts < MAX_AUTO_RECOVERY_ATTEMPTS)
 
       if (needsGoOn) {
         const nextAttempt = usedAttempts + 1
@@ -353,22 +345,14 @@ export function useChatStream(
         goOnSentRef.current = nextAttempt
         goOnFlightRef.current = true
         setError(null)
-        setIsErrorTerminal(false)
+        commitTerminalError(false)
         setAutoRecoveryState({
           attempt: nextAttempt,
           max: MAX_AUTO_RECOVERY_ATTEMPTS,
           mode: 'go_on',
         })
 
-        // Keep info.error in messagesRef so the 1500ms recheck (decideGoOn) still sees the relay error;
-        // only strip transient error from React UI state during backoff.
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.info.role === 'assistant' && m.info.error
-              ? { ...m, info: { ...m.info, error: undefined } }
-              : m
-          )
-        )
+        setMessages((prev) => stripAssistantErrors(prev))
 
         autoRecoveryTimerRef.current = setTimeout(() => {
           autoRecoveryTimerRef.current = null
@@ -384,7 +368,6 @@ export function useChatStream(
           }
           const latest = messagesRef.current[messagesRef.current.length - 1]
           if (latest && isGoOnUserMessage(latest, GO_ON_TEXT)) {
-            // External watcher (e.g. opencode_ctl.py) already sent 'go on'
             goOnFlightRef.current = false
             return
           }
@@ -403,19 +386,14 @@ export function useChatStream(
           const stillNeedsGoOn =
             recheck.act === 'send' ||
             (Boolean(rawErr) &&
-              !isAbortError(rawErr) &&
+              !isExplicitUserAbortError(rawErr) &&
               (!last || last.info.finish !== 'stop' || Boolean(last.info.error)))
           if (!stillNeedsGoOn) {
             goOnFlightRef.current = false
             setAutoRecoveryState(null)
             return
           }
-          // Strip transient error from messagesRef right before dispatching 'go on'
-          messagesRef.current = messagesRef.current.map((m) =>
-            m.info.role === 'assistant' && m.info.error
-              ? { ...m, info: { ...m.info, error: undefined } }
-              : m
-          )
+          messagesRef.current = stripAssistantErrors(messagesRef.current)
           const targetModel = freshTurn.rootUserMessage?.info.model || last?.info.model
           void sendPromptRef
             .current(GO_ON_TEXT, {
@@ -433,24 +411,55 @@ export function useChatStream(
 
       if (
         verdict.reason === 'cap' ||
-        (Boolean(rawErr) && !isAbortError(rawErr) && usedAttempts >= MAX_AUTO_RECOVERY_ATTEMPTS)
+        (Boolean(rawErr) && !isExplicitUserAbortError(rawErr) && usedAttempts >= MAX_AUTO_RECOVERY_ATTEMPTS)
       ) {
         const rawText = rawErr ? extractRelayErrorMessage(rawErr as any) : null
         const capMsg = rawText
           ? `已自动发送 go on / 重试 ${MAX_AUTO_RECOVERY_ATTEMPTS} 次仍失败：${rawText}`
           : SYSTEM_ABORT_MESSAGE
-        setIsErrorTerminal(true)
+        commitTerminalError(true)
         setAutoRecoveryState(null)
         setError(capMsg)
         noteTurnEnd('error')
         return 'terminal'
       }
 
-      // Clean stop
       setAutoRecoveryState(null)
-      setIsErrorTerminal(false)
+      commitTerminalError(false)
       setError(null)
       return false
+    },
+    [noteTurnEnd, commitTerminalError]
+  )
+
+  const finalizeCleanIdleTurn = useCallback(
+    (
+      activeId: string,
+      targetMsgs: Message[],
+      mergedOpts: {
+        commitCheckpointOnCleanAssistant?: boolean
+        markCleanWhenWasBusy?: boolean
+      },
+      precomputedFuseKind?: string
+    ) => {
+      const latest = targetMsgs[targetMsgs.length - 1]
+      const turnMsgId = latest?.info.id || '__empty__'
+      if (mergedOpts.commitCheckpointOnCleanAssistant) {
+        const fuseKind =
+          precomputedFuseKind ?? classifyEmptyIdleFuse({ lastMessage: latest, userAborted: false }).kind
+        if (fuseKind === 'none' && latest?.info.role === 'assistant' && !latest.info.error) {
+          if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
+            lastCleanTurnMsgIdRef.current = turnMsgId
+            void maybeCommitGitCheckpoint(activeId, targetMsgs)
+            noteTurnEnd('clean')
+          }
+        }
+      } else if (mergedOpts.markCleanWhenWasBusy) {
+        if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
+          lastCleanTurnMsgIdRef.current = turnMsgId
+          noteTurnEnd('clean')
+        }
+      }
     },
     [noteTurnEnd]
   )
@@ -466,7 +475,6 @@ export function useChatStream(
         fallbackFuseKind?: string
       }
     ) => {
-      // Merge options when both session.status(idle) and session.idle arrive back-to-back
       const prevOpts = reconcilingOptionsRef.current
       reconcilingOptionsRef.current = {
         abortedByUser: Boolean(prevOpts.abortedByUser || options?.abortedByUser),
@@ -488,7 +496,12 @@ export function useChatStream(
         .then((history) => {
           const mergedOpts = reconcilingOptionsRef.current
           if (currentSessionIdRef.current !== activeId) return
-          const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
+          const prevMsgs = messagesRef.current
+          const reconciled = preserveInFlightAssistantError(
+            reconcileHistoryWithOptimistic(history, prevMsgs),
+            prevMsgs,
+            goOnFlightRef.current
+          )
           messagesRef.current = reconciled
           setMessages(reconciled)
 
@@ -501,50 +514,17 @@ export function useChatStream(
           ) {
             return
           }
-          const recovering = maybeSendGoOn()
-          if (recovering === false) {
-            const latest = reconciled[reconciled.length - 1]
-            const turnMsgId = latest?.info.id || '__empty__'
-            if (mergedOpts.commitCheckpointOnCleanAssistant) {
-              const postFuse = classifyEmptyIdleFuse({ lastMessage: latest, userAborted: false })
-              if (postFuse.kind === 'none' && latest?.info.role === 'assistant' && !latest.info.error) {
-                if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
-                  lastCleanTurnMsgIdRef.current = turnMsgId
-                  void maybeCommitGitCheckpoint(activeId, reconciled)
-                  noteTurnEnd('clean')
-                }
-              }
-            } else if (mergedOpts.markCleanWhenWasBusy) {
-              if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
-                lastCleanTurnMsgIdRef.current = turnMsgId
-                noteTurnEnd('clean')
-              }
-            }
+          if (maybeSendGoOn() === false) {
+            finalizeCleanIdleTurn(activeId, reconciled, mergedOpts)
           }
         })
         .catch((err) => {
           const mergedOpts = reconcilingOptionsRef.current
           console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
           if (mergedOpts.abortedByUser || userAbortedRef.current || revertingRef.current) return
-          const recovering = maybeSendGoOn()
-          if (recovering === false) {
+          if (maybeSendGoOn() === false) {
             const fallbackMsgs = mergedOpts.fallbackMessages || messagesRef.current
-            const lastMsg = fallbackMsgs[fallbackMsgs.length - 1]
-            const turnMsgId = lastMsg?.info.id || '__empty__'
-            if (mergedOpts.commitCheckpointOnCleanAssistant) {
-              if (mergedOpts.fallbackFuseKind === 'none' && lastMsg?.info.role === 'assistant' && !lastMsg.info.error) {
-                if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
-                  lastCleanTurnMsgIdRef.current = turnMsgId
-                  void maybeCommitGitCheckpoint(activeId, fallbackMsgs)
-                  noteTurnEnd('clean')
-                }
-              }
-            } else if (mergedOpts.markCleanWhenWasBusy) {
-              if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
-                lastCleanTurnMsgIdRef.current = turnMsgId
-                noteTurnEnd('clean')
-              }
-            }
+            finalizeCleanIdleTurn(activeId, fallbackMsgs, mergedOpts, mergedOpts.fallbackFuseKind)
           }
         })
         .finally(() => {
@@ -555,120 +535,118 @@ export function useChatStream(
           }
         })
     },
-    [maybeSendGoOn, noteTurnEnd]
+    [maybeSendGoOn, finalizeCleanIdleTurn]
   )
 
-  const stopRepetitionLoop = useCallback((messageId: string) => {
-    if (repetitionArmedRef.current) return
-    repetitionArmedRef.current = true
-    setError(REPETITION_LOOP_ERROR_MESSAGE)
-    setMessages((prev) => prev.map((msg) => {
-      if (msg.info.id !== messageId) return msg
-      const { message, hasLoop } = sanitizeMessageRepetition(msg)
-      if (!hasLoop) return msg
-      return {
-        ...message,
-        info: {
-          ...message.info,
-          finish: message.info.finish || 'abort',
-          error: message.info.error || {
-            name: REPETITION_LOOP_ERROR_NAME,
-            message: REPETITION_LOOP_ERROR_MESSAGE,
-            data: { message: REPETITION_LOOP_ERROR_MESSAGE, kind: 'repetition_loop' },
-          },
-        },
-      }
-    }))
-    noteTurnEnd('error')
-    commitSessionStatus({ type: 'idle' })
-    const id = currentSessionIdRef.current
-    if (!id || id === '__draft__') return
-    void api.abortSession(id).catch((err) => {
-      console.error('Failed to abort repetition loop:', err)
-    })
-  }, [noteTurnEnd, commitSessionStatus])
+  const stopRepetitionLoop = useCallback(
+    (messageId: string) => {
+      if (repetitionArmedRef.current) return
+      repetitionArmedRef.current = true
+      setError(REPETITION_LOOP_ERROR_MESSAGE)
+      setMessages((prev) =>
+        stampRepetitionLoopOnMessage(
+          prev,
+          messageId,
+          REPETITION_LOOP_ERROR_NAME,
+          REPETITION_LOOP_ERROR_MESSAGE,
+          true
+        )
+      )
+      noteTurnEnd('error')
+      commitSessionStatus({ type: 'idle' })
+      const id = currentSessionIdRef.current
+      if (!id || id === '__draft__') return
+      void api.abortSession(id).catch((err) => {
+        console.error('Failed to abort repetition loop:', err)
+      })
+    },
+    [noteTurnEnd, commitSessionStatus]
+  )
 
-  // Load initial messages and todos when sessionId changes.
-  // Chrome stays "confirming" until GET /session/status answers, so a restore
-  // cannot paint the finished check or a stale retry banner first.
-  // A late snapshot cannot overwrite SSE, send, or abort.
-  const loadSessionData = useCallback(async (id: string) => {
-    if (currentSessionIdRef.current !== id) return
-    const peeked = api.peekMessages(id)
-    const statusEpoch = statusEpochRef.current
-    const applySnapshot = (status: SessionStatusPayload | null) => {
-      if (currentSessionIdRef.current !== id) return false
-      if (statusEpochRef.current !== statusEpoch) return false
-      if (!status) return false
-      // A send that already marked this session running wins over an immediate stale idle snapshot
-      // (only within the first 2.5s of dispatching prompt before backend records busy).
-      const isRecentSend = Date.now() - lastSendTimestampRef.current < 2500
-      if (status.type === 'idle' && sessionBusyRef.current && isRecentSend) {
-        setRunKnown(true)
-        return false
-      }
-      commitSessionStatus(status)
-      return true
-    }
-    const knownDir =
-      sessionDir ||
-      peeked?.[0]?.info.path?.root ||
-      peeked?.[0]?.info.path?.cwd
-    const statusPromise = api.getSessionStatus(id, knownDir).then((status) => {
-      applySnapshot(status)
-      return status
-    })
-    if (peeked) {
-      setMessages((prev) => reconcileHistoryWithOptimistic(peeked, prev))
-      setLoadedSessionId(id)
-      setLoading(false)
-    } else {
-      setLoading(true)
-    }
-    setError(null)
-    const todosPromise = api.getTodos(id)
-    try {
-      const history = await api.getMessages(id)
-      const runStatus = await statusPromise
+  const loadSessionData = useCallback(
+    async (id: string) => {
       if (currentSessionIdRef.current !== id) return
-      if (runStatus === null && statusEpochRef.current === statusEpoch) {
-        const last = history[history.length - 1]
-        if (last?.info.role === 'assistant') {
-          const probed = partitionAssistantTurn(last.parts, last.info, Date.now(), false)
-          if (probed.isLive) commitSessionStatus({ type: 'busy' })
+      const peeked = api.peekMessages(id)
+      const statusEpoch = statusEpochRef.current
+      const applySnapshot = (status: SessionStatusPayload | null) => {
+        if (currentSessionIdRef.current !== id) return false
+        if (statusEpochRef.current !== statusEpoch) return false
+        if (!status) return false
+        const isRecentSend = Date.now() - lastSendTimestampRef.current < 2500
+        if (status.type === 'idle' && sessionBusyRef.current && isRecentSend) {
+          setRunKnown(true)
+          return false
         }
+        commitSessionStatus(status)
+        return true
       }
-      if (currentSessionIdRef.current === id && statusEpochRef.current === statusEpoch) {
-        runKnownRef.current = true
-        setRunKnown(true)
-      }
-      setMessages((prev) => reconcileHistoryWithOptimistic(history, prev))
-      setLoadedSessionId(id)
-      setLoading(false)
-      const initialTodos = await todosPromise
-      if (currentSessionIdRef.current !== id) return
-      setTodos(initialTodos || [])
-      todosRef.current = initialTodos || []
-    } catch (err) {
-      if (currentSessionIdRef.current !== id) return
-      console.error('Failed to load session history:', err)
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      if (currentSessionIdRef.current === id) {
+      const knownDir =
+        sessionDir ||
+        peeked?.[0]?.info.path?.root ||
+        peeked?.[0]?.info.path?.cwd
+      const statusPromise = api.getSessionStatus(id, knownDir).then((status) => {
+        applySnapshot(status)
+        return status
+      })
+      if (peeked) {
+        setMessages((prev) => reconcileHistoryWithOptimistic(peeked, prev))
         setLoadedSessionId(id)
         setLoading(false)
-        if (statusEpochRef.current === statusEpoch) {
+      } else {
+        setLoading(true)
+      }
+      setError(null)
+      const todosPromise = api.getTodos(id)
+      try {
+        const history = await api.getMessages(id)
+        const runStatus = await statusPromise
+        if (currentSessionIdRef.current !== id) return
+        if (runStatus === null && statusEpochRef.current === statusEpoch) {
+          const last = history[history.length - 1]
+          if (last?.info.role === 'assistant') {
+            const probed = partitionAssistantTurn(last.parts, last.info, Date.now(), false)
+            if (probed.isLive) commitSessionStatus({ type: 'busy' })
+          }
+        }
+        if (currentSessionIdRef.current === id && statusEpochRef.current === statusEpoch) {
           runKnownRef.current = true
           setRunKnown(true)
         }
+        setMessages((prev) => {
+          const next = reconcileHistoryWithOptimistic(history, prev)
+          messagesRef.current = next
+          return next
+        })
+        if (lastActivityAtRef.current === 0) {
+          lastActivityAtRef.current = Date.now()
+        }
+        setLoadedSessionId(id)
+        setLoading(false)
+        const initialTodos = await todosPromise
+        if (currentSessionIdRef.current !== id) return
+        setTodos(initialTodos || [])
+        todosRef.current = initialTodos || []
+      } catch (err) {
+        if (currentSessionIdRef.current !== id) return
+        console.error('Failed to load session history:', err)
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        if (currentSessionIdRef.current === id) {
+          setLoadedSessionId(id)
+          setLoading(false)
+          if (statusEpochRef.current === statusEpoch) {
+            runKnownRef.current = true
+            setRunKnown(true)
+          }
+        }
       }
-    }
-  }, [commitSessionStatus])
+    },
+    [commitSessionStatus, sessionDir]
+  )
 
   useEffect(() => {
     currentSessionIdRef.current = sessionId
 
-    // If an in-flight prompt initiated this session switch, preserve optimistic messages and status!
     const isTransitioning = transitioningSessionIdRef.current === sessionId && Boolean(sessionId)
     if (isTransitioning) {
       transitioningSessionIdRef.current = null
@@ -680,13 +658,14 @@ export function useChatStream(
       setRunKnown(false)
       setError(null)
       setAutoRecoveryState(null)
-      setIsErrorTerminal(false)
+      commitTerminalError(false)
       setTurnEnd(null)
       userAbortedRef.current = false
       autoRecoveryCountRef.current = 0
       goOnSentRef.current = 0
       goOnFlightRef.current = false
       lastActivityAtRef.current = 0
+      stallProbeCountRef.current = 0
       reconcilingIdleInFlightRef.current = null
       reconcilingOptionsRef.current = {}
       lastCleanTurnMsgIdRef.current = null
@@ -709,8 +688,6 @@ export function useChatStream(
     }
     loadSessionData(sessionId)
 
-    // Ctrl+W then Ctrl+Shift+T restores a frozen page (bfcache). The painted
-    // checkmark or retry banner is stale until /session/status answers again.
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return
       const id = currentSessionIdRef.current
@@ -726,7 +703,6 @@ export function useChatStream(
       window.addEventListener('pageshow', onPageShow)
     }
 
-    // Subscribe to SSE events
     const unsubDelta = sseManager.onPartDelta((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
@@ -738,90 +714,7 @@ export function useChatStream(
         commitSessionStatus({ type: 'busy' })
       }
 
-      setMessages((prev) => {
-        let msgFound = false
-        const next = prev.map((msg) => {
-          if (msg.info.id !== data.messageID) return msg
-          msgFound = true
-
-          let partFound = false
-          const nextParts = msg.parts.map((p) => {
-            if (p.id !== data.partID) return p
-            partFound = true
-
-            if (p.type === 'text') {
-              return { ...p, text: (p as TextPart).text + data.delta }
-            }
-            if (p.type === 'reasoning') {
-              return { ...p, text: (p as ReasoningPart).text + data.delta }
-            }
-            return p
-          })
-
-          if (!partFound) {
-            // Part didn't exist yet, create text or reasoning part
-            const newPart: MessagePart =
-              data.field === 'reasoning'
-                ? {
-                    id: data.partID,
-                    sessionID: data.sessionID,
-                    messageID: data.messageID,
-                    type: 'reasoning',
-                    text: data.delta,
-                  }
-                : {
-                    id: data.partID,
-                    sessionID: data.sessionID,
-                    messageID: data.messageID,
-                    type: 'text',
-                    text: data.delta,
-                  }
-            nextParts.push(newPart)
-          }
-
-          return { ...msg, parts: nextParts }
-        })
-
-        const grown = next.find((msg) => msg.info.id === data.messageID)
-        if (grown && sanitizeMessageRepetition(grown).hasLoop) {
-          queueMicrotask(() => stopRepetitionLoop(data.messageID))
-        }
-
-        if (!msgFound) {
-          // If message itself is not in state yet, append a placeholder
-          const newPart: MessagePart =
-            data.field === 'reasoning'
-              ? {
-                  id: data.partID,
-                  sessionID: data.sessionID,
-                  messageID: data.messageID,
-                  type: 'reasoning',
-                  text: data.delta,
-                }
-              : {
-                  id: data.partID,
-                  sessionID: data.sessionID,
-                  messageID: data.messageID,
-                  type: 'text',
-                  text: data.delta,
-                }
-
-          return [
-            ...next,
-            {
-              info: {
-                id: data.messageID,
-                sessionID: data.sessionID,
-                role: 'assistant',
-                time: { created: Date.now() },
-              },
-              parts: [newPart],
-            },
-          ]
-        }
-
-        return next
-      })
+      setMessages((prev) => applyPartDeltaToMessages(prev, data, stopRepetitionLoop))
     })
 
     const unsubPartUpdated = sseManager.onPartUpdated((data) => {
@@ -835,61 +728,15 @@ export function useChatStream(
         messageId: cleanPart.messageID,
       })
 
-      setMessages((prev) => {
-        let msgFound = false
-        const next = prev.map((msg) => {
-          const isPendingMatch = pendingOptimisticIdRef.current && msg.info.id === pendingOptimisticIdRef.current
-          if (msg.info.id !== cleanPart.messageID && !isPendingMatch) return msg
-          msgFound = true
-
-          let partFound = false
-          const nextParts: MessagePart[] = []
-          let replacedOptimistic = false
-
-          for (const p of msg.parts) {
-            if (p.id === cleanPart.id) {
-              partFound = true
-              nextParts.push(cleanPart)
-            } else if ((p as any).isOptimistic && p.type === cleanPart.type && !replacedOptimistic) {
-              // Cleanly replace optimistic placeholder part with authoritative backend part
-              partFound = true
-              replacedOptimistic = true
-              nextParts.push(cleanPart)
-            } else {
-              nextParts.push(p)
-            }
-          }
-
-          if (!partFound) {
-            nextParts.push(cleanPart)
-          }
-
-          return { ...msg, parts: nextParts }
-        })
-
-        const grown = next.find((msg) => msg.info.id === cleanPart.messageID)
-        if (grown && sanitizeMessageRepetition(grown).hasLoop) {
-          queueMicrotask(() => stopRepetitionLoop(cleanPart.messageID))
-        }
-
-        if (!msgFound && cleanPart.messageID) {
-          const isUserPart = cleanPart.type === 'file'
-          return [
-            ...next,
-            {
-              info: normalizeMessageInfo({
-                id: cleanPart.messageID,
-                sessionID: data.sessionID,
-                role: isUserPart ? 'user' : 'assistant',
-                time: { created: Date.now() },
-              }),
-              parts: [cleanPart],
-            },
-          ]
-        }
-
-        return next
-      })
+      setMessages((prev) =>
+        applyPartUpdatedToMessages(
+          prev,
+          cleanPart,
+          data.sessionID,
+          pendingOptimisticIdRef.current,
+          stopRepetitionLoop
+        )
+      )
     })
 
     const unsubMsgUpdated = sseManager.onMessageUpdated((data) => {
@@ -898,37 +745,7 @@ export function useChatStream(
       noteActivity('message')
       const cleanInfo = normalizeMessageInfo(data.info)
 
-      setMessages((prev) => {
-        let found = false
-        const next = prev.map((msg) => {
-          if (msg.info.id !== cleanInfo.id) return msg
-          found = true
-          return { ...msg, info: mergeMessageInfo(msg.info, cleanInfo) }
-        })
-
-        if (!found) {
-          // Reconcile optimistic user message: swap it with the real backend message
-          // and align its parts' messageID so subsequent part.updated events match.
-          const pendingId = pendingOptimisticIdRef.current
-          if (pendingId && cleanInfo.role === 'user') {
-            pendingOptimisticIdRef.current = null
-            return next.map((msg) =>
-              msg.info.id === pendingId
-                ? {
-                    ...msg,
-                    info: mergeMessageInfo(msg.info, cleanInfo),
-                    parts: msg.parts.map((p) => ({
-                      ...p,
-                      messageID: cleanInfo.id,
-                    })),
-                  }
-                : msg
-            )
-          }
-          return [...next, { info: cleanInfo, parts: [] }]
-        }
-        return next
-      })
+      setMessages((prev) => applyMessageUpdatedToMessages(prev, cleanInfo, pendingOptimisticIdRef))
     })
 
     const unsubStatus = sseManager.onSessionStatus((data) => {
@@ -938,7 +755,6 @@ export function useChatStream(
       const wasBusyOnStatus = sessionBusyRef.current
       noteActivity('status')
 
-      // If daemon's internal retry loop exceeds 5 attempts, abort and surface terminal error
       if (
         data.status.type === 'retry' &&
         typeof data.status.attempt === 'number' &&
@@ -949,7 +765,7 @@ export function useChatStream(
         const msg =
           data.status.message ||
           `中转通道连续重试超过 ${MAX_AUTO_RECOVERY_ATTEMPTS} 次仍失败，已停止重试`
-        setIsErrorTerminal(true)
+        commitTerminalError(true)
         setAutoRecoveryState(null)
         setError(msg)
         noteTurnEnd('error')
@@ -965,30 +781,36 @@ export function useChatStream(
       }
     })
 
-    // SSE Error Fuse: break out of busy state immediately on backend errors
     const unsubError = sseManager.onSessionError((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
       noteActivity('error')
       commitSessionStatus({ type: 'idle' })
 
-      // User-initiated or backend abort is not a relay failure
-      if (userAbortedRef.current || isAbortError(data.error)) {
+      if (userAbortedRef.current || isExplicitUserAbortError(data.error)) {
         clearAutoRecoveryTimer()
         setError(null)
         setAutoRecoveryState(null)
-        setIsErrorTerminal(false)
+        commitTerminalError(false)
         noteTurnEnd('user')
         return
       }
 
       const errorMsg = extractRelayErrorMessage(data.error) || 'Session error occurred'
-      if (isAbortError(errorMsg)) {
+      if (isExplicitUserAbortError(errorMsg)) {
         clearAutoRecoveryTimer()
         setError(null)
         setAutoRecoveryState(null)
-        setIsErrorTerminal(false)
+        commitTerminalError(false)
         noteTurnEnd('user')
+        return
+      }
+
+      if (isAbortError(data.error) || isAbortError(errorMsg)) {
+        if (goOnFlightRef.current) {
+          return
+        }
+        reconcileIdleHistory(activeId, { markCleanWhenWasBusy: false })
         return
       }
 
@@ -997,12 +819,7 @@ export function useChatStream(
         message: errorMsg,
         data: data.error?.data || {},
       }
-      // Stamp error for decision inspection; maybeSendGoOn will strip it from UI state if < 5 attempts
-      const stamped = messagesRef.current.map((msg, index, all) => {
-        if (index !== all.length - 1) return msg
-        if (msg.info.role !== 'assistant' || msg.info.error) return msg
-        return { ...msg, info: { ...msg.info, error: relayError } }
-      })
+      const stamped = stampRelayErrorOnLastAssistant(messagesRef.current, relayError)
       messagesRef.current = stamped
       setMessages(stamped)
       queueMicrotask(() => {
@@ -1010,7 +827,6 @@ export function useChatStream(
       })
     })
 
-    // Safely finalize to idle when backend signals session.idle + Empty-idle Fuse
     const unsubIdle = sseManager.onSessionIdle((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
@@ -1023,7 +839,7 @@ export function useChatStream(
       if (abortedByUser) {
         clearAutoRecoveryTimer()
         setAutoRecoveryState(null)
-        setIsErrorTerminal(false)
+        commitTerminalError(false)
         setError(null)
         noteTurnEnd('user')
         return
@@ -1037,30 +853,13 @@ export function useChatStream(
       })
 
       if (fuse.kind === 'repetition_loop' && lastMsg) {
-        setIsErrorTerminal(true)
+        commitTerminalError(true)
         setAutoRecoveryState(null)
         setError(fuse.message)
         noteTurnEnd('error')
-        setMessages((prev) => {
-          if (prev.length === 0) return prev
-          const last = prev[prev.length - 1]
-          if (last.info.id !== lastMsg.info.id || last.info.error) return prev
-          const { message } = sanitizeMessageRepetition(last)
-          return [
-            ...prev.slice(0, -1),
-            {
-              ...message,
-              info: {
-                ...message.info,
-                error: {
-                  name: fuse.errorName,
-                  message: fuse.message,
-                  data: { message: fuse.message, kind: fuse.kind },
-                },
-              },
-            },
-          ]
-        })
+        setMessages((prev) =>
+          stampRepetitionLoopOnMessage(prev, lastMsg.info.id, fuse.errorName, fuse.message, false)
+        )
         return
       }
 
@@ -1072,7 +871,6 @@ export function useChatStream(
       })
     })
 
-    // Subscribe to message.removed to synchronize deletions
     const unsubRemoved = sseManager.onMessageRemoved((data) => {
       const activeId = currentSessionIdRef.current || sessionId
       if (data.sessionID !== activeId) return
@@ -1087,34 +885,112 @@ export function useChatStream(
       }
     })
 
-    // Ninety seconds of nothing. A 3s pause is a tool or a thought, not a death.
-    // Confirm with the daemon before nudging: if the daemon is still busy/retrying
-    // (e.g. long reasoning pause on gpt-6-astra), refresh the activity clock and wait;
-    // only reconcile and recover when the daemon has actually transitioned to idle.
     const silenceTimer = window.setInterval(() => {
       const activeId = currentSessionIdRef.current || sessionId
       if (!activeId || activeId === '__draft__') return
-      if (!isRunningStatus(sessionStatusRef.current)) return
-      if (goOnFlightRef.current) return
-      const quietFor = Date.now() - lastActivityAtRef.current
+      if (
+        goOnFlightRef.current ||
+        userAbortedRef.current ||
+        revertingRef.current ||
+        isSendingRef.current ||
+        isErrorTerminalRef.current ||
+        !runKnownRef.current
+      ) {
+        return
+      }
+      const now = Date.now()
+      const baseActivity = lastActivityAtRef.current || now
+      if (lastActivityAtRef.current === 0) {
+        lastActivityAtRef.current = now
+      }
+      const quietFor = now - baseActivity
+
+      if (!isRunningStatus(sessionStatusRef.current)) {
+        if (quietFor < 15_000) return
+        const turn = inspectCurrentTurnRecovery(messagesRef.current, GO_ON_TEXT)
+        if (!turn.rootUserMessage && messagesRef.current.length === 0) return
+        const usedAttempts = Math.max(
+          autoRecoveryCountRef.current,
+          goOnSentRef.current,
+          turn.goOnCount
+        )
+        if (usedAttempts >= MAX_AUTO_RECOVERY_ATTEMPTS) return
+        const idleVerdict = decideGoOn({
+          lastActivityAt: baseActivity,
+          now,
+          runKnown: true,
+          daemonIdle: true,
+          userAborted: userAbortedRef.current,
+          sentThisTurn: usedAttempts,
+          messages: messagesRef.current,
+          todos: todosRef.current,
+        })
+        const needsEmptyRetry =
+          !turn.turnHasAnyOutput &&
+          Boolean(turn.rootUserMessage) &&
+          classifyEmptyIdleFuse({
+            lastMessage: turn.lastAssistantMessage,
+            userAborted: userAbortedRef.current,
+          }).kind !== 'none'
+        if (idleVerdict.act === 'send' || needsEmptyRetry) {
+          lastActivityAtRef.current = now
+          reconcileIdleHistory(activeId, { markCleanWhenWasBusy: false })
+        }
+        return
+      }
+
       if (quietFor < GO_ON_SILENCE_MS) return
       const askedAt = lastActivityAtRef.current
       const activeDir =
         sessionDir ||
         messagesRef.current[0]?.info.path?.root ||
         messagesRef.current[0]?.info.path?.cwd
-      void api.getSessionStatus(activeId, activeDir).then((status) => {
+      void Promise.all([
+        api.getSessionStatus(activeId, activeDir),
+        api.getMessages(activeId, { fresh: true }).catch(() => null),
+      ]).then(([status, freshHistory]) => {
         if (!status || currentSessionIdRef.current !== activeId) return
         if (lastActivityAtRef.current !== askedAt) return
         commitSessionStatus(status)
         if (!isRunningStatus(status)) {
-          // Backend has transitioned to idle while silence timer was running.
-          // Trigger authoritative history reconciliation to recover from missed SSE idle events.
+          stallProbeCountRef.current = 0
           reconcileIdleHistory(activeId, { markCleanWhenWasBusy: true })
           return
         }
-        // Daemon explicitly confirms the turn is still running (e.g. silent reasoning or step retry).
-        // Advance activity timestamp so we re-probe after the next silence window without injecting "go on".
+        const prevSig = messageProgressSignature(messagesRef.current)
+        const nextSig = freshHistory ? messageProgressSignature(freshHistory) : prevSig
+        if (freshHistory && nextSig !== prevSig) {
+          const reconciled = reconcileHistoryWithOptimistic(freshHistory, messagesRef.current)
+          messagesRef.current = reconciled
+          setMessages(reconciled)
+          stallProbeCountRef.current = 0
+          lastActivityAtRef.current = Date.now()
+          return
+        }
+        const checkMsgs = freshHistory || messagesRef.current
+        const lastMsg = checkMsgs[checkMsgs.length - 1]
+        const toolRunning =
+          lastMsg?.info.role === 'assistant' &&
+          lastMsg.parts.some((p) => p.type === 'tool' && (p as any).state?.status === 'running')
+        if (toolRunning || status.type === 'retry') {
+          stallProbeCountRef.current = 0
+          lastActivityAtRef.current = Date.now()
+          return
+        }
+        stallProbeCountRef.current += 1
+        if (stallProbeCountRef.current >= 2) {
+          stallProbeCountRef.current = 0
+          lastActivityAtRef.current = Date.now()
+          void api
+            .abortSession(activeId)
+            .catch(() => {})
+            .finally(() => {
+              if (currentSessionIdRef.current !== activeId) return
+              commitSessionStatus({ type: 'idle' })
+              reconcileIdleHistory(activeId, { markCleanWhenWasBusy: true })
+            })
+          return
+        }
         lastActivityAtRef.current = Date.now()
       })
     }, 5_000)
@@ -1136,7 +1012,19 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop, noteActivity, maybeSendGoOn, reconcileIdleHistory, clearAutoRecoveryTimer])
+  }, [
+    sessionId,
+    sessionDir,
+    loadSessionData,
+    noteTurnEnd,
+    commitSessionStatus,
+    commitTerminalError,
+    stopRepetitionLoop,
+    noteActivity,
+    maybeSendGoOn,
+    reconcileIdleHistory,
+    clearAutoRecoveryTimer,
+  ])
 
   const sendPrompt = useCallback(
     async (
@@ -1156,13 +1044,11 @@ export function useChatStream(
         return false
       }
 
-      // Mark the active session ID ref immediately so incoming SSE events are accepted without race conditions
       currentSessionIdRef.current = effectiveSessionId
       if (targetSessionId) {
         transitioningSessionIdRef.current = targetSessionId
       }
 
-      // Optimistically add user message to timeline using unified builder
       const userMsg = buildOptimisticMessage({
         sessionId: effectiveSessionId,
         text,
@@ -1182,7 +1068,7 @@ export function useChatStream(
         autoRecoveryCountRef.current = 0
         goOnSentRef.current = 0
         setAutoRecoveryState(null)
-        setIsErrorTerminal(false)
+        commitTerminalError(false)
       }
       commitSessionStatus({ type: 'busy' })
       setError(null)
@@ -1210,47 +1096,48 @@ export function useChatStream(
         setIsSending(false)
       }
     },
-    [sessionId, noteTurnEnd, commitSessionStatus, noteActivity, clearAutoRecoveryTimer]
+    [sessionId, noteTurnEnd, commitSessionStatus, commitTerminalError, noteActivity, clearAutoRecoveryTimer]
   )
 
   useEffect(() => {
     sendPromptRef.current = sendPrompt
   }, [sendPrompt])
 
-  const abort = useCallback(async (opts?: { preempt?: boolean }) => {
-    if (!sessionId) return
-    clearAutoRecoveryTimer()
-    setAutoRecoveryState(null)
-    setIsErrorTerminal(false)
-    const running = sessionBusyRef.current
-    if (!running && opts?.preempt) return
-    if (!opts?.preempt) {
-      userAbortedRef.current = true
-    }
-    setError(null)
-    commitSessionStatus({ type: 'idle' })
-    if (running && !opts?.preempt) {
-      noteTurnEnd('user')
-    } else {
-      sessionBusyRef.current = false
-    }
-    try {
-      await api.abortSession(sessionId)
-    } catch (err) {
-      console.error('Failed to abort session:', err)
-    }
-  }, [sessionId, noteTurnEnd, commitSessionStatus, clearAutoRecoveryTimer])
+  const abort = useCallback(
+    async (opts?: { preempt?: boolean }) => {
+      if (!sessionId) return
+      clearAutoRecoveryTimer()
+      setAutoRecoveryState(null)
+      commitTerminalError(false)
+      const running = sessionBusyRef.current
+      if (!running && opts?.preempt) return
+      if (!opts?.preempt) {
+        userAbortedRef.current = true
+      }
+      setError(null)
+      commitSessionStatus({ type: 'idle' })
+      if (running && !opts?.preempt) {
+        noteTurnEnd('user')
+      } else {
+        sessionBusyRef.current = false
+      }
+      try {
+        await api.abortSession(sessionId)
+      } catch (err) {
+        console.error('Failed to abort session:', err)
+      }
+    },
+    [sessionId, noteTurnEnd, commitSessionStatus, commitTerminalError, clearAutoRecoveryTimer]
+  )
 
   const retry = useCallback(async () => {
     setError(null)
-    setIsErrorTerminal(false)
+    commitTerminalError(false)
     if (!sessionId) return
 
     const msgs = messagesRef.current
     const turn = inspectCurrentTurnRecovery(msgs, GO_ON_TEXT)
 
-    // HARD INVARIANT: Never delete messages if the assistant has already output >= 1 character or tool call!
-    // Route directly to sending "go on" instead.
     if (turn.turnHasAnyOutput) {
       const last = turn.lastAssistantMessage
       await sendPrompt(GO_ON_TEXT, {
@@ -1279,53 +1166,15 @@ export function useChatStream(
     }
 
     const lastUserMsg = msgs[lastUserIndex]
-    const subsequentAssistantMsgs = msgs.slice(lastUserIndex + 1).filter((m) => m.info.role === 'assistant')
-
-    // 0. Abort any lingering in-flight stream on the backend before deleting messages
-    // so an active generator cannot re-upsert deleted turn messages into SQLite.
     await api.abortSession(sessionId).catch(() => {})
 
-    // 0b. Fetch authoritative backend history so we delete real persisted msg_... IDs
-    // even when retry() triggers before SSE replaced the local optimistic usr_... ID.
-    const assistantIdsToDelete = new Set<string>(
-      subsequentAssistantMsgs.map((m) => m.info.id).filter((id) => !id.startsWith('usr_'))
-    )
-    const userIdsToDelete = new Set<string>(
-      lastUserMsg.info.id.startsWith('usr_') ? [] : [lastUserMsg.info.id]
-    )
-    const allRemovedIds = new Set<string>([
-      lastUserMsg.info.id,
-      ...subsequentAssistantMsgs.map((m) => m.info.id),
-    ])
-
     const freshHistory = await api.getMessages(sessionId, { fresh: true }).catch(() => null)
-    if (freshHistory && freshHistory.length > 0) {
-      let backendUserIdx = -1
-      for (let i = freshHistory.length - 1; i >= 0; i--) {
-        if (freshHistory[i].info.role === 'user') {
-          backendUserIdx = i
-          break
-        }
-      }
-      if (backendUserIdx !== -1) {
-        const backendUserMsg = freshHistory[backendUserIdx]
-        const matchesUser =
-          backendUserMsg.info.id === lastUserMsg.info.id ||
-          lastUserMsg.info.id.startsWith('usr_')
-        if (matchesUser) {
-          userIdsToDelete.add(backendUserMsg.info.id)
-          allRemovedIds.add(backendUserMsg.info.id)
-          for (const m of freshHistory.slice(backendUserIdx + 1)) {
-            if (m.info.role === 'assistant') {
-              assistantIdsToDelete.add(m.info.id)
-              allRemovedIds.add(m.info.id)
-            }
-          }
-        }
-      }
-    }
+    const { assistantIdsToDelete, userIdsToDelete, allRemovedIds } = collectRetryDeletionIds(
+      msgs,
+      lastUserIndex,
+      freshHistory
+    )
 
-    // 1. Physically delete failed/empty assistant messages from backend SQLite
     for (const aId of assistantIdsToDelete) {
       try {
         await api.deleteMessage(sessionId, aId)
@@ -1334,7 +1183,6 @@ export function useChatStream(
       }
     }
 
-    // 2. Also delete the old user message from backend SQLite to prevent duplicate user turns
     for (const uId of userIdsToDelete) {
       try {
         await api.deleteMessage(sessionId, uId)
@@ -1347,10 +1195,8 @@ export function useChatStream(
       pendingOptimisticIdRef.current = null
     }
 
-    // 3. Immediately strip the failed assistant messages and old user message locally
     setMessages((prev) => prev.filter((m) => !allRemovedIds.has(m.info.id)))
 
-    // 4. Re-dispatch the prompt cleanly without residue
     const textParts = lastUserMsg.parts.filter((p) => p.type === 'text') as TextPart[]
     const fileParts = lastUserMsg.parts.filter((p) => p.type === 'file') as FilePart[]
     const text = textParts.map((p) => p.text).join('\n')
@@ -1372,107 +1218,28 @@ export function useChatStream(
       attachments,
       isAutoRetry: true,
     })
-  }, [sessionId, sendPrompt, loadSessionData])
+  }, [sessionId, sendPrompt, loadSessionData, commitTerminalError])
 
   useEffect(() => {
     retryRef.current = retry
   }, [retry])
 
-  const [reverting, setReverting] = useState<boolean>(false)
-
-  /**
-   * Revert session to a specific message using OpenCode daemon native atomic rollback
-   */
-  const revertToMessage = useCallback(
-    async (
-      messageId: string,
-      options?: { mode?: RevertMode; partID?: string }
-    ) => {
-      if (!sessionId) {
-        console.warn('[Revert:Hook] Cannot revert: No active session')
-        return { ok: false, error: 'No active session' }
-      }
-      clearAutoRecoveryTimer()
-      setAutoRecoveryState(null)
-      setIsErrorTerminal(false)
-      revertingRef.current = true
-      setReverting(true)
-
-      // If session is actively generating or retrying, abort it first so the daemon releases the session prompt lock
-      if (sessionBusyRef.current || isRunningStatus(sessionStatusRef.current)) {
-        console.log('[Revert:Hook] Active prompt/retry in flight during revert, aborting session first:', sessionId)
-        userAbortedRef.current = true
-        try {
-          await api.abortSession(sessionId)
-        } catch (err) {
-          console.warn('[Revert:Hook] Pre-revert abort warning:', err)
-        }
-        sessionBusyRef.current = false
-        commitSessionStatus({ type: 'idle' })
-        setError(null)
-      }
-
-      const effectiveDir = sessionDir || messagesRef.current[0]?.info.path?.cwd
-      console.log('[Revert:Hook] revertToMessage called:', {
-        sessionId,
-        messageId,
-        options,
-        effectiveDir,
-        messagesCount: messagesRef.current.length,
-      })
-      try {
-        const result = await executeRevertWithTimeout(
-          {
-            sessionId,
-            messageId,
-            mode: options?.mode || 'both',
-            partID: options?.partID,
-            messages: messagesRef.current,
-            sessionDir: effectiveDir,
-          },
-          {
-            revertSession: (id, msgId, opts) => api.revertSession(id, msgId, opts),
-            unrevertSession: (id) => api.unrevertSession(id),
-            summarizeSession: (id) => api.summarizeSession(id),
-            rollbackFiles: (actions) => postExternalFileRollback(actions),
-            reloadSession: (id) => loadSessionData(id),
-            onSessionUpdate,
-          }
-        )
-        console.log('[Revert:Hook] executeRevertWithTimeout returned:', result)
-        return result
-      } catch (err) {
-        console.error('[Revert:Hook] Unexpected error in revertToMessage:', err)
-        return { ok: false, error: err instanceof Error ? err.message : String(err) }
-      } finally {
-        revertingRef.current = false
-        setReverting(false)
-      }
-    },
-    [sessionId, loadSessionData, onSessionUpdate, sessionDir, clearAutoRecoveryTimer, commitSessionStatus]
-  )
-
-  /**
-   * Restore all previously reverted messages and file state
-   */
-  const unrevert = useCallback(async () => {
-    if (!sessionId) return { ok: false, error: 'No active session' }
-    clearAutoRecoveryTimer()
-    revertingRef.current = true
-    setReverting(true)
-    try {
-      const updatedSession = await withRevertTimeout(api.unrevertSession(sessionId))
-      onSessionUpdate?.(sessionId, { revert: undefined })
-      await loadSessionData(sessionId)
-      return { ok: true, session: updatedSession }
-    } catch (err) {
-      console.error('Failed to unrevert session:', err)
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    } finally {
-      revertingRef.current = false
-      setReverting(false)
-    }
-  }, [sessionId, loadSessionData, onSessionUpdate, clearAutoRecoveryTimer])
+  const { reverting, revertToMessage, unrevert } = useChatRevert({
+    sessionId,
+    sessionDir,
+    messagesRef,
+    sessionBusyRef,
+    sessionStatusRef,
+    userAbortedRef,
+    revertingRef,
+    clearAutoRecoveryTimer,
+    setAutoRecoveryState,
+    commitTerminalError,
+    commitSessionStatus,
+    setError,
+    loadSessionData,
+    onSessionUpdate,
+  })
 
   return {
     messages,

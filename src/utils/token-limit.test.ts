@@ -89,8 +89,8 @@ describe('Token Limit & Model Profile Resolution', () => {
 
   test('getTokenColorClasses returns appropriate styles for each threshold', () => {
     const green = getTokenColorClasses('green')
-    assert.equal(green.stroke, '#22c55e')
-    assert.match(green.text, /text-emerald/)
+    assert.equal(green.stroke, '#38bdf8')
+    assert.match(green.text, /text-sky/)
 
     const yellow = getTokenColorClasses('yellow')
     assert.equal(yellow.stroke, '#eab308')

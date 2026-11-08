@@ -363,7 +363,7 @@ export function BlueprintActionMenu(props: BlueprintActionMenuProps) {
                     data-testid={`action-item-${item.kind}`}
                   >
                     {item.kind === "branch" ? (
-                      <GitBranch className="w-4 h-4 text-orange-400 shrink-0" />
+                      <GitBranch className="w-4 h-4 text-sky-400 shrink-0" />
                     ) : (
                       <PlusCircle className="w-4 h-4 text-sky-400 shrink-0" />
                     )}

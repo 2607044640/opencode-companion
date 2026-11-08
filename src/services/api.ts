@@ -419,6 +419,35 @@ export function normalizeMessageInfo(raw: any): MessageInfo {
   }
 }
 
+export function isExplicitUserAbortError(err: any): boolean {
+  if (!err) return false
+  if (typeof err === 'string') {
+    const s = err.trim().toLowerCase()
+    return (
+      s === 'user abort' ||
+      s === 'user aborted' ||
+      s.includes('aborted by user')
+    )
+  }
+  const name = String(err.name || '').toLowerCase()
+  const msg = String(err.message || '').trim().toLowerCase()
+  const dataMsg = String(err.data?.message || err.data?.error || '').trim().toLowerCase()
+  if (name === 'useraborterror') {
+    return true
+  }
+  if (
+    msg === 'user abort' ||
+    msg === 'user aborted' ||
+    msg.includes('aborted by user') ||
+    dataMsg === 'user abort' ||
+    dataMsg === 'user aborted' ||
+    dataMsg.includes('aborted by user')
+  ) {
+    return true
+  }
+  return false
+}
+
 export function isAbortError(err: any): boolean {
   if (!err) return false
   if (typeof err === 'string') {

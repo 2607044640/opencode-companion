@@ -258,7 +258,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           }}
           className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none relative ${
             isOpen
-              ? 'bg-[#1e222a] border border-zinc-500 text-amber-300'
+              ? 'bg-[#1e222a] border border-zinc-500 text-sky-300'
               : 'bg-[#14161c] hover:bg-[#1c1f26] border border-[#272a31] text-zinc-300 hover:text-white'
           }`}
           title={`中转站额度与账单监视器: ${summary.hasProviders ? summary.totalFormatted : '中转额度'}`}
@@ -271,8 +271,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                 summary.hasError
                   ? 'bg-rose-500'
                   : summary.isLoading
-                  ? 'bg-amber-400 animate-ping'
-                  : 'bg-emerald-400'
+                  ? 'bg-sky-400 animate-ping'
+                  : 'bg-sky-400'
               }`}
             />
           )}
@@ -302,15 +302,15 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           {summary.hasProviders && (
             <span className="relative flex h-1.5 w-1.5 ml-0.5">
               {summary.isLoading ? (
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
               ) : null}
               <span
                 className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
                   summary.hasError
                     ? 'bg-rose-500'
                     : summary.isLoading
-                    ? 'bg-amber-400'
-                    : 'bg-emerald-400'
+                    ? 'bg-sky-400'
+                    : 'bg-sky-400'
                 }`}
               />
             </span>
@@ -346,7 +346,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                   title="刷新全部中转站额度 (应用开启时每10分钟自动刷新)"
                 >
                   <RefreshCw
-                    className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin text-amber-400' : ''}`}
+                    className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin text-sky-400' : ''}`}
                   />
                 </button>
               )}
@@ -380,7 +380,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                   setIsOpen(false)
                   onOpenSettings?.()
                 }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors cursor-pointer shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium transition-colors cursor-pointer shadow-sm"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>添加中转站</span>
@@ -404,8 +404,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                             isItemError
                               ? 'bg-rose-500'
                               : isItemLoading
-                              ? 'bg-amber-400 animate-pulse'
-                              : 'bg-emerald-400'
+                              ? 'bg-sky-400 animate-pulse'
+                              : 'bg-sky-400'
                           }`}
                         />
                         <span className="text-xs font-medium text-zinc-200 truncate" title={p.name}>
@@ -413,7 +413,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                         </span>
                       </div>
 
-                      <div className="text-xs font-mono font-semibold text-emerald-400 shrink-0">
+                      <div className="text-xs font-mono font-semibold text-sky-300 shrink-0">
                         {formatBalance(p.balance, p.currency)}
                       </div>
                     </div>
@@ -437,7 +437,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                             href={p.redeemUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-0.5 text-blue-400 hover:text-blue-300 hover:underline"
+                            className="flex items-center gap-0.5 text-sky-400 hover:text-sky-300 hover:underline"
                             title="前往充值或兑换点卡"
                           >
                             <span>兑换</span>
@@ -452,7 +452,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                           title="刷新此中转站余额"
                         >
                           <RefreshCw
-                            className={`w-2.5 h-2.5 ${isItemLoading ? 'animate-spin text-amber-400' : ''}`}
+                            className={`w-2.5 h-2.5 ${isItemLoading ? 'animate-spin text-sky-400' : ''}`}
                           />
                         </button>
                       </div>
@@ -472,7 +472,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                   setIsOpen(false)
                   onOpenSettings?.()
                 }}
-                className="text-blue-400 hover:text-blue-300 font-medium hover:underline flex items-center gap-1 cursor-pointer"
+                className="text-sky-400 hover:text-sky-300 font-medium hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <span>管理中转站</span>
               </button>

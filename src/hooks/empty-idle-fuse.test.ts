@@ -62,6 +62,18 @@ describe('empty-idle-fuse', () => {
     assert.equal(verdict.kind, 'user_abort')
   })
 
+  it('classifies generic backend MessageAbortedError with userAborted=false as system_abort, not user_abort', () => {
+    const verdict = classifyEmptyIdleFuse({
+      lastMessage: assistant({
+        finish: undefined,
+        parts: [],
+        error: { name: 'MessageAbortedError', data: { message: 'The operation was aborted' } },
+      }),
+      userAborted: false,
+    })
+    assert.equal(verdict.kind, 'system_abort')
+  })
+
   it('ignores abort when the turn already has content and no repetition', () => {
     const msg = assistant({
       finish: 'abort',

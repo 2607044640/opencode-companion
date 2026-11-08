@@ -57,13 +57,13 @@ export const DaemonStatusDot: React.FC<DaemonStatusDotProps> = ({
         <span className="relative flex h-2 w-2 items-center justify-center">
           {state === 'connected' ? (
             <>
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-25" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-400" />
             </>
           ) : state === 'reconnecting' ? (
             <>
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-400" />
             </>
           ) : (
             <>
@@ -78,7 +78,7 @@ export const DaemonStatusDot: React.FC<DaemonStatusDotProps> = ({
           <span
             className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border transition-colors flex items-center gap-1 ${
               state === 'reconnecting'
-                ? 'bg-amber-950/40 border-amber-800/60 text-amber-300'
+                ? 'bg-sky-950/40 border-sky-800/60 text-sky-300'
                 : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
             }`}
           >
@@ -102,9 +102,9 @@ export const DaemonStatusDot: React.FC<DaemonStatusDotProps> = ({
           <span
             className={`w-1.5 h-1.5 rounded-full ${
               state === 'connected'
-                ? 'bg-emerald-400'
+                ? 'bg-sky-400'
                 : state === 'reconnecting'
-                ? 'bg-amber-400'
+                ? 'bg-sky-400'
                 : 'bg-rose-500'
             }`}
           />

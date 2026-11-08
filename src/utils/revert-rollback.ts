@@ -1,10 +1,20 @@
 import type { Message, ToolPart } from '../types/opencode'
 import {
   displayName,
+  isMutationToolName,
   type RevertFileDiff,
   type RevertFileStatus,
   type RollbackAction,
 } from './revert-classify'
+
+function isValidRevertSnapshot(
+  snapshot: unknown,
+  sessionID: string
+): snapshot is { version: 1; session: string; call: string } {
+  if (!snapshot || typeof snapshot !== 'object') return false
+  const s = snapshot as { version?: unknown; session?: unknown; call?: unknown }
+  return s.version === 1 && s.session === sessionID && typeof s.call === 'string'
+}
 
 export function mergeRevertDiffs(
   daemonDiffs: readonly {
@@ -136,11 +146,11 @@ export function collectRollbackActions(
   for (const message of messages.slice(targetIndex)) {
     for (const rawPart of message.parts) {
       const part = rawPart as ToolPart
-      if (part.type !== 'tool' || !['edit', 'write', 'apply_patch', 'patch', 'write_to_file', 'replace_file_content', 'create'].includes(String(part.tool))) continue
+      if (part.type !== 'tool' || !isMutationToolName(part.tool)) continue
       const status = part.state?.status
+      const snapshot = part.state?.metadata?.revertSnapshot
       if (status !== 'completed') {
-        const snapshot = part.state?.metadata?.revertSnapshot
-        if (snapshot && snapshot.version === 1 && snapshot.session === message.info.sessionID && typeof snapshot.call === 'string') {
+        if (isValidRevertSnapshot(snapshot, message.info.sessionID)) {
           if (!skippedCalls.has(snapshot.call)) {
             actions.push({ kind: 'snapshot', session: snapshot.session, call: snapshot.call })
           }
@@ -153,8 +163,7 @@ export function collectRollbackActions(
         }
         throw new Error('Revert cannot proceed while a mutation is unfinished or failed; inspect its snapshot first')
       }
-      const snapshot = part.state?.metadata?.revertSnapshot
-      if (!snapshot || snapshot.version !== 1 || snapshot.session !== message.info.sessionID || typeof snapshot.call !== 'string') {
+      if (!isValidRevertSnapshot(snapshot, message.info.sessionID)) {
         throw new Error('Complete pre-mutation snapshot unavailable. Historical tool text and Git HEAD cannot safely restore this change.')
       }
       if (skippedCalls.has(snapshot.call)) {

@@ -154,11 +154,11 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#21242b]">
         <div>
           <div className="flex items-center gap-2">
-            <Archive className="w-5 h-5 text-amber-400" />
+            <Archive className="w-5 h-5 text-sky-400" />
             <h3 className="text-sm font-semibold text-zinc-100">
               {isZh ? '已归档会话管理' : 'Archived Conversations'}
             </h3>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-medium bg-amber-950/60 text-amber-300 border border-amber-800/50">
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-medium bg-sky-950/60 text-sky-300 border border-sky-800/50">
               {archivedIds.length}
             </span>
           </div>
@@ -173,7 +173,7 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
           <button
             type="button"
             onClick={handleRestoreAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1d2028] hover:bg-amber-950/40 text-zinc-300 hover:text-amber-300 border border-[#2b2f3a] hover:border-amber-700/50 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1d2028] hover:bg-sky-950/40 text-zinc-300 hover:text-sky-300 border border-[#2b2f3a] hover:border-sky-700/50 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>{isZh ? '全部恢复' : 'Restore All'}</span>
@@ -190,7 +190,7 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={isZh ? '搜索已归档会话标题或目录...' : 'Search archived sessions...'}
-            className="w-full bg-[#13151b] text-zinc-200 pl-9 pr-3 py-2 text-xs rounded-lg border border-[#232731] focus:outline-none focus:border-amber-500/70 transition-colors placeholder:text-zinc-500"
+            className="w-full bg-[#13151b] text-zinc-200 pl-9 pr-3 py-2 text-xs rounded-lg border border-[#232731] focus:outline-none focus:border-sky-500/70 transition-colors placeholder:text-zinc-500"
           />
         </div>
       )}
@@ -198,7 +198,7 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
       {/* Loading State */}
       {loading ? (
         <div className="py-12 flex flex-col items-center justify-center text-zinc-500 gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+          <Loader2 className="w-5 h-5 animate-spin text-sky-400" />
           <span className="text-xs">{isZh ? '正在加载已归档会话...' : 'Loading archived sessions...'}</span>
         </div>
       ) : archivedSessions.length === 0 ? (
@@ -238,7 +238,7 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
               >
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Archive className="w-3.5 h-3.5 text-amber-500/70 shrink-0" />
+                    <Archive className="w-3.5 h-3.5 text-sky-500/70 shrink-0" />
                     <span
                       className="text-xs font-medium text-zinc-200 truncate"
                       title={session.title}
@@ -276,7 +276,7 @@ export const ArchivedSessionsSettings: React.FC<ArchivedSessionsSettingsProps> =
                   <button
                     type="button"
                     onClick={() => handleRestore(session.id)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 transition-colors cursor-pointer"
                     title={isZh ? '恢复此会话到活跃列表' : 'Restore to active list'}
                   >
                     <ArchiveRestore className="w-3.5 h-3.5" />

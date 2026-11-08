@@ -277,6 +277,8 @@ export interface SSEEventMessagePartDelta {
   delta: string
 }
 
+export type PartDeltaPayload = SSEEventMessagePartDelta
+
 export interface SSEEventMessagePartUpdated {
   sessionID: string
   part: MessagePart

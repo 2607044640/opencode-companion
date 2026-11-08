@@ -165,7 +165,7 @@ export function FloatingModelRouter({ isOpen, onClose, initialTab = 'workflow' }
                   onClick={() => setTab(item.id)}
                   className={`rounded-md border px-2.5 py-1 text-xs ${
                     active
-                      ? 'border-violet-400/70 bg-violet-500/15 font-semibold text-violet-200'
+                      ? 'border-sky-500/70 bg-sky-500/15 font-semibold text-sky-200'
                       : 'border-transparent text-zinc-400 hover:bg-[#1c2230] hover:text-zinc-100'
                   }`}
                 >
@@ -265,7 +265,7 @@ function WorkflowTab({
             if (!selected.startsWith('model:')) return
             onCommit(makePrimary(settings, selected), '已设为主力')
           }}
-          className="rounded-md border border-violet-400/50 px-3 py-1.5 text-xs text-violet-100 hover:bg-violet-500/10"
+          className="rounded-md border border-sky-400/50 px-3 py-1.5 text-xs text-sky-100 hover:bg-sky-500/10"
         >
           设为主力
         </button>
@@ -274,7 +274,7 @@ function WorkflowTab({
           onClick={() => onCommit(resetAllCircuitBreakers(settings), '已重置所有熔断')}
           className={`rounded-md border px-3 py-1.5 text-xs ${
             cooling
-              ? 'border-amber-400/60 bg-amber-500/10 text-amber-200'
+              ? 'border-sky-400/60 bg-sky-500/10 text-sky-200'
               : 'border-[#323848] text-zinc-300 hover:bg-[#1c2230]'
           }`}
         >
@@ -285,7 +285,7 @@ function WorkflowTab({
       <div className="rounded-lg border border-[#2a3140] bg-[#0e1117] p-3">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span>最终生效候选链 (按 Priority 严格降序去重排队)</span>
-          <span className="text-xs text-emerald-300">{chain.length} 个模型就绪</span>
+          <span className="text-xs text-sky-300">{chain.length} 个模型就绪</span>
         </div>
         {chain.length === 0 ? (
           <div className="text-xs text-zinc-500">暂无激活候选模型。</div>
@@ -296,9 +296,9 @@ function WorkflowTab({
                 <span
                   className={`rounded-md border px-2 py-1 text-xs ${
                     isModelCooling(model, now)
-                      ? 'border-amber-500/50 text-amber-200'
+                      ? 'border-sky-500/50 text-sky-200'
                       : index === 0
-                        ? 'border-violet-400/50 bg-violet-500/10'
+                        ? 'border-sky-400/50 bg-sky-500/10'
                         : 'border-[#323848]'
                   }`}
                 >
@@ -306,7 +306,7 @@ function WorkflowTab({
                   <span className="text-zinc-500"> (来自: {model.sourceGroupName})</span>
                   <span className="ml-1 text-zinc-400">{model.ttftTimeout}s</span>
                   {isModelCooling(model, now) && (
-                    <span className="ml-1 text-amber-300">冷却 {getModelRemainingSeconds(model, now)}s</span>
+                    <span className="ml-1 text-sky-300">冷却 {getModelRemainingSeconds(model, now)}s</span>
                   )}
                 </span>
                 {index < chain.length - 1 && <span className="text-zinc-500">➔</span>}
@@ -478,7 +478,7 @@ function GroupCard({
               setDraftId('')
               setDraftName('')
             }}
-            className="rounded bg-violet-600 px-2 py-1 text-xs text-white"
+            className="rounded bg-sky-600 px-2 py-1 text-xs text-white"
           >
             保存
           </button>
@@ -487,7 +487,7 @@ function GroupCard({
           </button>
         </div>
       ) : (
-        <button type="button" onClick={() => setAdding(true)} className="mt-3 text-xs text-violet-300">
+        <button type="button" onClick={() => setAdding(true)} className="mt-3 text-xs text-sky-300">
           + 添加组内模型
         </button>
       )}
@@ -616,7 +616,7 @@ function StandaloneTab({
               setDraftId('')
               setDraftName('')
             }}
-            className="rounded bg-violet-600 px-2 py-1 text-xs text-white"
+            className="rounded bg-sky-600 px-2 py-1 text-xs text-white"
           >
             保存独立模型
           </button>
@@ -745,7 +745,7 @@ function QueueTab({
                 <tr key={model.id} className="border-t border-[#2a3140]">
                   <td className="px-3 py-2">#{index + 1}</td>
                   <td className="px-3 py-2">
-                    <span className="rounded bg-violet-500/20 px-2 py-0.5 text-violet-100">{model.priority}</span>
+                    <span className="rounded bg-sky-500/20 px-2 py-0.5 text-sky-100">{model.priority}</span>
                   </td>
                   <td className="px-3 py-2">{model.name}</td>
                   <td className="px-3 py-2">{model.ttftTimeout}s</td>
@@ -812,7 +812,7 @@ function SsotTab({
           <button type="button" onClick={onCopy} className="rounded border border-[#323848] px-3 py-1.5 text-xs">
             复制 JSON 配置
           </button>
-          <button type="button" onClick={onImport} className="rounded bg-violet-600 px-3 py-1.5 text-xs text-white">
+          <button type="button" onClick={onImport} className="rounded bg-sky-600 px-3 py-1.5 text-xs text-white">
             从下方导入并生效
           </button>
         </div>
@@ -903,7 +903,7 @@ function ModelEditor({
 function Step({ n, role, text }: { n: string; role: string; text: string }) {
   return (
     <div className="rounded-md border border-[#2a3140] bg-[#12151c] p-2">
-      <div className="text-[11px] font-semibold text-violet-300">{n}</div>
+      <div className="text-[11px] font-semibold text-sky-300">{n}</div>
       <div className="text-xs font-medium">{role}</div>
       <div className="text-[11px] text-zinc-500">{text}</div>
     </div>

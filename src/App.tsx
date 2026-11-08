@@ -17,7 +17,12 @@ import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
 import { useScheduledTasksRunner } from './hooks/useScheduledTasksRunner'
 import { useSideQuestion } from './hooks/useSideQuestion'
 import { SideQuestionCard } from './components/chat/SideQuestionCard'
-import { api, canonicalizeDirectory } from './services/api'
+import { api } from './services/api'
+import {
+  resolveActiveMapDirectory,
+  resolveDraftSessionLaunch,
+  resolveRestoreMessageAction,
+} from './utils/app-helpers'
 import { Loader2, Minimize2, MapPin, Archive, ArchiveRestore, Check } from 'lucide-react'
 import { addSessionToTalkMap } from './components/map/opencode/persist'
 import { useI18n } from './utils/i18n'
@@ -236,20 +241,26 @@ export default function App() {
   const [draftInjection, setDraftInjection] = useState<DraftInjection | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = useCallback((msg: string, durationMs = 2500) => {
     setToastMessage(msg)
-    setTimeout(() => setToastMessage(null), durationMs)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), durationMs)
   }, [])
 
   useEffect(() => {
     const handleToastEvent = (e: Event) => {
-      const custom = e as CustomEvent<{ message: string; duration?: number }>
+      const custom = e as CustomEvent<{ message?: string; duration?: number }>
       if (custom.detail?.message) {
         showToast(custom.detail.message, custom.detail.duration || 2500)
       }
     }
     window.addEventListener('opencode:toast', handleToastEvent)
-    return () => window.removeEventListener('opencode:toast', handleToastEvent)
+    window.addEventListener('opencode-toast', handleToastEvent)
+    return () => {
+      window.removeEventListener('opencode:toast', handleToastEvent)
+      window.removeEventListener('opencode-toast', handleToastEvent)
+    }
   }, [showToast])
 
   const { handleRunScheduledTaskNow } = useScheduledTasksRunner({
@@ -267,22 +278,12 @@ export default function App() {
       }
     ) => {
       if (!activeSessionId || activeSessionId === DRAFT_SESSION_ID) {
-        const selectedProject = selectedProjectId
-          ? projects.find(
-              (p) =>
-                p.id === selectedProjectId ||
-                Boolean(p.associatedIds && p.associatedIds.includes(selectedProjectId))
-            )
-          : null
-        const projectDirectory = selectedProject?.worktree
-          ? canonicalizeDirectory(selectedProject.worktree)
-          : '/home/developer/projects/APISpace'
-        const sessionTitle =
-          text.trim().slice(0, 40) ||
-          (options?.attachments && options.attachments.length > 0
-            ? options.attachments[0].name?.slice(0, 40) || 'Image'
-            : '') ||
-          `New session - ${new Date().toLocaleString('zh-CN', { hour12: false })}`
+        const { projectDirectory, sessionTitle } = resolveDraftSessionLaunch(
+          text,
+          options,
+          selectedProjectId,
+          projects
+        )
 
         try {
           const newSession = await createNewSession({
@@ -347,23 +348,15 @@ export default function App() {
         focus: true,
       })
 
-      const revertIndex = messages.findIndex((m) => m.info.id === activeSession?.revert?.messageID)
-      const rolledBackUserMessages =
-        revertIndex !== -1
-          ? messages.slice(revertIndex).filter((m) => m.info.role === 'user')
-          : []
-      const isLatest =
-        rolledBackUserMessages.length <= 1 ||
-        rolledBackUserMessages[rolledBackUserMessages.length - 1].info.id === msg.info.id
-
-      if (isLatest) {
+      const decision = resolveRestoreMessageAction(
+        messages,
+        activeSession?.revert?.messageID,
+        msg.info.id
+      )
+      if (decision.action === 'unrevert') {
         await unrevert()
       } else {
-        const msgIndex = messages.findIndex((m) => m.info.id === msg.info.id)
-        const nextMsg = msgIndex !== -1 && msgIndex + 1 < messages.length ? messages[msgIndex + 1] : null
-        const targetBoundaryId =
-          nextMsg && nextMsg.info.role === 'assistant' ? nextMsg.info.id : msg.info.id
-        await revertToMessage(targetBoundaryId)
+        await revertToMessage(decision.targetBoundaryId)
       }
     },
     [activeSessionId, activeSession?.revert?.messageID, messages, unrevert, revertToMessage]
@@ -410,23 +403,6 @@ export default function App() {
     return () => {
       window.removeEventListener('dragover', handleWindowDragOver)
       window.removeEventListener('drop', handleWindowDrop)
-    }
-  }, [])
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const handleToast = (e: Event) => {
-      const custom = e as CustomEvent<{ message?: string }>
-      if (custom.detail?.message) {
-        setToastMessage(custom.detail.message)
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(() => setToastMessage(null), 2500)
-      }
-    }
-    window.addEventListener('opencode-toast', handleToast)
-    return () => {
-      window.removeEventListener('opencode-toast', handleToast)
-      if (timer) clearTimeout(timer)
     }
   }, [])
 
@@ -869,13 +845,11 @@ export default function App() {
             selectSession(sessionId)
           }}
           projects={projects}
-          activeDirectory={
-            (projects.find((p) => p.id === selectedProjectId)?.worktree &&
-              projects.find((p) => p.id === selectedProjectId)?.worktree !== '/' &&
-              projects.find((p) => p.id === selectedProjectId)?.worktree) ||
-            activeSession?.directory ||
-            projects.find((p) => p.worktree && p.worktree !== '/')?.worktree
-          }
+          activeDirectory={resolveActiveMapDirectory(
+            projects,
+            selectedProjectId,
+            activeSession?.directory
+          )}
         />
 
         <FloatingSearchModal

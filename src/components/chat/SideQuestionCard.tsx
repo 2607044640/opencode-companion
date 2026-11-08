@@ -174,14 +174,14 @@ export function SideQuestionCard({
         className="absolute -top-1.5 left-0 right-0 h-3 cursor-ns-resize z-20 flex items-center justify-center group"
         title={isZh ? '上下拖拽拉伸卡片高度' : 'Drag to resize card height'}
       >
-        <div className="w-12 h-1 rounded-full bg-zinc-600/40 group-hover:bg-purple-500/80 transition-colors" />
+        <div className="w-12 h-1 rounded-full bg-zinc-600/40 group-hover:bg-sky-500/80 transition-colors" />
       </div>
 
       {/* 1. Header Bar: Icon, Title, Multi-Question Navigation (< 2/2 >), and Action Controls */}
       <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 px-3.5 py-2.5 shrink-0 select-none">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-5 h-5 rounded-md bg-orange-600/20 border border-orange-500/30 flex items-center justify-center shrink-0">
-            <HelpCircle className="w-3.5 h-3.5 text-orange-400" />
+          <div className="w-5 h-5 rounded-md bg-sky-600/20 border border-sky-500/30 flex items-center justify-center shrink-0">
+            <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
           </div>
           <span className="font-semibold text-xs text-zinc-100 truncate">
             Side Question: <span className="text-zinc-200 font-normal">{data.question}</span>

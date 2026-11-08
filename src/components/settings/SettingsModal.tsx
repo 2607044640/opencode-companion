@@ -292,7 +292,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#16181f]'
                 }`}
               >
-                <Coins className="w-4 h-4 text-amber-400" />
+                <Coins className="w-4 h-4 text-sky-400" />
                 <span>{isZh ? '中转站额度' : 'Relay Hub'}</span>
               </button>
 
@@ -328,14 +328,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#16181f]'
                 }`}
               >
-                <Archive className="w-4 h-4 text-amber-400" />
+                <Archive className="w-4 h-4 text-sky-400" />
                 <span>{isZh ? '已归档会话' : 'Archived Sessions'}</span>
               </button>
             </div>
 
             {/* Bottom Profile Card (Image 1 & 2 footer) */}
             <div className="p-3 border-t border-[#21242a] flex items-center gap-2.5 bg-[#0a0c0f]">
-              <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-tr from-amber-500 to-indigo-500 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-sm shrink-0">
                 <span>SJ</span>
               </div>
               <div className="min-w-0 flex-1">
@@ -861,7 +861,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                 {/* Auth Token Card */}
                 <div className="p-4 rounded-xl border border-[#272a32] bg-[#161820] space-y-3">
                   <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4 text-orange-400" />
+                    <Lock className="w-4 h-4 text-sky-400" />
                     <span className="text-xs font-semibold text-zinc-200">Daemon Auth Token</span>
                   </div>
                   <p className="text-[11px] text-zinc-500">
@@ -876,7 +876,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   />
                   <button
                     onClick={handleSaveToken}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                    className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
                   >
                     Save Token
                   </button>
@@ -1018,7 +1018,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                             onClick={() => setRecordingKey(isRecording ? null : key)}
                             className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all cursor-pointer shrink-0 ${
                               isRecording
-                                ? 'bg-orange-600 text-white animate-pulse border border-orange-400'
+                                ? 'bg-sky-600 text-white animate-pulse border border-sky-400'
                                 : 'bg-[#20232d] text-zinc-300 border border-zinc-700 hover:bg-[#2b2f3d]'
                             }`}
                           >

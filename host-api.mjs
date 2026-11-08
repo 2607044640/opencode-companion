@@ -114,6 +114,45 @@ export function isAllowedExternalPath(_filePath) {
   return false
 }
 
+const JAIL_TO_WIN_WORKSPACE_MAPPINGS = [
+  { jail: '/home/developer/projects/APISpace', win: 'C:/APISpace' },
+  { jail: '/workspace/projects/APISpace', win: 'C:/APISpace' },
+  { jail: '/home/developer/projects/AICore', win: 'C:/AICore' },
+  { jail: '/workspace/projects/AICore', win: 'C:/AICore' },
+  { jail: '/home/developer/projects/AISpace', win: 'C:/Godot/AISpace' },
+  { jail: '/workspace/projects/AISpace', win: 'C:/Godot/AISpace' },
+  { jail: '/home/developer/projects/ObsidianNote', win: 'C:/ObsidianNote' },
+  { jail: '/workspace/projects/ObsidianNote', win: 'C:/ObsidianNote' },
+  { jail: '/home/developer/projects/ObsidianDev', win: 'C:/ObsidianDev' },
+  { jail: '/workspace/projects/ObsidianDev', win: 'C:/ObsidianDev' },
+]
+
+function convertMntPathToWindows(posixPath) {
+  const mntMatch = /^\/mnt\/([a-zA-Z])\/(.*)$/.exec(posixPath)
+  if (!mntMatch) return null
+  return `${mntMatch[1].toUpperCase()}:/${mntMatch[2]}`
+}
+
+function mapKnownJailPathToWindows(rawPath) {
+  let mapped = rawPath
+  for (const m of JAIL_TO_WIN_WORKSPACE_MAPPINGS) {
+    if (mapped.startsWith(m.jail)) {
+      mapped = mapped.replace(m.jail, m.win)
+      break
+    }
+  }
+  const mntConverted = convertMntPathToWindows(mapped)
+  return mntConverted || mapped
+}
+
+function matchesDiscoveredWinWorkspace(winPathCandidate, roots, directoryExists) {
+  const candidateLower = winPathCandidate.toLowerCase()
+  return roots.some(({ win }) => {
+    const root = normalizeRollbackPath(win).toLowerCase()
+    return (candidateLower === root || candidateLower.startsWith(`${root}/`)) && directoryExists(win)
+  })
+}
+
 export function resolveRollbackDiskPath(rawPath, options = {}) {
   if (!rawPath || typeof rawPath !== 'string') return null
   const posix = normalizeRollbackPath(rawPath)
@@ -133,24 +172,9 @@ export function resolveRollbackDiskPath(rawPath, options = {}) {
     }
   }
 
-  if (/^[a-zA-Z]:\//.test(posix)) {
-    const workspace = roots.find(({ win }) => {
-      const root = normalizeRollbackPath(win).toLowerCase()
-      return (posix.toLowerCase() === root || posix.toLowerCase().startsWith(`${root}/`)) && directoryExists(win)
-    })
-    if (workspace) return path.resolve(posix)
-  }
-
-  const mntMatch = /^\/mnt\/([a-zA-Z])\/(.+)$/.exec(posix)
-  if (mntMatch) {
-    const drive = mntMatch[1].toUpperCase()
-    const rest = mntMatch[2]
-    const winCandidate = `${drive}:/${rest}`
-    const workspace = roots.find(({ win }) => {
-      const root = normalizeRollbackPath(win).toLowerCase()
-      return (winCandidate.toLowerCase() === root || winCandidate.toLowerCase().startsWith(`${root}/`)) && directoryExists(win)
-    })
-    if (workspace) return path.resolve(winCandidate)
+  const winCandidate = /^[a-zA-Z]:\//.test(posix) ? posix : convertMntPathToWindows(posix)
+  if (winCandidate && matchesDiscoveredWinWorkspace(winCandidate, roots, directoryExists)) {
+    return path.resolve(winCandidate)
   }
 
   const resolvedPosix = path.posix.resolve(posix)
@@ -327,14 +351,7 @@ export function runGitRevert(directory, mode = 'revert') {
   }
 }
 
-function runExternalRollback(actions) {
-  // Browser-supplied file contents and inferred deletes are never authoritative.
-  if (!Array.isArray(actions) || !actions.length || actions.some((action) => action?.kind !== 'snapshot' || typeof action.session !== 'string' || typeof action.call !== 'string')) {
-    return { ok: false, error: 'Full pre-mutation snapshot references are required' }
-  }
-  if (new Set(actions.map((action) => action.session)).size !== 1) return { ok: false, error: 'Mixed snapshot sessions are not allowed' }
-  const roots = discoverWorkspaceRoots()
-  const desktop = process.platform === 'win32' && process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'Desktop') : '/mnt/desktop'
+function collectWorkspaceSymlinkRoots(roots) {
   const extraWinRoots = []
   for (const { win } of roots) {
     extraWinRoots.push(win)
@@ -346,14 +363,25 @@ function runExternalRollback(actions) {
           try {
             const real = fs.realpathSync(full)
             if (real && real !== full) {
-              extraWinRoots.push(full)
-              extraWinRoots.push(real)
+              extraWinRoots.push(full, real)
             }
           } catch {}
         }
       }
     } catch {}
   }
+  return extraWinRoots
+}
+
+function runExternalRollback(actions) {
+  // Browser-supplied file contents and inferred deletes are never authoritative.
+  if (!Array.isArray(actions) || !actions.length || actions.some((action) => action?.kind !== 'snapshot' || typeof action.session !== 'string' || typeof action.call !== 'string')) {
+    return { ok: false, error: 'Full pre-mutation snapshot references are required' }
+  }
+  if (new Set(actions.map((action) => action.session)).size !== 1) return { ok: false, error: 'Mixed snapshot sessions are not allowed' }
+  const roots = discoverWorkspaceRoots()
+  const desktop = process.platform === 'win32' && process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'Desktop') : '/mnt/desktop'
+  const extraWinRoots = collectWorkspaceSymlinkRoots(roots)
   const store = createSnapshotStore({
     allowedRoots: [
       ...extraWinRoots,
@@ -672,58 +700,27 @@ export function readFileFromWorkspace(rawPath, options = {}) {
     return { ok: false, error: 'Access denied: sensitive file path' }
   }
 
-  const jailMappings = [
-    { jail: '/home/developer/projects/APISpace', win: 'C:/APISpace' },
-    { jail: '/workspace/projects/APISpace', win: 'C:/APISpace' },
-    { jail: '/home/developer/projects/AICore', win: 'C:/AICore' },
-    { jail: '/workspace/projects/AICore', win: 'C:/AICore' },
-    { jail: '/home/developer/projects/AISpace', win: 'C:/Godot/AISpace' },
-    { jail: '/workspace/projects/AISpace', win: 'C:/Godot/AISpace' },
-    { jail: '/home/developer/projects/ObsidianNote', win: 'C:/ObsidianNote' },
-    { jail: '/workspace/projects/ObsidianNote', win: 'C:/ObsidianNote' },
-    { jail: '/home/developer/projects/ObsidianDev', win: 'C:/ObsidianDev' },
-    { jail: '/workspace/projects/ObsidianDev', win: 'C:/ObsidianDev' },
-  ]
-  for (const m of jailMappings) {
-    if (p.startsWith(m.jail)) {
-      p = p.replace(m.jail, m.win)
-      break
-    }
-  }
-
-  // Handle /mnt/c/... or /mnt/d/...
-  const mntMatch = p.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
-  if (mntMatch) {
-    p = `${mntMatch[1].toUpperCase()}:/${mntMatch[2]}`
-  }
+  p = mapKnownJailPathToWindows(p)
 
   // Handle direct workspace name prefix without drive letter (e.g. "AISpace/...", "ObsidianNote/...")
   const wsPrefixMatch = p.match(/^(?:projects\/)?(apispace|aicore|aispace|obsidiannote|obsidiandev)\/(.*)$/i)
   if (wsPrefixMatch) {
     const wsName = wsPrefixMatch[1].toLowerCase()
     const rel = wsPrefixMatch[2]
-    let base = 'C:/APISpace'
-    if (wsName === 'aicore') base = 'C:/AICore'
-    else if (wsName === 'aispace') base = 'C:/Godot/AISpace'
-    else if (wsName === 'obsidiannote') base = 'C:/ObsidianNote'
-    else if (wsName === 'obsidiandev') base = 'C:/ObsidianDev'
-    p = `${base}/${rel}`
+    const wsBaseMap = {
+      aicore: 'C:/AICore',
+      aispace: 'C:/Godot/AISpace',
+      obsidiannote: 'C:/ObsidianNote',
+      obsidiandev: 'C:/ObsidianDev',
+      apispace: 'C:/APISpace',
+    }
+    p = `${wsBaseMap[wsName] || 'C:/APISpace'}/${rel}`
   }
 
   // Normalize directory context from options if provided
   let activeDir = null
   if (options && typeof options.directory === 'string' && options.directory.trim()) {
-    let d = options.directory.trim()
-    for (const m of jailMappings) {
-      if (d.startsWith(m.jail)) {
-        d = d.replace(m.jail, m.win)
-        break
-      }
-    }
-    const dMnt = d.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
-    if (dMnt) {
-      d = `${dMnt[1].toUpperCase()}:/${dMnt[2]}`
-    }
+    const d = mapKnownJailPathToWindows(options.directory.trim())
     if (/^[a-zA-Z]:[/\\\\]/.test(d)) {
       activeDir = d.replace(/\\/g, '/')
     }
@@ -765,27 +762,31 @@ export function readFileFromWorkspace(rawPath, options = {}) {
     return null
   }
 
+  function findCanonicalFileInDir(dir, key) {
+    if (!key || !fs.existsSync(dir)) return null
+    try {
+      const files = fs.readdirSync(dir)
+      for (const f of files) {
+        if (getCanonicalFileKey(f) === key) {
+          const matched = tryReadFile(path.posix.join(dir, f))
+          if (matched) return matched
+        }
+      }
+    } catch {}
+    return null
+  }
+
   // Stage 1: Exact / Absolute candidates
   if (/^[a-zA-Z]:[/\\\\]/.test(p)) {
     const normP = p.replace(/\\/g, '/')
     const direct = tryReadFile(normP)
     if (direct) return direct
 
-    // Check same folder for canonical name match (e.g. spaces vs underscores)
-    const dir = path.posix.dirname(normP)
-    const base = path.posix.basename(normP)
-    const targetKey = getCanonicalFileKey(base)
-    if (targetKey && fs.existsSync(dir)) {
-      try {
-        const files = fs.readdirSync(dir)
-        for (const f of files) {
-          if (getCanonicalFileKey(f) === targetKey) {
-            const matched = tryReadFile(path.posix.join(dir, f))
-            if (matched) return matched
-          }
-        }
-      } catch {}
-    }
+    const canonicalMatch = findCanonicalFileInDir(
+      path.posix.dirname(normP),
+      getCanonicalFileKey(path.posix.basename(normP))
+    )
+    if (canonicalMatch) return canonicalMatch
   }
 
   const cleanRel = p.replace(/^[/\\\\]+/, '').replace(/\\/g, '/')
@@ -797,17 +798,9 @@ export function readFileFromWorkspace(rawPath, options = {}) {
     const direct = tryReadFile(candidate)
     if (direct) return direct
 
-    // Check in base directory for canonical key match if cleanRel has no subfolders
-    if (!cleanRel.includes('/') && targetKey && fs.existsSync(base)) {
-      try {
-        const files = fs.readdirSync(base)
-        for (const f of files) {
-          if (getCanonicalFileKey(f) === targetKey) {
-            const matched = tryReadFile(path.posix.join(base, f))
-            if (matched) return matched
-          }
-        }
-      } catch {}
+    if (!cleanRel.includes('/')) {
+      const canonicalMatch = findCanonicalFileInDir(base, targetKey)
+      if (canonicalMatch) return canonicalMatch
     }
   }
 

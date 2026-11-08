@@ -22,7 +22,14 @@ import { PromptPopover, type PopoverItem } from './PromptPopover'
 import { ProjectDropdown } from './ProjectDropdown'
 import { TodoButton } from './TodoButton'
 import { getShortcuts, matchesShortcut, isIMEActive, type ShortcutsMap } from '../../utils/shortcuts'
-import { isCuratedModel, isModelVisible, resolveSeniorModel } from '../../utils/model-filter'
+import { isCuratedModel, resolveSeniorModel } from '../../utils/model-filter'
+import {
+  applyAtMentionInsertion,
+  buildGroupedModelsForDropdown,
+  filterAndSortSelectableAgents,
+  mergeBuiltinCommands,
+  parseSpecialSlashCommand,
+} from './prompt-input-helpers'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n } from '../../utils/i18n'
 import { ManageModelsModal } from '../models/ManageModelsModal'
@@ -403,59 +410,13 @@ export function PromptInput({
           api.getRoutingConfig(),
         ])
 
-        // Filter selectable agents (Prometheus S1 + Refinement):
-        // Exclude subagents, hidden utilities (compaction/summary/title), internal librarian, and duplicate lowercase aliases
-        const aliasNames = ['prometheus', 'atlas', 'sisyphus']
-        const usableAgents = agentList.filter((a) => {
-          if (a.hidden) return false
-          if (a.mode === 'subagent') return false
-          if (a.name === 'librarian') return false
-          if (aliasNames.includes(a.name.toLowerCase())) return false
-          return true
-        })
-
-        // Sort order: prioritize build, plan, scout, then others
-        usableAgents.sort((a, b) => {
-          const priority = (name: string) => {
-            if (name === 'build') return 1
-            if (name === 'plan') return 2
-            if (name === 'scout') return 3
-            return 10
-          }
-          return priority(a.name) - priority(b.name)
-        })
-
-        const finalAgents = usableAgents.length > 0 ? usableAgents : agentList
+        const { finalAgents, defaultAgentName } = filterAndSortSelectableAgents(
+          agentList,
+          daemonConfig.default_agent
+        )
         setAgents(finalAgents)
         setProviders(providerList)
-        // Merge built-in commands like btw, compact, summary, title (matching official OpenCode verbatim)
-        const defaultCommands: CommandItem[] = [
-          { name: 'btw', description: 'Ask a quick question without interrupting the main conversation.' },
-          { name: 'compact', description: 'Summarize the session to reduce context size' },
-          { name: 'summary', description: 'Generate structured conversation summary' },
-          { name: 'title', description: 'Auto-generate descriptive session title' },
-          { name: 'undo', description: 'Revert last exchange or tool invocation' },
-        ]
-        const mergedCmds = [...commandList]
-        for (const def of defaultCommands) {
-          if (!mergedCmds.some((c) => c.name === def.name)) {
-            mergedCmds.push(def)
-          }
-        }
-        setCommands(mergedCmds)
-
-        // Determine default agent from daemon config or first primary agent
-        let defaultAgentName = 'build'
-        if (daemonConfig.default_agent && finalAgents.some((a) => a.name === daemonConfig.default_agent)) {
-          defaultAgentName = daemonConfig.default_agent
-        } else {
-          const buildAgent = finalAgents.find((a) => a.name === 'build')
-          if (buildAgent) {
-            defaultAgentName = buildAgent.name
-          } else if (finalAgents.length > 0) {
-            defaultAgentName = finalAgents[0].name
-          }
-        }
+        setCommands(mergeBuiltinCommands(commandList))
 
         const currentAgent = activeSessionRef.current?.agent
         if (!currentAgent || currentAgent === 'Default Agent' || currentAgent === 'Atlas' || currentAgent === 'Atlas - Plan Executor') {
@@ -531,54 +492,16 @@ export function PromptInput({
   }, [providers, selectedModel])
 
   // Grouped models for dropdown with search and visibility filtering (Image 1)
-  const groupedModelsForDropdown = useMemo(() => {
-    const q = modelSearchQuery.toLowerCase().trim()
-    const groups: {
-      providerID: string
-      providerName: string
-      models: { id: string; name: string }[]
-    }[] = []
-
-    providers.forEach((p) => {
-      const visibleModels: { id: string; name: string }[] = []
-
-      Object.entries(p.models || {}).forEach(([mId, mObj]) => {
-        const name = mObj.name || mId
-        // Check model visibility via preferences or defaults
-        const visible = isModelVisible(
-          p.id,
-          mId,
-          name,
-          prefs.modelVisibility,
-          prefs.providerVisibility
-        )
-        if (!visible) return
-
-        // Filter by search query if present
-        if (q) {
-          const matchProvider = (p.name || p.id).toLowerCase().includes(q)
-          const matchId = mId.toLowerCase().includes(q)
-          const matchName = name.toLowerCase().includes(q)
-          if (!matchProvider && !matchId && !matchName) return
-        }
-
-        visibleModels.push({
-          id: mId,
-          name,
-        })
-      })
-
-      if (visibleModels.length > 0) {
-        groups.push({
-          providerID: p.id,
-          providerName: p.name || p.id,
-          models: visibleModels,
-        })
-      }
-    })
-
-    return groups
-  }, [providers, modelSearchQuery, prefs.modelVisibility, prefs.providerVisibility])
+  const groupedModelsForDropdown = useMemo(
+    () =>
+      buildGroupedModelsForDropdown(
+        providers,
+        modelSearchQuery,
+        prefs.modelVisibility,
+        prefs.providerVisibility
+      ),
+    [providers, modelSearchQuery, prefs.modelVisibility, prefs.providerVisibility]
+  )
 
   // Compute matching popover items with title-prioritized ranking
   const popoverItems = useMemo((): PopoverItem[] => {
@@ -768,41 +691,20 @@ export function PromptInput({
       return
     }
 
-    if (entry.type === 'agent') {
-      const lastAt = text.lastIndexOf('@', cursor - 1)
-      if (lastAt !== -1) {
-        const beforeAt = text.slice(0, lastAt)
-        const afterCursor = text.slice(cursor)
-        const newText = `${beforeAt}@${entry.item.name} ${afterCursor}`
-        setText(newText)
-        setSelectedAgent(entry.item.name)
+    if (entry.type === 'agent' || entry.type === 'file') {
+      const mentionTarget = entry.type === 'agent' ? entry.item.name : entry.item
+      const inserted = applyAtMentionInsertion(text, cursor, mentionTarget)
+      if (inserted) {
+        setText(inserted.newText)
+        if (entry.type === 'agent') {
+          setSelectedAgent(entry.item.name)
+        }
         setPopoverOpen(false)
         setPopoverMode(null)
         setTimeout(() => {
           if (textareaRef.current) {
             textareaRef.current.focus()
-            const pos = `${beforeAt}@${entry.item.name} `.length
-            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = pos
-          }
-        }, 10)
-      }
-      return
-    }
-
-    if (entry.type === 'file') {
-      const lastAt = text.lastIndexOf('@', cursor - 1)
-      if (lastAt !== -1) {
-        const beforeAt = text.slice(0, lastAt)
-        const afterCursor = text.slice(cursor)
-        const newText = `${beforeAt}@${entry.item} ${afterCursor}`
-        setText(newText)
-        setPopoverOpen(false)
-        setPopoverMode(null)
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.focus()
-            const pos = `${beforeAt}@${entry.item} `.length
-            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = pos
+            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = inserted.newCursor
           }
         }, 10)
       }
@@ -922,29 +824,18 @@ export function PromptInput({
       },
     }
 
-    // Intercept /btw (Side Question): execute immediately in parallel without blocking main turn or queueing
-    const trimmed = text.trim()
-    const isBtw = trimmed.startsWith('/btw ') || trimmed === '/btw'
-    if (isBtw) {
-      const question = trimmed.replace(/^\/btw\s*/, '').trim()
-      if (question) {
-        if (onSideQuestion) {
-          onSideQuestion(question)
-        } else {
-          onSend(draft.text, draft.options)
-        }
-        clearComposer()
-        return
+    const specialCmd = parseSpecialSlashCommand(text)
+    if (specialCmd?.kind === 'btw') {
+      if (onSideQuestion) {
+        onSideQuestion(specialCmd.question)
+      } else {
+        onSend(draft.text, draft.options)
       }
+      clearComposer()
+      return
     }
 
-    // Intercept /compact (Official OpenCode session compaction command)
-    const isCompact =
-      trimmed === '/compact' ||
-      trimmed.startsWith('/compact ') ||
-      trimmed === '/compaction' ||
-      trimmed.startsWith('/compaction ')
-    if (isCompact) {
+    if (specialCmd?.kind === 'compact') {
       if (activeSessionId) {
         window.dispatchEvent(
           new CustomEvent('opencode:toast', {
@@ -1093,7 +984,7 @@ export function PromptInput({
               return (
                 <div
                   key={att.id}
-                  className="relative group shrink-0 w-16 h-16 rounded-xl border border-[#2e333d] bg-[#1a1d24] overflow-hidden shadow-sm hover:border-purple-500/80 transition-all cursor-pointer"
+                  className="relative group shrink-0 w-16 h-16 rounded-xl border border-[#2e333d] bg-[#1a1d24] overflow-hidden shadow-sm hover:border-sky-500/80 transition-all cursor-pointer"
                   onClick={() => {
                     const imgAtts = attachments.filter(isImageAttachment)
                     const imgIdx = Math.max(
@@ -1172,7 +1063,7 @@ export function PromptInput({
               className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/80 rounded transition-colors"
               title="Upload image (supports paste from clipboard)"
             >
-              <ImageIcon className="w-3.5 h-3.5 text-zinc-400 hover:text-orange-400 transition-colors" />
+              <ImageIcon className="w-3.5 h-3.5 text-zinc-400 hover:text-sky-400 transition-colors" />
             </button>
 
             {/* Target Label */}
@@ -1344,14 +1235,14 @@ export function PromptInput({
               <button
                 type="button"
                 onClick={onToggleSideQuestion}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1a1d24] hover:bg-[#232731] border border-orange-500/30 text-orange-200 text-xs transition-colors cursor-pointer group shadow-sm select-none"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1a1d24] hover:bg-[#232731] border border-sky-500/30 text-sky-200 text-xs transition-colors cursor-pointer group shadow-sm select-none"
                 title={
                   isZh
                     ? `查看 ${sideQuestionCount} 个侧边提问 (View ${sideQuestionCount} side question${sideQuestionCount > 1 ? 's' : ''})`
                     : `View ${sideQuestionCount} side question${sideQuestionCount > 1 ? 's' : ''}`
                 }
               >
-                <HelpCircle className="w-3.5 h-3.5 text-orange-400 group-hover:scale-110 transition-transform" />
+                <HelpCircle className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
                 <span className="font-medium text-[11px]">
                   {sideQuestionCount} Side Question{sideQuestionCount > 1 ? 's' : ''}
                 </span>

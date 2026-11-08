@@ -90,7 +90,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
         </button>
 
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-400">
+          <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
             <FolderPlus className="w-5 h-5" />
           </div>
           <div>
@@ -121,7 +121,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={isZh ? '例如：MyNewApp' : 'e.g. MyNewApp'}
-              className="w-full px-3 py-2 bg-[#0d0f14] border border-[#242834] rounded-lg text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/30 transition-all"
+              className="w-full px-3 py-2 bg-[#0d0f14] border border-[#242834] rounded-lg text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 transition-all"
             />
           </div>
 
@@ -136,7 +136,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
                 placeholder={isZh ? '例如：C:/projects/my-project 或 /workspace/projects/...' : 'e.g. /workspace/projects/my-project'}
-                className="w-full pl-9 pr-3 py-2 bg-[#0d0f14] border border-[#242834] rounded-lg text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-orange-500/80 focus:ring-1 focus:ring-orange-500/30 transition-all font-mono"
+                className="w-full pl-9 pr-3 py-2 bg-[#0d0f14] border border-[#242834] rounded-lg text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 transition-all font-mono"
               />
             </div>
             <span className="block text-[11px] text-zinc-500 mt-1">
@@ -158,7 +158,7 @@ export const NewProjectModal: React.FC<NewProjectModalProps> = ({
               className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all shadow-md ${
                 loading || !name.trim() || !path.trim()
                   ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                  : 'bg-orange-600 hover:bg-orange-500 text-white cursor-pointer active:scale-95'
+                  : 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer active:scale-95'
               }`}
             >
               {loading ? (isZh ? '添加中...' : 'Adding...') : (isZh ? '确认添加' : 'Add Project')}

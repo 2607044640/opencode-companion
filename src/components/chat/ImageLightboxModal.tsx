@@ -96,7 +96,7 @@ export function ImageLightboxModal({
         {/* Header Bar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#252934] bg-[#11131a] shrink-0">
           <div className="flex items-center gap-2 min-w-0 pr-2">
-            <ImageIcon className="w-4 h-4 text-purple-400 shrink-0" />
+            <ImageIcon className="w-4 h-4 text-sky-400 shrink-0" />
             <span className="text-xs sm:text-sm font-medium text-zinc-200 truncate">
               {currentImage.filename || '图片预览'}
             </span>
@@ -169,7 +169,7 @@ export function ImageLightboxModal({
                 onClick={() => setCurrentIndex(idx)}
                 className={`w-11 h-11 rounded-lg overflow-hidden border transition-all shrink-0 cursor-pointer ${
                   idx === currentIndex
-                    ? 'border-purple-500 ring-2 ring-purple-500/40 opacity-100 scale-105'
+                    ? 'border-sky-500 ring-2 ring-sky-500/40 opacity-100 scale-105'
                     : 'border-zinc-700/60 opacity-50 hover:opacity-85'
                 }`}
                 title={img.filename || `图片 ${idx + 1}`}
@@ -201,7 +201,7 @@ export function ImageThumbnailRow({ images, onOpenLightbox }: ImageThumbnailRowP
           type="button"
           onClick={() => onOpenLightbox(idx)}
           title={img.filename || `图片 ${idx + 1} (点击查看大图)`}
-          className="group relative w-16 h-16 rounded-xl overflow-hidden border border-[#2e3340] bg-[#12141a] shrink-0 cursor-pointer shadow-sm hover:border-purple-500/80 hover:shadow-purple-500/20 hover:scale-[1.03] transition-all focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+          className="group relative w-16 h-16 rounded-xl overflow-hidden border border-[#2e3340] bg-[#12141a] shrink-0 cursor-pointer shadow-sm hover:border-sky-500/80 hover:shadow-sky-500/20 hover:scale-[1.03] transition-all focus:outline-none focus:ring-2 focus:ring-sky-500/50"
         >
           <img
             src={img.url}

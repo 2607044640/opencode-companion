@@ -748,7 +748,7 @@ function FloatingSearchContent({
                   ? t.search.placeholderSessionId
                   : t.search.placeholderMessages
             }
-            className="a1-search-input w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-orange-500/80 transition-colors placeholder:text-zinc-500"
+            className="a1-search-input w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-sky-500/80 transition-colors placeholder:text-zinc-500"
           />
           {query && (
             <button
@@ -772,7 +772,7 @@ function FloatingSearchContent({
             onClick={() => handleSwitchMode('titles')}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-all ${
               searchMode === 'titles'
-                ? 'bg-[#252830] text-orange-400 font-medium shadow-xs'
+                ? 'bg-sky-950/40 text-sky-400 border border-sky-800/50 font-medium shadow-xs'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26]'
             }`}
             title="搜索会话标题"
@@ -785,7 +785,7 @@ function FloatingSearchContent({
             onClick={() => handleSwitchMode('session_id')}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-all ${
               searchMode === 'session_id'
-                ? 'bg-[#252830] text-orange-400 font-medium shadow-xs'
+                ? 'bg-sky-950/40 text-sky-400 border border-sky-800/50 font-medium shadow-xs'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26]'
             }`}
             title="按会话 ID 检索 (如 ses_...)"
@@ -798,7 +798,7 @@ function FloatingSearchContent({
             onClick={() => handleSwitchMode('messages')}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-all ${
               searchMode === 'messages'
-                ? 'bg-[#252830] text-orange-400 font-medium shadow-xs'
+                ? 'bg-sky-950/40 text-sky-400 border border-sky-800/50 font-medium shadow-xs'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-[#1c1f26]'
             }`}
             title="搜索消息正文与代码片段"
@@ -812,7 +812,7 @@ function FloatingSearchContent({
         <div className="flex items-center gap-2 shrink-0">
           {/* Project dropdown */}
           <div className="flex items-center gap-1.5 bg-[#16181e] px-2 py-1 rounded-md border border-[#272a31]">
-            <FolderGit2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <FolderGit2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
             <select
               value={selectedProjectIdFilter}
               onChange={(e) => {
@@ -842,7 +842,7 @@ function FloatingSearchContent({
             </div>
           ) : (
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#16181e] text-[11px] font-mono text-zinc-400 rounded-md border border-[#272a31] shrink-0">
-              {isSearchingMessages && <Loader2 className="w-3 h-3 animate-spin text-orange-400 shrink-0" />}
+              {isSearchingMessages && <Loader2 className="w-3 h-3 animate-spin text-sky-400 shrink-0" />}
               <strong className="text-zinc-200">{messageHits.length}</strong>
               <span className="text-zinc-500">条命中</span>
             </div>
@@ -898,7 +898,7 @@ function FloatingSearchContent({
                   onClick={() => handleSelectSessionAction(session.id)}
                   className={`session-search-item group px-3.5 py-2.5 rounded-lg flex items-center justify-between gap-3 cursor-pointer transition-all border ${
                     isActive
-                      ? 'bg-[#181c24] border-orange-500/60 shadow-md text-[#f0f6fc]'
+                      ? 'bg-[#181c24] border-sky-500/60 shadow-md text-[#f0f6fc]'
                       : 'bg-[#101216] border-[#1d2026] hover:bg-[#15181f] hover:border-zinc-700/60 text-[#8b949e]'
                   }`}
                 >
@@ -908,7 +908,7 @@ function FloatingSearchContent({
                     </span>
 
                     <span
-                      className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-700/50 shrink-0"
+                      className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold bg-sky-950/60 text-sky-300 border border-sky-700/50 shrink-0"
                       title={`Agent: ${session.agent || 'Default'}`}
                     >
                       {agentInitial}
@@ -923,7 +923,7 @@ function FloatingSearchContent({
 
                     {isSessionArchived(session.id, archivedIds) && (
                       <span
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/70 text-amber-300 border border-amber-600/50 shrink-0 flex items-center gap-1"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0 flex items-center gap-1"
                         title={isZh ? '此会话已归档' : 'Archived conversation'}
                       >
                         <Archive className="w-2.5 h-2.5" />
@@ -942,7 +942,7 @@ function FloatingSearchContent({
                           <HighlightedText
                             text={session.title || 'Untitled Session'}
                             query={query}
-                            preset="orange"
+                            preset="sky"
                           />
                         </span>
                       </div>
@@ -954,11 +954,11 @@ function FloatingSearchContent({
                             className="inline-flex items-center gap-1 font-mono text-[10px] text-zinc-400 bg-[#16181e] border border-zinc-700/60 px-1.5 py-0.5 rounded shrink-0 max-w-[320px] truncate"
                             title={`Session ID: ${session.id}`}
                           >
-                            <Hash className="w-2.5 h-2.5 text-orange-400/80 shrink-0" />
+                            <Hash className="w-2.5 h-2.5 text-sky-400/80 shrink-0" />
                             <HighlightedText
                               text={session.id}
                               query={query}
-                              preset="orange"
+                              preset="sky"
                             />
                           </span>
                         )}
@@ -1012,7 +1012,7 @@ function FloatingSearchContent({
                     </span>
 
                     {isActive && (
-                      <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-950/40 border border-orange-800/60 px-1.5 py-0.5 rounded shrink-0">
+                      <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-sky-400 bg-sky-950/40 border border-sky-800/60 px-1.5 py-0.5 rounded shrink-0">
                         <span>Enter</span>
                         <ArrowRight className="w-2.5 h-2.5" />
                       </span>
@@ -1028,7 +1028,7 @@ function FloatingSearchContent({
             <div className="flex flex-col items-center justify-center py-20 text-center text-zinc-500 space-y-2">
               {isSearchingMessages ? (
                 <>
-                  <Loader2 className="w-8 h-8 text-orange-400 animate-spin mb-1" />
+                  <Loader2 className="w-8 h-8 text-sky-400 animate-spin mb-1" />
                   <div className="text-sm font-medium text-zinc-300">
                     {t.search.searchingMessages}
                   </div>
@@ -1038,7 +1038,7 @@ function FloatingSearchContent({
                 </>
               ) : !query.trim() ? (
                 <>
-                  <Sparkles className="w-8 h-8 text-orange-400/80 mb-1" />
+                  <Sparkles className="w-8 h-8 text-sky-400/80 mb-1" />
                   <div className="text-sm font-medium text-zinc-300">
                     跨会话消息全文字段搜索
                   </div>
@@ -1070,7 +1070,7 @@ function FloatingSearchContent({
                   onClick={() => handleSelectSessionAction(hit.sessionId, hit.messageId)}
                   className={`session-search-item group px-3.5 py-2.5 rounded-lg flex flex-col gap-1.5 cursor-pointer transition-all border ${
                     isActive
-                      ? 'bg-[#181c24] border-orange-500/60 shadow-md text-[#f0f6fc]'
+                      ? 'bg-[#181c24] border-sky-500/60 shadow-md text-[#f0f6fc]'
                       : 'bg-[#101216] border-[#1d2026] hover:bg-[#15181f] hover:border-zinc-700/60 text-[#8b949e]'
                   }`}
                 >
@@ -1104,7 +1104,7 @@ function FloatingSearchContent({
 
                       {isSessionArchived(hit.sessionId, archivedIds) && (
                         <span
-                          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/70 text-amber-300 border border-amber-600/50 shrink-0 flex items-center gap-1"
+                          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-300 border border-zinc-700 shrink-0 flex items-center gap-1"
                           title={isZh ? '此会话已归档' : 'Archived conversation'}
                         >
                           <Archive className="w-2.5 h-2.5" />
@@ -1147,7 +1147,7 @@ function FloatingSearchContent({
                       </span>
 
                       {isActive && (
-                        <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-950/40 border border-orange-800/60 px-1.5 py-0.5 rounded shrink-0">
+                        <span className="hidden md:flex items-center gap-1 text-[10px] font-mono text-sky-400 bg-sky-950/40 border border-sky-800/60 px-1.5 py-0.5 rounded shrink-0">
                           <span>Enter 直达</span>
                           <ArrowRight className="w-2.5 h-2.5" />
                         </span>
@@ -1160,7 +1160,7 @@ function FloatingSearchContent({
                     <div
                       className={`text-xs font-mono px-2.5 py-1.5 rounded border transition-colors leading-relaxed break-all ${
                         isActive
-                          ? 'bg-[#111318] border-orange-950/80 text-zinc-200'
+                          ? 'bg-[#111318] border-sky-950/80 text-zinc-200'
                           : 'bg-[#0d0e12] border-[#1d2026] text-zinc-400'
                       }`}
                     >

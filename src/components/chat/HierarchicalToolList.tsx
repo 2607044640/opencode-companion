@@ -85,7 +85,7 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
                 variant="warning"
                 placement="top-end"
               >
-                <span className="flex items-center text-amber-400">
+                <span className="flex items-center text-sky-400">
                   <AlertTriangle className="w-3 h-3" />
                 </span>
               </DelayedTooltip>
@@ -144,28 +144,28 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
                   <div className="ml-auto flex items-center gap-1.5 shrink-0 select-none">
                     {it.warningKind === 'no_match' && (
                       <DelayedTooltip content={it.warningTooltip || tr('未找到匹配项', 'No matches found')} variant="warning" placement="top-end">
-                        <span className="flex items-center text-amber-400 cursor-help">
+                        <span className="flex items-center text-sky-400 cursor-help">
                           <SearchX className="w-3.5 h-3.5" />
                         </span>
                       </DelayedTooltip>
                     )}
                     {it.warningKind === 'not_found' && (
                       <DelayedTooltip content={it.warningTooltip || tr('文件未找到', 'File not found')} variant="warning" placement="top-end">
-                        <span className="flex items-center text-amber-400 cursor-help">
+                        <span className="flex items-center text-sky-400 cursor-help">
                           <FileQuestion className="w-3.5 h-3.5" />
                         </span>
                       </DelayedTooltip>
                     )}
                     {it.warningKind === 'blocked' && (
                       <DelayedTooltip content={it.warningTooltip || tr('操作受阻或权限不足', 'Action blocked or permission denied')} variant="warning" placement="top-end">
-                        <span className="flex items-center text-amber-400 cursor-help">
+                        <span className="flex items-center text-sky-400 cursor-help">
                           <ShieldAlert className="w-3.5 h-3.5" />
                         </span>
                       </DelayedTooltip>
                     )}
                     {it.warningKind === 'warning' && (
                       <DelayedTooltip content={it.warningTooltip || tr('浏览提示', 'Exploration notice')} variant="warning" placement="top-end">
-                        <span className="flex items-center text-amber-400 cursor-help">
+                        <span className="flex items-center text-sky-400 cursor-help">
                           <AlertCircle className="w-3.5 h-3.5" />
                         </span>
                       </DelayedTooltip>

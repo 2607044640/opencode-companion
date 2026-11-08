@@ -3,11 +3,13 @@ import { escapeRegExp } from "../../../utils/regex"
 
 export { escapeRegExp }
 
-export type HighlightPreset = "yellow" | "orange"
+export type HighlightPreset = "yellow" | "orange" | "sky" | "blue"
 
 export const HIGHLIGHT_PRESETS: Record<HighlightPreset, string> = {
-  yellow: "text-yellow-300 font-bold bg-yellow-500/25 px-0.5 rounded-xs",
-  orange: "bg-orange-500/30 text-orange-300 font-semibold rounded-xs px-0.5",
+  sky: "bg-sky-500/30 text-sky-300 font-semibold rounded-xs px-0.5",
+  blue: "bg-sky-500/30 text-sky-300 font-semibold rounded-xs px-0.5",
+  yellow: "bg-sky-500/30 text-sky-300 font-semibold rounded-xs px-0.5",
+  orange: "bg-sky-500/30 text-sky-300 font-semibold rounded-xs px-0.5",
 }
 
 export interface HighlightedTextProps {
@@ -22,7 +24,7 @@ export function HighlightedText({
   text,
   query,
   className,
-  preset = "yellow",
+  preset = "sky",
   highlightClassName,
 }: HighlightedTextProps): ReactNode {
   const trimmed = query.trim()

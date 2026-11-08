@@ -270,22 +270,19 @@ function MarkdownCodeBlock({ children, isZenMode, node, ...props }: MarkdownCode
   }
 
   return (
-    <div className="group/code-block relative my-2.5 rounded-xl bg-[#161622] border border-[#242436] overflow-hidden shadow-sm">
-      {/* Top right floating Copy button: automatically appears on hover or remains visible when copied */}
-      <div
-        className={`absolute top-2 right-2 z-10 flex items-center gap-1.5 transition-all duration-150 ${
-          copied
-            ? 'opacity-100 pointer-events-auto'
-            : 'opacity-0 group-hover/code-block:opacity-100 focus-within:opacity-100 pointer-events-none group-hover/code-block:pointer-events-auto focus-within:pointer-events-auto'
-        }`}
-      >
+    <div className="group/code-block relative my-3 rounded-xl bg-[#13141c] border border-[#262836] overflow-hidden shadow-sm">
+      {/* Top Header Bar: Clean single header with language tag on the left and copy button on the right */}
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#171924]/80 border-b border-[#242636] text-xs select-none">
+        <span className="font-mono text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
+          {language || 'text'}
+        </span>
         <button
           type="button"
           onClick={handleCopy}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded-md font-sans text-xs transition-all duration-150 backdrop-blur-md cursor-pointer select-none shadow-sm ${
+          className={`flex items-center gap-1 px-2 py-0.5 rounded font-sans text-xs transition-all duration-150 cursor-pointer select-none ${
             copied
               ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-              : 'bg-zinc-800/85 hover:bg-zinc-700/95 text-zinc-300 hover:text-white border border-zinc-700/70 hover:border-zinc-500/80'
+              : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200 border border-transparent hover:border-zinc-600/50'
           }`}
           title={copied ? tr('已复制', 'Copied', 'Kopiert') : tr('复制代码/文本', 'Copy code/text', 'Code/Text kopieren')}
           aria-label={copied ? 'Copied' : 'Copy code'}
@@ -299,7 +296,7 @@ function MarkdownCodeBlock({ children, isZenMode, node, ...props }: MarkdownCode
             </>
           ) : (
             <>
-              <Copy className="w-3.5 h-3.5 text-zinc-400 group-hover/code-block:text-zinc-200 shrink-0" />
+              <Copy className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
               <span className="text-[11px] font-medium text-zinc-300">
                 {tr('复制', 'Copy', 'Kopieren')}
               </span>
@@ -308,17 +305,11 @@ function MarkdownCodeBlock({ children, isZenMode, node, ...props }: MarkdownCode
         </button>
       </div>
 
-      {language && (
-        <div className="absolute top-2.5 left-3 pointer-events-none select-none text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
-          {language}
-        </div>
-      )}
-
       <pre
         ref={preRef}
-        className={`overflow-x-auto font-mono text-zinc-300 ${
-          language ? 'pt-7 ' : ''
-        }${isZenMode ? 'p-4 text-xs sm:text-sm leading-relaxed' : 'p-3 text-xs'}`}
+        className={`!m-0 !border-0 !bg-transparent !rounded-none overflow-x-auto font-mono text-zinc-300 ${
+          isZenMode ? 'p-4 text-xs sm:text-sm leading-relaxed' : 'p-3 text-xs leading-relaxed'
+        }`}
         {...props}
       >
         {children}
@@ -855,13 +846,13 @@ function UserMessageBubble({
             className={`p-1 rounded transition-all group/undo relative cursor-pointer ${
               isBusy || isReverting || isReverted
                 ? 'opacity-30 cursor-not-allowed text-zinc-600'
-                : 'text-zinc-400 hover:text-amber-300 hover:bg-amber-950/50'
+                : 'text-zinc-400 hover:text-sky-300 hover:bg-sky-950/50'
             }`}
             title={t.chat.undoUpToThisPoint}
             aria-label={t.chat.undoUpToThisPoint}
           >
             {isReverting ? (
-              <RotateCcw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              <RotateCcw className="w-3.5 h-3.5 animate-spin text-sky-400" />
             ) : (
               <Undo2 className="w-3.5 h-3.5 transition-transform group-hover/undo:-rotate-12" />
             )}
@@ -871,13 +862,13 @@ function UserMessageBubble({
 
       {/* Checkpoint Divider if this message is the revert boundary */}
       {isRevertPoint && (
-        <div className="w-full self-center flex items-center gap-2 my-3 select-none text-[11px] text-amber-400/80 font-mono">
-          <div className="h-px bg-amber-500/30 flex-1" />
-          <span className="flex items-center gap-1.5 bg-amber-950/60 border border-amber-800/50 px-2.5 py-0.5 rounded-full text-amber-300 shadow-sm">
-            <RotateCcw className="w-3 h-3 text-amber-400" />
+        <div className="w-full self-center flex items-center gap-2 my-3 select-none text-[11px] text-sky-400/80 font-mono">
+          <div className="h-px bg-sky-500/30 flex-1" />
+          <span className="flex items-center gap-1.5 bg-sky-950/60 border border-sky-800/50 px-2.5 py-0.5 rounded-full text-sky-300 shadow-sm">
+            <RotateCcw className="w-3 h-3 text-sky-400" />
             {t.chat.revertDivider}
           </span>
-          <div className="h-px bg-amber-500/30 flex-1" />
+          <div className="h-px bg-sky-500/30 flex-1" />
         </div>
       )}
 
@@ -1377,9 +1368,9 @@ export function MessageBubble({
                   </div>
                 </div>
               ) : emptyChrome === 'thinking' ? (
-                <div className="py-2.5 px-3.5 rounded-lg bg-purple-950/25 border border-purple-800/40 flex items-center gap-3.5 shadow-sm">
-                  <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-purple-900/40 border border-purple-700/50 shrink-0 text-purple-300 shadow-inner">
-                    <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
+                <div className="py-2.5 px-3.5 rounded-lg bg-sky-950/25 border border-sky-800/40 flex items-center gap-3.5 shadow-sm">
+                  <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-sky-900/40 border border-sky-700/50 shrink-0 text-sky-300 shadow-inner">
+                    <Sparkles className="w-4 h-4 text-sky-300 animate-pulse" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -1387,9 +1378,9 @@ export function MessageBubble({
                         {tr('正在思考与生成回复…', 'Thinking & Generating Response…', 'Denkt nach und generiert Antwort…')}
                       </span>
                       <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                       </span>
                     </div>
                     <p className="text-xs text-zinc-400 mt-0.5">
@@ -1398,10 +1389,10 @@ export function MessageBubble({
                   </div>
                 </div>
               ) : emptyChrome === 'interrupted' && showTerminalError ? (
-                <div className="flex items-start gap-3 py-3.5 px-4 rounded-lg bg-amber-950/20 border border-amber-800/40 text-amber-200 text-xs">
-                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-3 py-3.5 px-4 rounded-lg bg-zinc-900/70 border border-zinc-700/60 text-zinc-200 text-xs">
+                  <AlertCircle className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
                   <div className="flex-1 space-y-1">
-                    <div className="font-semibold text-amber-300">
+                    <div className="font-semibold text-zinc-200">
                       {tr('未收到模型响应 (自动重试已达上限)', 'No response received (Auto-retry limit reached)', 'Keine Antwort erhalten (Auto-Wiederholungslimit erreicht)')}
                     </div>
                     <p className="text-zinc-400 text-[11px] leading-relaxed">

@@ -380,7 +380,7 @@ function FloatingMapContent({
                 ? "搜索会话 (按 ↑↓ 选择, Enter 定位, 双击卡片打开)..."
                 : "Search sessions (↑↓ to select, Enter to locate, double-click card to open)..."
             }
-            className="w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-orange-500/80 transition-colors placeholder:text-zinc-500"
+            className="w-full bg-[#16181e] text-zinc-200 pl-9 pr-8 py-1.5 text-xs rounded-md border border-[#272a31] focus:outline-none focus:border-sky-500/80 transition-colors placeholder:text-zinc-500"
           />
           {searchQuery && (
             <button
@@ -469,7 +469,7 @@ function FloatingMapContent({
             onClick={handleToggleAutoSync}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border transition-colors ${
               autoSyncEnabled
-                ? "bg-orange-950/40 text-orange-400 border-orange-800/60"
+                ? "bg-sky-950/40 text-sky-400 border-sky-800/60"
                 : "bg-[#16181e] text-zinc-400 border-[#272a31] hover:text-zinc-200"
             }`}
             title={
@@ -478,7 +478,7 @@ function FloatingMapContent({
                 : (isZh ? "自动同步：已关闭" : "Auto-Sync: Disabled")
             }
           >
-            <RefreshCw className={`w-3 h-3 ${autoSyncEnabled ? "text-orange-400" : "text-zinc-500"}`} />
+            <RefreshCw className={`w-3 h-3 ${autoSyncEnabled ? "text-sky-400" : "text-zinc-500"}`} />
             <span className="hidden sm:inline">
               {isZh
                 ? `自动同步 ${autoSyncEnabled ? "开" : "关"}`

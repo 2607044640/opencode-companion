@@ -62,7 +62,7 @@ export function QueuedMessagesList({ items, isPaused = false, onSendNow, onEdit,
         <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-zinc-700 text-[11px] text-zinc-100 inline-flex items-center justify-center">
           {items.length}
         </span>
-        <span className={`text-[11px] truncate ${isPaused ? 'text-amber-400/90' : 'text-zinc-500'}`}>
+        <span className={`text-[11px] truncate ${isPaused ? 'text-sky-400/90' : 'text-zinc-500'}`}>
           {isPaused
             ? tr(
                 '已暂停自动发送 · 点击右侧纸飞机立即发送',
@@ -105,7 +105,7 @@ export function QueuedMessagesList({ items, isPaused = false, onSendNow, onEdit,
                 <span className="flex-1 min-w-0 text-sm text-zinc-200 truncate flex items-center gap-2" title={preview}>
                   <span className="truncate">{preview}</span>
                   {item.status === 'waiting_boundary' && (
-                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] bg-purple-950/80 border border-purple-600/70 text-purple-200 font-medium animate-pulse shadow-sm shadow-purple-900/40">
+                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] bg-sky-950/80 border border-sky-600/70 text-sky-200 font-medium animate-pulse shadow-sm shadow-sky-900/40">
                       {tr('等待段落结束即发送…', 'Sends after paragraph finishes…', 'Sendet nach Absatz…')}
                     </span>
                   )}
@@ -116,7 +116,7 @@ export function QueuedMessagesList({ items, isPaused = false, onSendNow, onEdit,
                     onClick={() => onSendNow(item.id)}
                     className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
                       item.status === 'waiting_boundary'
-                        ? 'text-purple-300 bg-purple-950/70 border border-purple-800/60'
+                        ? 'text-sky-300 bg-sky-950/70 border border-sky-800/60'
                         : 'text-zinc-400 hover:text-white hover:bg-[#2a2e37]'
                     }`}
                     title={
