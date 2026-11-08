@@ -24,6 +24,7 @@ import { ToolCard } from './ToolCard'
 import { FileViewModal } from './FileViewModal'
 import { DelayedTooltip } from '../common/DelayedTooltip'
 import { tr } from '../../utils/i18n'
+import { toWindowsPath } from '../../utils/path-resolver'
 
 interface HierarchicalToolListProps {
   groups: WorkGroup[]
@@ -102,11 +103,12 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
           <div className="px-3 py-2 border-t border-zinc-800/50 bg-[#090b0d]/70 space-y-1.5 font-mono text-[11px] select-text">
             {items.map((it, idx) => {
               const isClickable = Boolean(it.output || it.error || it.fullPath || it.kind === 'file')
+              const winPath = it.kind === 'file' ? toWindowsPath(it.fullPath || it.pathOrQuery) : ''
               return (
                 <div
                   key={`${it.partId}_${idx}`}
                   onClick={isClickable ? () => setSelectedItem(it) : undefined}
-                  className={`group flex items-center gap-2 text-zinc-400 truncate py-1 px-1.5 -mx-1.5 rounded transition-all ${
+                  className={`group flex items-center gap-2 text-zinc-400 py-1 px-1.5 -mx-1.5 rounded transition-all ${
                     isClickable
                       ? 'cursor-pointer hover:bg-zinc-800/60 hover:text-zinc-200'
                       : ''
@@ -114,34 +116,49 @@ function ExploreGroupCard({ items, isLive }: { items: ExploreItem[]; isLive?: bo
                   title={
                     isClickable
                       ? it.kind === 'file'
-                        ? tr('点击查看文件内容', 'Click to view file')
+                        ? tr(`点击查看文件内容: ${winPath || it.pathOrQuery}`, `Click to view file: ${winPath || it.pathOrQuery}`)
                         : tr('点击查看搜索结果', 'Click to view results')
-                      : it.pathOrQuery
+                      : winPath || it.pathOrQuery
                   }
                 >
-                  {it.kind === 'file' ? (
-                    <Eye className="w-3.5 h-3.5 text-blue-400/80 shrink-0 group-hover:text-blue-300 transition-colors" />
-                  ) : (
-                    <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0 group-hover:text-zinc-200 transition-colors" />
-                  )}
-                  <span
-                    className={`truncate select-text flex-1 transition-colors ${
-                      isClickable
-                        ? 'text-zinc-300 group-hover:text-cyan-300 group-hover:underline underline-offset-2'
-                        : 'text-zinc-300'
-                    }`}
-                    title={it.fullPath || it.pathOrQuery}
-                  >
-                    {it.pathOrQuery}
-                  </span>
-
-                  {it.lineRange && (
-                    <span className="text-[10px] font-mono text-cyan-400/80 group-hover:text-cyan-300 bg-cyan-950/40 px-1 py-0.2 rounded shrink-0 select-none">
-                      #{it.lineRange}
+                  <div className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[32%] sm:max-w-[40%]">
+                    {it.kind === 'file' ? (
+                      <Eye className="w-3.5 h-3.5 text-blue-400/80 shrink-0 group-hover:text-blue-300 transition-colors" />
+                    ) : (
+                      <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0 group-hover:text-zinc-200 transition-colors" />
+                    )}
+                    <span
+                      className={`truncate select-text transition-colors ${
+                        isClickable
+                          ? 'text-zinc-300 group-hover:text-cyan-300 group-hover:underline underline-offset-2'
+                          : 'text-zinc-300'
+                      }`}
+                      title={winPath || it.fullPath || it.pathOrQuery}
+                    >
+                      {it.pathOrQuery}
                     </span>
+                  </div>
+
+                  {winPath ? (
+                    <div className="flex-1 min-w-0 px-2 text-center select-text">
+                      <span
+                        className="inline-block max-w-full truncate font-mono text-[10px] text-zinc-400/90 group-hover:text-zinc-200 transition-colors"
+                        title={winPath}
+                      >
+                        {winPath}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex-1" />
                   )}
 
                   <div className="ml-auto flex items-center gap-1.5 shrink-0 select-none">
+                    {it.lineRange && (
+                      <span className="text-[10px] font-mono text-cyan-400/80 group-hover:text-cyan-300 bg-cyan-950/40 px-1 py-0.2 rounded shrink-0 select-none">
+                        #{it.lineRange}
+                      </span>
+                    )}
+
                     {it.warningKind === 'no_match' && (
                       <DelayedTooltip content={it.warningTooltip || tr('未找到匹配项', 'No matches found')} variant="warning" placement="top-end">
                         <span className="flex items-center text-sky-400 cursor-help">
