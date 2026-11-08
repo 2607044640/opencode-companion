@@ -56,37 +56,12 @@ export interface FloatingSearchModalProps {
   readonly busySessionIds?: readonly string[]
 }
 
-/**
- * Antigravity-style in-progress running animation (Figure 2: 2x2 animated dot matrix)
- */
-export function AntigravityRunningIndicator({ className = '' }: { className?: string }) {
-  return (
-    <span
-      className={`inline-flex items-center justify-center shrink-0 text-sky-400 ${className}`}
-      title="正在进行中…"
-      aria-label="In progress"
-    >
-      <span className="grid grid-cols-2 gap-[2px] w-2.5 h-2.5 items-center justify-center">
-        <span
-          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
-          style={{ animationDuration: '0.8s', animationDelay: '0ms' }}
-        />
-        <span
-          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
-          style={{ animationDuration: '0.8s', animationDelay: '200ms' }}
-        />
-        <span
-          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
-          style={{ animationDuration: '0.8s', animationDelay: '600ms' }}
-        />
-        <span
-          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
-          style={{ animationDuration: '0.8s', animationDelay: '400ms' }}
-        />
-      </span>
-    </span>
-  )
-}
+import {
+  AntigravityRunningIndicator,
+  SessionUnreadDot,
+} from '../common/SessionStatusIndicator'
+
+export { AntigravityRunningIndicator }
 
 function formatSessionTime(timestamp?: number, t?: TranslationDictionary): string {
   if (!timestamp) return ''
@@ -1000,10 +975,7 @@ function FloatingSearchContent({
 
                     {/* Unread blue dot (Figure 4: ●) */}
                     {Boolean(unreadSessionIds?.includes(session.id)) && (
-                      <span
-                        className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
-                        title={isZh ? '新消息未读' : 'Unread'}
-                      />
+                      <SessionUnreadDot title={isZh ? '新消息未读' : 'Unread'} />
                     )}
 
                     <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
@@ -1135,10 +1107,7 @@ function FloatingSearchContent({
                       )}
 
                       {Boolean(unreadSessionIds?.includes(hit.sessionId)) && (
-                        <span
-                          className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
-                          title={isZh ? '新消息未读' : 'Unread'}
-                        />
+                        <SessionUnreadDot title={isZh ? '新消息未读' : 'Unread'} />
                       )}
 
                       <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">

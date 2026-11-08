@@ -12,6 +12,8 @@ export const PROMPT_DRAFT_PREFIX = 'opencode_prompt_draft_'
 export interface SavedPromptDraft {
   text: string
   attachments?: PromptAttachment[]
+  model?: { providerID: string; modelID: string; name?: string }
+  agent?: string
   updatedAt: number
 }
 
@@ -50,14 +52,18 @@ export function getStoredPromptDraft(
 
     const hasText = typeof parsed.text === 'string' && parsed.text.length > 0
     const hasAttachments = Array.isArray(parsed.attachments) && parsed.attachments.length > 0
+    const hasModel = Boolean(parsed.model && typeof parsed.model === 'object' && parsed.model.modelID)
+    const hasAgent = typeof parsed.agent === 'string' && Boolean(parsed.agent.trim())
 
-    if (!hasText && !hasAttachments) {
+    if (!hasText && !hasAttachments && !hasModel && !hasAgent) {
       return null
     }
 
     return {
       text: typeof parsed.text === 'string' ? parsed.text : '',
       attachments: Array.isArray(parsed.attachments) ? parsed.attachments : [],
+      model: hasModel ? parsed.model : undefined,
+      agent: hasAgent ? parsed.agent : undefined,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now(),
     }
   } catch (err) {
@@ -68,13 +74,15 @@ export function getStoredPromptDraft(
 
 /**
  * Persists prompt draft for a session safely to localStorage.
- * Automatically clears the key if both text and attachments are empty.
+ * Automatically clears the key if text, attachments, model, and agent are all empty.
  */
 export function saveStoredPromptDraft(
   sessionId: string | null | undefined,
   draft: {
     text?: string
     attachments?: PromptAttachment[]
+    model?: { providerID: string; modelID: string; name?: string }
+    agent?: string
   },
   storage?: Storage
 ): void {
@@ -84,9 +92,11 @@ export function saveStoredPromptDraft(
     const key = getPromptDraftStorageKey(sessionId)
     const text = draft.text ?? ''
     const attachments = Array.isArray(draft.attachments) ? draft.attachments : []
+    const model = draft.model && draft.model.modelID ? draft.model : undefined
+    const agent = draft.agent && draft.agent.trim() ? draft.agent.trim() : undefined
 
-    // If empty text and no attachments, delete key from storage
-    if (!text.trim() && attachments.length === 0) {
+    // If empty text, no attachments, and no model/agent override, delete key from storage
+    if (!text.trim() && attachments.length === 0 && !model && !agent) {
       store.removeItem(key)
       return
     }
@@ -94,6 +104,8 @@ export function saveStoredPromptDraft(
     const payload: SavedPromptDraft = {
       text,
       attachments,
+      ...(model ? { model } : {}),
+      ...(agent ? { agent } : {}),
       updatedAt: Date.now(),
     }
     store.setItem(key, JSON.stringify(payload))

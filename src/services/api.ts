@@ -21,7 +21,7 @@ import type {
   SendPromptOptions,
   SessionStatusPayload,
 } from '../types/opencode'
-import { sessionStatusFromTable } from '../utils/session-run-state'
+import { sessionStatusFromTable, normalizeSessionStatus } from '../utils/session-run-state'
 import { buildPromptParts } from '../utils/prompt-parts'
 import {
   nextSessionListLimit,
@@ -944,11 +944,15 @@ export const api = {
   },
 
   /**
-   * Update session properties (e.g. title) via OpenCode daemon PATCH /session/:id
+   * Update session properties (e.g. title, model) via OpenCode daemon PATCH /session/:id
    */
   async updateSession(
     sessionID: string,
-    updates: { title?: string; directory?: string }
+    updates: {
+      title?: string
+      directory?: string
+      model?: { id?: string; providerID?: string }
+    }
   ): Promise<Session> {
     const query = updates.directory
       ? `?directory=${encodeURIComponent(canonicalizeDirectory(updates.directory) || updates.directory)}`
@@ -957,6 +961,7 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({
         ...(updates.title !== undefined ? { title: updates.title } : {}),
+        ...(updates.model !== undefined ? { model: updates.model } : {}),
       }),
     })
     return normalizeSession(raw)
@@ -1238,6 +1243,30 @@ export const api = {
       return sessionStatusFromTable(raw, sessionID)
     } catch {
       return null
+    }
+  },
+
+  /**
+   * Fetch all session statuses from daemon.
+   * Returns a map of sessionId to SessionStatusPayload.
+   */
+  async getAllSessionStatuses(directory?: string): Promise<Record<string, SessionStatusPayload>> {
+    try {
+      const canonicalDir = directory ? canonicalizeDirectory(directory) : undefined
+      const endpoint = canonicalDir
+        ? `/session/status?directory=${encodeURIComponent(canonicalDir)}`
+        : '/session/status'
+      const raw = await request<unknown>(endpoint, { cache: 'no-store' })
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const result: Record<string, SessionStatusPayload> = {}
+        for (const [id, val] of Object.entries(raw)) {
+          result[id] = normalizeSessionStatus(val)
+        }
+        return result
+      }
+      return {}
+    } catch {
+      return {}
     }
   },
 

@@ -263,6 +263,33 @@ describe('session-workspace: deep-link activation plan', () => {
     assert.equal(plan.shouldInsert, true)
   })
 
+  it('merges fresh metadata from fetchedSession into existing local session', () => {
+    const local = makeSession({
+      id: 'ses_stub',
+      projectID: 'global',
+      directory: '/workspace/projects/AISpace',
+      title: 'stub session',
+      model: { id: '', providerID: '' },
+    })
+    const fresh = makeSession({
+      id: 'ses_stub',
+      projectID: aiSpace.id,
+      directory: aiSpace.worktree,
+      title: 'authoritative title',
+      model: { id: 'gpt-6.1-sol', providerID: 'obsidian' },
+    })
+    const plan = planSessionActivation({
+      sessionId: 'ses_stub',
+      localSessions: [local],
+      fetchedSession: fresh,
+      projects,
+    })
+    assert.equal(plan.session?.id, 'ses_stub')
+    assert.equal(plan.session?.model.id, 'gpt-6.1-sol')
+    assert.equal(plan.session?.title, 'authoritative title')
+    assert.equal(plan.shouldInsert, false)
+  })
+
   it('returns a null plan when the session cannot be resolved', () => {
     const plan = planSessionActivation({
       sessionId: 'ses_missing',

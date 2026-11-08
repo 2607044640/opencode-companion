@@ -53,11 +53,11 @@ export function FileTypeIcon({ filename, className }: FileTypeIconProps) {
   }
 
   if (ext === 'json') {
-    return <FileCode className={`text-amber-400 shrink-0 ${className || 'w-4 h-4'}`} />
+    return <FileCode className={`text-sky-400 shrink-0 ${className || 'w-4 h-4'}`} />
   }
 
   if (ext === 'css' || ext === 'scss' || ext === 'less') {
-    return <FileCode className={`text-pink-400 shrink-0 ${className || 'w-4 h-4'}`} />
+    return <FileCode className={`text-sky-400 shrink-0 ${className || 'w-4 h-4'}`} />
   }
 
   if (ext === 'md' || ext === 'txt') {

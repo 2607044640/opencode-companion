@@ -28,6 +28,8 @@ import {
   GripVertical,
   PanelTopClose,
   PanelTopOpen,
+  FileDown,
+  FileText,
 } from 'lucide-react'
 import type { Project, Session, Message, SessionStatusPayload } from '../../types/opencode'
 import type { SessionGroup } from '../../hooks/useSessions'
@@ -36,8 +38,14 @@ import { TokenStatsWidget } from './TokenStatsWidget'
 import { RelayHubDropdown } from './RelayHubDropdown'
 import { ShortcutMenu } from './ShortcutMenu'
 import { useDaemonHeartbeat } from '../../utils/daemon-heartbeat'
-import { matchCanonicalWorkspace } from '../../services/api'
+import { api, matchCanonicalWorkspace } from '../../services/api'
+import { exportSessionToMarkdown, extractSessionPrompts } from '../../utils/export-markdown'
 import { useI18n } from '../../utils/i18n'
+import {
+  AntigravityRunningIndicator,
+  SessionUnreadDot,
+  SessionTrailingIndicator,
+} from '../common/SessionStatusIndicator'
 import {
   getPinnedSessionIds,
   togglePinSessionId,
@@ -74,6 +82,7 @@ interface SidebarProps {
   sessionStatus?: SessionStatusPayload
   runKnown?: boolean
   unreadSessionIds?: string[]
+  busySessionIds?: string[]
   onSelectSession: (id: string) => void
   onNewSession: (directory?: string) => void
   onDeleteSession: (id: string) => void
@@ -82,6 +91,8 @@ interface SidebarProps {
   onOpenSettings: (tab?: SettingsTab) => void
   onOpenSearch?: () => void
   onOpenScheduledTasks?: () => void
+  onOpenBackgroundTasks?: () => void
+  onOpenSubagentTopology?: () => void
   onToggleSidebar?: () => void
   canGoBack?: boolean
   canGoForward?: boolean
@@ -124,6 +135,7 @@ export function Sidebar({
   sessionStatus,
   runKnown = true,
   unreadSessionIds,
+  busySessionIds = [],
   onSelectSession,
   onNewSession,
   onDeleteSession,
@@ -132,6 +144,8 @@ export function Sidebar({
   onOpenSettings,
   onOpenSearch,
   onOpenScheduledTasks,
+  onOpenBackgroundTasks,
+  onOpenSubagentTopology,
   onToggleSidebar,
   canGoBack = false,
   canGoForward = false,
@@ -234,6 +248,8 @@ export function Sidebar({
     y: number
   } | null>(null)
   const [copiedId, setCopiedId] = useState(false)
+  const [copiedMd, setCopiedMd] = useState(false)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
   const contextMenuRef = useRef<HTMLDivElement>(null)
 
   // Filter canonical projects
@@ -397,7 +413,7 @@ export function Sidebar({
   if (isOpen === false) {
     return (
       <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between">
-        {/* Top: Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
+        {/* Top: Expand Sidebar Icon + Top Bar Toggle */}
         <div className="flex flex-col items-center gap-1.5">
           {/* Toggle Sidebar [|] */}
           <button
@@ -407,34 +423,6 @@ export function Sidebar({
             title={isZh ? '展开侧边栏 (Ctrl+B)' : 'Show Sidebar (Ctrl+B)'}
           >
             <PanelLeftOpen className="w-4 h-4" />
-          </button>
-
-          <div className="w-6 border-t border-[#21242b] my-0.5" />
-
-          {/* New Session (+) */}
-          <button
-            type="button"
-            onClick={() => onNewSession()}
-            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
-            title={isZh ? '新会话' : 'New Session'}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-
-          {/* Search (Ctrl+K) */}
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            className="relative p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
-            title={isZh ? '全局搜索 (Ctrl+K)' : 'Search Sessions (Ctrl+K)'}
-          >
-            <Search className="w-4 h-4" />
-            {Boolean(unreadSessionIds && unreadSessionIds.length > 0) && (
-              <span
-                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-sky-400 ring-2 ring-[#0f0f15] shadow-[0_0_6px_rgba(56,189,248,0.8)] animate-pulse"
-                title={isZh ? `${unreadSessionIds?.length} 个未读会话` : `${unreadSessionIds?.length} unread session(s)`}
-              />
-            )}
           </button>
 
           {/* Toggle Top Bar (Ctrl+Shift+B) */}
@@ -458,27 +446,11 @@ export function Sidebar({
           >
             {isHeaderVisible ? <PanelTopClose className="w-4 h-4" /> : <PanelTopOpen className="w-4 h-4" />}
           </button>
-
-          {/* Shortcuts & Tools Menu (···) */}
-          <ShortcutMenu
-            activeSessionId={activeSessionId}
-            onOpenMapAndLocate={onOpenMapAndLocate}
-            onAddSessionToMap={onAddSessionToMap}
-            onOpenSearch={onOpenSearch}
-            onOpenModelRouter={onOpenModelRouter}
-            onGetSessionJson={onGetSessionJson}
-            onToggleZenMode={onToggleZenMode}
-            onOpenFind={onOpenFind}
-            isHeaderVisible={isHeaderVisible}
-            onToggleHeader={onToggleHeader}
-            compact
-            popoverPlacement="right"
-          />
         </div>
 
-        {/* Bottom Cluster: Token Stats + Relay Hub + Status/Security + Settings */}
+        {/* Bottom Cluster: Token Stats + Relay Hub + Three-Dot Tools/Export Menu + Settings */}
         <div className="flex flex-col items-center gap-2">
-          {/* Token Stats Ring (compact) */}
+          {/* Token Stats Ring (compact with hover popover) */}
           <TokenStatsWidget
             activeSession={activeSession}
             messages={messages}
@@ -486,7 +458,7 @@ export function Sidebar({
             popoverPlacement="right"
           />
 
-          {/* Relay Hub Billing (compact) */}
+          {/* Relay Hub Billing (compact with hover popover) */}
           <RelayHubDropdown
             onOpenSettings={() => (onOpenRelayHub ? onOpenRelayHub() : onOpenSettings?.('relays'))}
             compact
@@ -494,6 +466,26 @@ export function Sidebar({
           />
 
           <div className="w-6 border-t border-[#21242b] my-0.5" />
+
+          {/* Three-dot Tools & Export Menu (···) directly above Settings */}
+          <ShortcutMenu
+            activeSession={activeSession}
+            activeSessionId={activeSessionId}
+            messages={messages}
+            onOpenMapAndLocate={onOpenMapAndLocate}
+            onAddSessionToMap={onAddSessionToMap}
+            onOpenSearch={onOpenSearch}
+            onOpenModelRouter={onOpenModelRouter}
+            onOpenBackgroundTasks={onOpenBackgroundTasks}
+            onOpenSubagentTopology={onOpenSubagentTopology}
+            onGetSessionJson={onGetSessionJson}
+            onToggleZenMode={onToggleZenMode}
+            onOpenFind={onOpenFind}
+            isHeaderVisible={isHeaderVisible}
+            onToggleHeader={onToggleHeader}
+            compact
+            popoverPlacement="right-bottom"
+          />
 
           {/* Settings */}
           <button
@@ -643,11 +635,15 @@ export function Sidebar({
 
           {/* Shortcuts & Tools Menu (···) */}
           <ShortcutMenu
+            activeSession={activeSession}
             activeSessionId={activeSessionId}
+            messages={messages}
             onOpenMapAndLocate={onOpenMapAndLocate}
             onAddSessionToMap={onAddSessionToMap}
             onOpenSearch={onOpenSearch}
             onOpenModelRouter={onOpenModelRouter}
+            onOpenBackgroundTasks={onOpenBackgroundTasks}
+            onOpenSubagentTopology={onOpenSubagentTopology}
             onGetSessionJson={onGetSessionJson}
             onToggleZenMode={onToggleZenMode}
             onOpenFind={onOpenFind}
@@ -788,14 +784,13 @@ export function Sidebar({
                         </span>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {isSessionUnread(session.id, unreadSessionIds || []) ? (
-                          <span
-                            className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
-                            title={isZh ? '新消息未读' : 'Unread'}
-                          />
-                        ) : (
-                          <span className="text-[10px] text-zinc-500 font-mono">{timeLabel}</span>
-                        )}
+                        <SessionTrailingIndicator
+                          isRunning={Boolean(busySessionIds?.includes(session.id))}
+                          isUnread={isSessionUnread(session.id, unreadSessionIds || [])}
+                          runningTitle={isZh ? '正在进行中…' : 'In progress…'}
+                          unreadTitle={isZh ? '新消息未读' : 'Unread'}
+                          fallback={<span className="text-[10px] text-zinc-500 font-mono">{timeLabel}</span>}
+                        />
                         <button
                           type="button"
                           onClick={(e) => handleArchive(session.id, e)}
@@ -878,12 +873,14 @@ export function Sidebar({
                       )}
                       <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                       <span className="truncate">{projName}</span>
-                      {projSessions.some((s) => isSessionUnread(s.id, unreadSessionIds || [])) && (
-                        <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_6px_#3b82f6] shrink-0"
+                      {projSessions.some((s) => busySessionIds?.includes(s.id)) ? (
+                        <AntigravityRunningIndicator title={isZh ? '该工程下有正在运行的会话' : 'Sessions running in project'} />
+                      ) : projSessions.some((s) => isSessionUnread(s.id, unreadSessionIds || [])) ? (
+                        <SessionUnreadDot
+                          className="w-1.5 h-1.5 shadow-[0_0_6px_#3b82f6]"
                           title={isZh ? '包含未读会话' : 'Contains unread session'}
                         />
-                      )}
+                      ) : null}
                     </div>
 
                     {/* Right Hover Actions on Project Header */}
@@ -990,18 +987,19 @@ export function Sidebar({
                                 )}
                               </div>
 
-                              {/* Right: Unread blue dot / Timestamp / Action buttons */}
+                              {/* Right: Running indicator / Unread blue dot / Timestamp / Action buttons */}
                               <div className="flex items-center gap-1 shrink-0">
-                                {isSessionUnread(session.id, unreadSessionIds || []) ? (
-                                  <span
-                                    className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
-                                    title={isZh ? '新消息未读' : 'Unread'}
-                                  />
-                                ) : (
-                                  <span className={`text-[10px] text-zinc-500 font-mono ${isPinned ? 'hidden' : 'group-hover:hidden'}`}>
-                                    {timeLabel}
-                                  </span>
-                                )}
+                                <SessionTrailingIndicator
+                                  isRunning={Boolean(busySessionIds?.includes(session.id))}
+                                  isUnread={isSessionUnread(session.id, unreadSessionIds || [])}
+                                  runningTitle={isZh ? '正在进行中…' : 'In progress…'}
+                                  unreadTitle={isZh ? '新消息未读' : 'Unread'}
+                                  fallback={
+                                    <span className={`text-[10px] text-zinc-500 font-mono ${isPinned ? 'hidden' : 'group-hover:hidden'}`}>
+                                      {timeLabel}
+                                    </span>
+                                  }
+                                />
 
                                 {/* Pin button on the right (📌) */}
                                 <button
@@ -1218,27 +1216,10 @@ export function Sidebar({
         )}
       </div>
 
-      {/* 4. Bottom Action Bar with Token Widget, Relay Hub, Ambient Status & Settings */}
+      {/* 4. Bottom Action Bar with Ambient Status & Settings */}
       <div className="p-2 border-t border-[#21242b] flex flex-col gap-2 bg-[#0e1014] text-xs text-[#8b949e]">
-        {/* Row 1: Token Usage Capsule & Relay Hub Billing */}
-        <div className="flex items-center justify-between gap-1.5">
-          <div className="flex-1 min-w-0">
-            <TokenStatsWidget
-              activeSession={activeSession}
-              messages={messages}
-              compact={false}
-              popoverPlacement="top"
-            />
-          </div>
-          <RelayHubDropdown
-            onOpenSettings={() => (onOpenRelayHub ? onOpenRelayHub() : onOpenSettings?.('relays'))}
-            compact={false}
-            popoverPlacement="top"
-          />
-        </div>
-
-        {/* Row 2: Status & Settings */}
-        <div className="flex items-center justify-between pt-1 border-t border-[#1a1d24]">
+        {/* Status & Settings */}
+        <div className="flex items-center justify-between pt-0.5">
           <button
             type="button"
             onClick={() => onOpenSettings()}
@@ -1369,6 +1350,105 @@ export function Sidebar({
               <span className="text-[10px] font-mono text-sky-500/70">Ctrl+M</span>
             </button>
           )}
+
+          {/* Export Markdown */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const targetId = contextMenu.sessionId
+                const targetSession = sessions.find((s) => s.id === targetId) || (activeSession?.id === targetId ? activeSession : null)
+                const targetMsgs =
+                  activeSessionId === targetId && messages && messages.length > 0
+                    ? messages
+                    : await api.getMessages(targetId)
+                const md = exportSessionToMarkdown(targetSession, targetMsgs)
+                if (navigator.clipboard) {
+                  await navigator.clipboard.writeText(md)
+                }
+                setCopiedMd(true)
+                window.dispatchEvent(
+                  new CustomEvent('opencode:toast', {
+                    detail: { message: isZh ? '已导出并复制会话 Markdown' : 'Copied Session Markdown' },
+                  })
+                )
+                setTimeout(() => {
+                  setCopiedMd(false)
+                  setContextMenu(null)
+                }, 500)
+              } catch (err) {
+                console.error('Failed to export markdown:', err)
+                setContextMenu(null)
+              }
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              {copiedMd ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <FileDown className="w-3.5 h-3.5 text-sky-400" />
+              )}
+              <span>{copiedMd ? (isZh ? '已导出 Markdown' : 'Exported Markdown') : (isZh ? '导出 Markdown' : 'Export Markdown')}</span>
+            </div>
+            <span className="text-[10px] font-mono text-zinc-500">.md</span>
+          </button>
+
+          {/* Copy Prompt (Antigravity-style) */}
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const targetId = contextMenu.sessionId
+                const targetMsgs =
+                  activeSessionId === targetId && messages && messages.length > 0
+                    ? messages
+                    : await api.getMessages(targetId)
+                const prompts = extractSessionPrompts(targetMsgs)
+                if (prompts.length > 0) {
+                  if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(prompts.join('\n\n---\n\n'))
+                  }
+                  setCopiedPrompt(true)
+                  window.dispatchEvent(
+                    new CustomEvent('opencode:toast', {
+                      detail: {
+                        message:
+                          prompts.length === 1
+                            ? (isZh ? '已复制会话 Prompt' : 'Copied prompt')
+                            : (isZh ? `已复制全部 ${prompts.length} 条 Prompt` : `Copied ${prompts.length} prompts`),
+                      },
+                    })
+                  )
+                  setTimeout(() => {
+                    setCopiedPrompt(false)
+                    setContextMenu(null)
+                  }, 500)
+                } else {
+                  window.dispatchEvent(
+                    new CustomEvent('opencode:toast', {
+                      detail: { message: isZh ? '当前会话暂无用户 Prompt' : 'No prompt found in session' },
+                    })
+                  )
+                  setContextMenu(null)
+                }
+              } catch (err) {
+                console.error('Failed to copy prompt:', err)
+                setContextMenu(null)
+              }
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              {copiedPrompt ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <FileText className="w-3.5 h-3.5 text-cyan-400" />
+              )}
+              <span>{copiedPrompt ? (isZh ? '已复制 Prompt' : 'Copied Prompt') : (isZh ? '复制会话 Prompt' : 'Copy Prompt')}</span>
+            </div>
+            <span className="text-[10px] font-mono text-zinc-500">Prompt</span>
+          </button>
 
           {/* Copy Session ID */}
           <button

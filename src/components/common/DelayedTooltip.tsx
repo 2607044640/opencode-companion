@@ -89,7 +89,7 @@ export function DelayedTooltip({
   const variantClasses: Record<string, string> = {
     default: 'bg-[#12141a]/95 border-[#2a2e38] text-zinc-200 shadow-black/80',
     error: 'bg-[#160d10]/95 border-rose-900/70 text-rose-200 shadow-rose-950/50',
-    warning: 'bg-[#16120a]/95 border-amber-900/70 text-amber-200 shadow-amber-950/50',
+    warning: 'bg-[#12141a]/95 border-sky-800/60 text-sky-200 shadow-sky-950/50',
   }
 
   return (

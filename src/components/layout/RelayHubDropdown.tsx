@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Plus,
   AlertCircle,
+  LineChart,
 } from 'lucide-react'
 import {
   getRelayProviders,
@@ -17,6 +18,8 @@ import {
   DEFAULT_REFRESH_INTERVAL_MS,
   type RelayProvider,
 } from '../../utils/relay-billing'
+import { recordRelaySnapshot } from '../../utils/relay-history'
+import { RelayCostAnalyticsModal } from './RelayCostAnalyticsModal'
 
 interface RelayHubDropdownProps {
   onOpenSettings?: () => void
@@ -32,7 +35,16 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
   const [providers, setProviders] = useState<RelayProvider[]>(() => getRelayProviders())
   const [isOpen, setIsOpen] = useState(false)
   const [isRefreshingAll, setIsRefreshingAll] = useState(false)
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false)
+  const [floatingDelta, setFloatingDelta] = useState<{ id: number; text: string } | null>(null)
+  const deltaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    return () => {
+      if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
+    }
+  }, [])
 
   // Listen for storage changes from settings modal
   const reloadProviders = useCallback(() => {
@@ -138,51 +150,81 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
     }
   }
 
-  // Refresh all providers concurrently
-  const refreshAll = useCallback(async (customList?: RelayProvider[]) => {
-    const list = customList ?? getRelayProviders()
-    if (list.length === 0) return
-    setIsRefreshingAll(true)
+  // Refresh all providers concurrently and record snapshot
+  const refreshAll = useCallback(
+    async (
+      customList?: RelayProvider[],
+      trigger: 'manual_click' | 'auto_interval' = 'auto_interval'
+    ) => {
+      const list = customList ?? getRelayProviders()
+      if (list.length === 0) return null
+      setIsRefreshingAll(true)
 
-    // Mark all loading
-    for (const p of list) {
-      updateRelayProvider(p.id, { status: 'loading' })
-    }
-    reloadProviders()
+      // Mark all loading
+      for (const p of list) {
+        updateRelayProvider(p.id, { status: 'loading' })
+      }
+      reloadProviders()
 
-    await Promise.allSettled(
-      list.map(async (p) => {
-        try {
-          const res = await fetchRelayQuota(p)
-          if (res.ok) {
-            updateRelayProvider(p.id, {
-              balance: res.balance,
-              totalQuota: res.totalQuota,
-              usedQuota: res.usedQuota,
-              isUnmetered: res.isUnmetered,
-              note: res.note,
-              status: 'ok',
-              error: undefined,
-              lastUpdated: Date.now(),
-            })
-          } else {
+      await Promise.allSettled(
+        list.map(async (p) => {
+          try {
+            const res = await fetchRelayQuota(p)
+            if (res.ok) {
+              updateRelayProvider(p.id, {
+                balance: res.balance,
+                totalQuota: res.totalQuota,
+                usedQuota: res.usedQuota,
+                isUnmetered: res.isUnmetered,
+                note: res.note,
+                status: 'ok',
+                error: undefined,
+                lastUpdated: Date.now(),
+              })
+            } else {
+              updateRelayProvider(p.id, {
+                status: 'error',
+                error: res.error || 'Fetch failed',
+              })
+            }
+          } catch (err) {
             updateRelayProvider(p.id, {
               status: 'error',
-              error: res.error || 'Fetch failed',
+              error: err instanceof Error ? err.message : String(err),
             })
           }
-        } catch (err) {
-          updateRelayProvider(p.id, {
-            status: 'error',
-            error: err instanceof Error ? err.message : String(err),
-          })
-        }
-      })
-    )
+        })
+      )
 
+      const updated = getRelayProviders()
+      reloadProviders()
+      setIsRefreshingAll(false)
+
+      // Record snapshot and return delta
+      const snapResult = recordRelaySnapshot(updated, trigger)
+      return snapResult
+    },
+    [reloadProviders]
+  )
+
+  // Triggered on clicking the coin icon: refreshes and plays 2-second light blue floating animation
+  const handleCoinClick = async () => {
     reloadProviders()
-    setIsRefreshingAll(false)
-  }, [reloadProviders])
+    setIsOpen((prev) => !prev)
+
+    try {
+      const snapResult = await refreshAll(undefined, 'manual_click')
+      if (snapResult && snapResult.deltaFormatted) {
+        setFloatingDelta({ id: Date.now(), text: snapResult.deltaFormatted })
+        if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
+        deltaTimerRef.current = setTimeout(() => {
+          setFloatingDelta(null)
+        }, 2000)
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   // 10-minute auto refresh interval (runs strictly when companion app is open and browser tab is visible)
   useEffect(() => {
@@ -248,20 +290,35 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
       : { top: '100%', right: '0', marginTop: '8px' }
 
   return (
-    <div className="relative shrink-0" ref={dropdownRef}>
+    <div
+      className="relative shrink-0"
+      ref={dropdownRef}
+      onMouseEnter={() => {
+        reloadProviders()
+        setIsOpen(true)
+      }}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      {/* 2-Second Floating Delta Cost Animation Badge (浅蓝色扣费浮现动画) */}
+      {floatingDelta && (
+        <div
+          key={floatingDelta.id}
+          className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 z-50 whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border border-sky-400/70 text-sky-300 font-mono font-bold text-[11px] shadow-[0_0_14px_rgba(56,189,248,0.6)] animate-relay-cost-float select-none"
+        >
+          {floatingDelta.text}
+        </div>
+      )}
+
       {compact ? (
         <button
           type="button"
-          onClick={() => {
-            reloadProviders()
-            setIsOpen((prev) => !prev)
-          }}
+          onClick={handleCoinClick}
           className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none relative ${
             isOpen
               ? 'bg-[#1e222a] border border-zinc-500 text-sky-300'
               : 'bg-[#14161c] hover:bg-[#1c1f26] border border-[#272a31] text-zinc-300 hover:text-white'
           }`}
-          title={`中转站额度与账单监视器: ${summary.hasProviders ? summary.totalFormatted : '中转额度'}`}
+          title={`点击刷新中转站额度 (Relay Hub): ${summary.hasProviders ? summary.totalFormatted : '中转额度'}`}
           aria-expanded={isOpen}
         >
           <Coins className="w-4 h-4 text-zinc-400" />
@@ -281,11 +338,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
         /* Top Header Capsule Button */
         <button
           type="button"
-          onClick={() => {
-            reloadProviders()
-            setIsOpen((prev) => !prev)
-          }}
-          className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono select-none transition-all cursor-pointer shadow-sm ${
+          onClick={handleCoinClick}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-mono select-none transition-all cursor-pointer shadow-sm relative ${
             isOpen
               ? 'bg-[#1e222a] border-zinc-500 text-white'
               : 'bg-[#14161c] hover:bg-[#1c1f26] border-[#272a31] hover:border-zinc-600 text-zinc-300 hover:text-white'
@@ -338,9 +392,30 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
             </div>
 
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false)
+                  setIsAnalyticsOpen(true)
+                }}
+                className="p-1 text-zinc-400 hover:text-sky-300 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
+                title="打开中转站额度与消费走势分析曲线 (大屏分析)"
+              >
+                <LineChart className="w-3.5 h-3.5" />
+              </button>
+
               {summary.hasProviders && (
                 <button
-                  onClick={() => refreshAll()}
+                  onClick={async () => {
+                    const snapResult = await refreshAll(undefined, 'manual_click')
+                    if (snapResult && snapResult.deltaFormatted) {
+                      setFloatingDelta({ id: Date.now(), text: snapResult.deltaFormatted })
+                      if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current)
+                      deltaTimerRef.current = setTimeout(() => {
+                        setFloatingDelta(null)
+                      }, 2000)
+                    }
+                  }}
                   disabled={isRefreshingAll}
                   className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
                   title="刷新全部中转站额度 (应用开启时每10分钟自动刷新)"
@@ -355,7 +430,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                   setIsOpen(false)
                   onOpenSettings?.()
                 }}
-                className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors"
+                className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-[#1f232d] rounded transition-colors cursor-pointer"
                 title="中转站设置与管理"
               >
                 <Settings className="w-3.5 h-3.5" />
@@ -480,6 +555,17 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           )}
         </div>
       )}
+
+      {/* Large Floating Analytics Modal (时间-耗费多少钱的曲线表) */}
+      <RelayCostAnalyticsModal
+        isOpen={isAnalyticsOpen}
+        onClose={() => setIsAnalyticsOpen(false)}
+        providers={providers}
+        onRefreshAll={async () => {
+          await refreshAll(undefined, 'manual_click')
+        }}
+        isRefreshing={isRefreshingAll}
+      />
     </div>
   )
 }

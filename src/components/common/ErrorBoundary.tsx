@@ -57,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="pt-2 flex justify-end">
               <button
                 onClick={this.handleReload}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-medium rounded-lg flex items-center gap-2 transition-colors shadow"
+                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium rounded-lg flex items-center gap-2 transition-colors shadow"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>刷新并重新加载</span>

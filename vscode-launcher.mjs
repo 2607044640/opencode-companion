@@ -7,6 +7,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export const VSCODE_CACHE_FILE = path.join(__dirname, '.vscode-path.json')
 
 export const DEFAULT_WORKSPACE_MAPPINGS = [
+  // 1. Static OpenCode configuration and global rules
+  { jail: '/home/developer/.config/opencode/AGENTS.md', win: 'C:\\AICore\\global\\rules\\AGENTS_Global.md' },
+  { jail: '/home/developer/.config/opencode/instructions', win: 'C:\\AICore\\opencode-jail\\instructions' },
+  { jail: '/home/developer/.config/opencode/agents', win: 'C:\\AICore\\opencode-jail\\agents' },
+  { jail: '/home/developer/.config/opencode/commands', win: 'C:\\AICore\\opencode-jail\\commands' },
+  { jail: '/home/developer/.config/opencode/plugins', win: 'C:\\AICore\\opencode-jail\\plugins' },
+  { jail: '/home/developer/.config/opencode/opencode-routing.json', win: 'C:\\ObsidianNote\\.opencode\\opencode-routing.json' },
+  { jail: '/home/developer/.config/opencode', win: 'C:\\AICore\\opencode-jail' },
+
+  // 2. Desktop shortcuts
+  { jail: '/mnt/desktop', win: 'C:\\Users\\26070\\Desktop' },
+  { jail: '/mnt/c/Users/26070/Desktop', win: 'C:\\Users\\26070\\Desktop' },
+  { jail: '/home/developer/Desktop', win: 'C:\\Users\\26070\\Desktop' },
+
+  // 3. Known workspace roots
   { jail: '/home/developer/projects/APISpace', win: 'C:\\APISpace' },
   { jail: '/workspace/projects/APISpace', win: 'C:\\APISpace' },
   { jail: '/home/developer/projects/AICore', win: 'C:\\AICore' },
@@ -98,8 +113,15 @@ export function cleanRawPath(raw) {
 
   // 9. Normalize leading slash for jail/POSIX paths
   const slashNormalized = clean.replace(/\\/g, '/')
-  if (/^(?:home\/developer|workspace\/projects|projects|mnt\/[a-zA-Z])\//i.test(slashNormalized)) {
-    clean = '/' + slashNormalized.replace(/^\/+/, '')
+  const unslashed = slashNormalized.replace(/^\/+/, '')
+  if (/^(?:home\/developer|workspace\/projects|projects|mnt\/[a-zA-Z]|\.config\/opencode)/i.test(unslashed)) {
+    clean = '/' + unslashed
+  } else if (slashNormalized.startsWith('~/')) {
+    clean = '/home/developer/' + slashNormalized.slice(2)
+  } else if (slashNormalized === '~') {
+    clean = '/home/developer'
+  } else if (!/^[a-zA-Z]:[/\\\\]/.test(clean) && slashNormalized.startsWith('/')) {
+    clean = slashNormalized
   }
 
   return clean.trim()
@@ -131,16 +153,27 @@ export function resolveToWindowsPath(rawPath) {
     return path.normalize(cleaned)
   }
 
+  let normalizedPosix = cleaned.replace(/\\/g, '/')
+  if (normalizedPosix.startsWith('~/')) {
+    normalizedPosix = '/home/developer/' + normalizedPosix.slice(2)
+  } else if (normalizedPosix === '~') {
+    normalizedPosix = '/home/developer'
+  } else if (normalizedPosix.startsWith('.config/opencode') || normalizedPosix.startsWith('/.config/opencode')) {
+    normalizedPosix = '/home/developer/' + normalizedPosix.replace(/^\/+/, '')
+  }
+
   // 2. /mnt/c/... or /mnt/d/...
-  const mntMatch = cleaned.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
+  const mntMatch = normalizedPosix.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
   if (mntMatch) {
     return path.normalize(`${mntMatch[1].toUpperCase()}:\\${mntMatch[2]}`)
   }
 
   // 3. Match against known workspace roots
+  const posixLower = normalizedPosix.toLowerCase()
   for (const { jail, win } of DEFAULT_WORKSPACE_MAPPINGS) {
-    if (cleaned === jail || cleaned.startsWith(jail + '/')) {
-      const rel = cleaned.slice(jail.length).replace(/^\/+/, '')
+    const jailLower = jail.toLowerCase()
+    if (posixLower === jailLower || posixLower.startsWith(jailLower + '/')) {
+      const rel = normalizedPosix.slice(jail.length).replace(/^\/+/, '')
       return path.normalize(rel ? path.join(win, rel) : win)
     }
   }

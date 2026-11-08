@@ -12,6 +12,8 @@ export interface CachedTabInfo {
   title: string
   directory?: string
   projectID?: string
+  model?: { id: string; providerID: string }
+  agent?: string
   time?: { created?: number; updated?: number }
 }
 

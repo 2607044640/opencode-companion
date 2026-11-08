@@ -254,7 +254,7 @@ export function planSessionActivation(input: {
   readonly projects: readonly Project[]
 }): SessionActivationPlan {
   const local = input.localSessions.find((s) => s.id === input.sessionId) ?? null
-  if (local) {
+  if (local && !input.fetchedSession) {
     return {
       session: local,
       projectId: resolveCanonicalProjectId(local, input.projects),
@@ -263,10 +263,19 @@ export function planSessionActivation(input: {
   }
 
   if (input.fetchedSession && input.fetchedSession.id === input.sessionId) {
+    const merged = local ? { ...local, ...input.fetchedSession } : input.fetchedSession
     return {
-      session: input.fetchedSession,
-      projectId: resolveCanonicalProjectId(input.fetchedSession, input.projects),
-      shouldInsert: true,
+      session: merged,
+      projectId: resolveCanonicalProjectId(merged, input.projects),
+      shouldInsert: !local,
+    }
+  }
+
+  if (local) {
+    return {
+      session: local,
+      projectId: resolveCanonicalProjectId(local, input.projects),
+      shouldInsert: false,
     }
   }
 

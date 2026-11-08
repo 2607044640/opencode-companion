@@ -69,8 +69,8 @@ export function extractConcreteFilePathFromOutput(
       continue
     }
 
-    // 2. Absolute POSIX jail paths: /home/developer/projects/... or /workspace/projects/...
-    const jailMatch = line.match(/((?:\/home\/developer|\/workspace)\/projects\/[^\s:?*<>|]+)(?::(\d+))?/)
+    // 2. Absolute POSIX jail paths: /home/developer/projects/... or /workspace/projects/... or .config/opencode/...
+    const jailMatch = line.match(/((?:\/home\/developer|\/workspace|~)\/(?:projects|\.config\/opencode)\/[^\s:?*<>|]+)(?::(\d+))?/)
     if (jailMatch) {
       candidates.push({
         path: jailMatch[1],

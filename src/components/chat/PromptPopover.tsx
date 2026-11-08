@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
-import { Terminal, Bot, FileText, Sparkles } from 'lucide-react'
-import type { CommandItem, AgentInfo, SkillItem } from '../../types/opencode'
+import { Terminal, Bot, FileText, Sparkles, MessageSquare } from 'lucide-react'
+import type { CommandItem, AgentInfo, SkillItem, Session } from '../../types/opencode'
+import { formatSessionRelativeTime } from '../../utils/conversation-mention'
 
 export type PopoverItem =
   | { type: 'command'; item: CommandItem }
   | { type: 'skill'; item: SkillItem }
   | { type: 'agent'; item: AgentInfo }
+  | { type: 'conversation'; item: Session }
   | { type: 'file'; item: string }
 
 interface PromptPopoverProps {
@@ -52,7 +54,7 @@ export function PromptPopover({
         ) : (
           <>
             <Sparkles className="w-3 h-3 text-sky-400" />
-            <span>Context (Agents & Files)</span>
+            <span>Context (Conversations, Agents & Files)</span>
           </>
         )}
       </div>
@@ -62,6 +64,9 @@ export function PromptPopover({
           const isSelected = selectedIndex === index
 
           if (entry.type === 'command') {
+            const categoryBadge = entry.item.category
+              ? entry.item.category.replace(' & Planning', '').replace(' & Goals', '').replace(' & Automation', '').replace(' & Memory', '')
+              : 'Command'
             return (
               <button
                 key={`cmd_${entry.item.name}_${index}`}
@@ -81,12 +86,19 @@ export function PromptPopover({
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Terminal className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                  <span className="font-mono text-zinc-100 font-semibold truncate">/{entry.item.name}</span>
+                  <span className="font-mono text-zinc-100 font-semibold shrink-0">/{entry.item.name}</span>
+                  {entry.item.argumentHint && (
+                    <span className="font-mono text-[11px] text-sky-400/70 shrink-0 hidden sm:inline">
+                      {entry.item.argumentHint}
+                    </span>
+                  )}
                   {entry.item.description && (
-                    <span className="text-[11px] text-zinc-500 truncate">{entry.item.description}</span>
+                    <span className="text-[11px] text-zinc-400 truncate">{entry.item.description}</span>
                   )}
                 </div>
-                <span className="text-[10px] font-mono text-zinc-600 shrink-0">Command</span>
+                <span className="text-[10px] font-mono text-zinc-400 bg-zinc-800/60 border border-zinc-700/50 px-1.5 py-0.5 rounded shrink-0">
+                  {categoryBadge}
+                </span>
               </button>
             )
           }
@@ -117,6 +129,37 @@ export function PromptPopover({
                   )}
                 </div>
                 <span className="text-[10px] font-mono text-zinc-600 shrink-0">Agent</span>
+              </button>
+            )
+          }
+
+          if (entry.type === 'conversation') {
+            const timeAgo = formatSessionRelativeTime(entry.item.time?.updated || entry.item.time?.created)
+            return (
+              <button
+                key={`conv_${entry.item.id}_${index}`}
+                type="button"
+                data-selected={isSelected}
+                onMouseEnter={() => onHoverIndex(index)}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onSelect(entry)
+                }}
+                onClick={() => onSelect(entry)}
+                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
+                  isSelected
+                    ? 'bg-sky-600/20 text-sky-200 border-l-2 border-sky-500 font-medium'
+                    : 'text-zinc-300 hover:bg-[#1c2028]'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageSquare className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span className="font-medium truncate text-zinc-200">{entry.item.title || entry.item.id}</span>
+                  {timeAgo && (
+                    <span className="text-[10px] text-zinc-500 shrink-0">({timeAgo})</span>
+                  )}
+                </div>
+                <span className="text-[10px] font-mono text-sky-400/90 bg-sky-950/60 border border-sky-800/50 px-1.5 py-0.5 rounded shrink-0">Conversation</span>
               </button>
             )
           }

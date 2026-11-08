@@ -86,7 +86,7 @@ export const CountdownConfirmDialog: React.FC<CountdownConfirmDialogProps> = ({
         {/* Header */}
         <div className="h-12 px-5 border-b border-[#21242a] flex items-center justify-between bg-[#16181f]">
           <div className="flex items-center gap-2 text-zinc-100 font-semibold text-sm">
-            {isDestructive && <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
+            {isDestructive && <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />}
             <span>{title}</span>
           </div>
           <button

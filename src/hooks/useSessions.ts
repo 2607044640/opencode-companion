@@ -1,282 +1,352 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import type { Project, Session } from '../types/opencode'
-import { api, normalizeSession, canonicalizeDirectory, sanitizeSessionTitle } from '../services/api'
-import { sseManager } from '../services/sse'
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type { Project, Session } from "../types/opencode";
+import {
+  api,
+  normalizeSession,
+  canonicalizeDirectory,
+  sanitizeSessionTitle,
+} from "../services/api";
+import { sseManager } from "../services/sse";
 import {
   calculateCloseTabState,
   closeOtherTabsState,
   closeTabsToRightState,
-} from '../utils/tab-navigation'
+} from "../utils/tab-navigation";
 import {
   resolveInitialTabsState,
   saveStoredOpenTabs,
   saveStoredActiveTab,
   getStoredTabTitles,
   saveStoredTabTitles,
-} from '../utils/tab-persistence'
+} from "../utils/tab-persistence";
 import {
   getArchivedSessionIds,
   archiveSessionId,
   unarchiveSessionId,
   toggleArchiveSessionId,
   isSessionArchived,
-} from '../utils/archiving'
+} from "../utils/archiving";
 import {
   isPendingSession,
   pendingSessionPlaceholder,
   planSessionActivation,
   resolveCanonicalProjectId,
   shouldAcceptSessionActivation,
-} from '../utils/session-workspace'
+} from "../utils/session-workspace";
 
-export const DRAFT_SESSION_ID = '__draft__'
+export const DRAFT_SESSION_ID = "__draft__";
 
 export interface SessionGroup {
-  label: string
-  sessions: Session[]
+  label: string;
+  sessions: Session[];
 }
 
 function normalizePath(p?: string): string {
-  if (!p) return ''
-  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  if (!p) return "";
+  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function isSameOrSubdirectory(parentPath: string, targetPath: string): boolean {
-  const parent = normalizePath(parentPath)
-  const target = normalizePath(targetPath)
-  if (!parent || !target) return false
-  if (parent === target) return true
-  if (target.startsWith(parent + '/')) return true
+  const parent = normalizePath(parentPath);
+  const target = normalizePath(targetPath);
+  if (!parent || !target) return false;
+  if (parent === target) return true;
+  if (target.startsWith(parent + "/")) return true;
 
   // Support cross-OS path equivalence (e.g. C:/projects/APISpace vs /workspace/projects/APISpace)
-  const parentSegments = parent.split('/').filter(Boolean)
-  const parentBase = parentSegments.pop()
-  if (!parentBase) return false
+  const parentSegments = parent.split("/").filter(Boolean);
+  const parentBase = parentSegments.pop();
+  if (!parentBase) return false;
 
-  const targetSegments = target.split('/').filter(Boolean)
+  const targetSegments = target.split("/").filter(Boolean);
   if (targetSegments.includes(parentBase)) {
-    return true
+    return true;
   }
 
-  return false
+  return false;
 }
 
 export function useSessions() {
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<Session[]>(() => {
     try {
-      const stored = getStoredTabTitles()
-      const { initialTabs } = resolveInitialTabsState({ draftSessionId: DRAFT_SESSION_ID })
-      const cachedSessions: Session[] = []
+      const stored = getStoredTabTitles();
+      const { initialTabs } = resolveInitialTabsState({
+        draftSessionId: DRAFT_SESSION_ID,
+      });
+      const cachedSessions: Session[] = [];
       for (const id of initialTabs) {
-        if (id === DRAFT_SESSION_ID) continue
-        const info = stored[id]
+        if (id === DRAFT_SESSION_ID) continue;
+        const info = stored[id];
         if (info && info.title) {
           cachedSessions.push({
             id,
             slug: id,
-            projectID: info.projectID || 'global',
-            directory: info.directory || '',
+            projectID: info.projectID || "global",
+            directory: info.directory || "",
             title: info.title,
-            agent: 'Default Agent',
-            model: { id: '', providerID: '' },
-            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            agent: info.agent || "Default Agent",
+            model: info.model || { id: "", providerID: "" },
+            tokens: {
+              input: 0,
+              output: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
             cost: 0,
-            time: { created: info.time?.created || 0, updated: info.time?.updated || 0 },
-          })
+            time: {
+              created: info.time?.created || 0,
+              updated: info.time?.updated || 0,
+            },
+          });
         }
       }
-      return cachedSessions
+      return cachedSessions;
     } catch {
-      return []
+      return [];
     }
-  })
-  const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  });
+  const [archivedIds, setArchivedIds] = useState<string[]>(() =>
+    getArchivedSessionIds(),
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
     try {
-      const { initialActiveId } = resolveInitialTabsState({ draftSessionId: DRAFT_SESSION_ID })
-      const id = initialActiveId
+      const { initialActiveId } = resolveInitialTabsState({
+        draftSessionId: DRAFT_SESSION_ID,
+      });
+      const id = initialActiveId;
       if (id && id !== DRAFT_SESSION_ID) {
-        api.prefetchMessages(id)
-        return id
+        api.prefetchMessages(id);
+        return id;
       }
     } catch {}
-    return null
-  })
+    return null;
+  });
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
     try {
-      const { initialTabs } = resolveInitialTabsState({ draftSessionId: DRAFT_SESSION_ID })
-      return initialTabs
-
+      const { initialTabs } = resolveInitialTabsState({
+        draftSessionId: DRAFT_SESSION_ID,
+      });
+      return initialTabs;
     } catch {}
-    return []
-  })
-  const [searchQuery, setSearchQuery] = useState<string>('')
-  const [loading, setLoading] = useState<boolean>(true)
+    return [];
+  });
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const sessionsRef = useRef<Session[]>(sessions)
-  const projectsRef = useRef<Project[]>(projects)
-  const activeSessionIdRef = useRef<string | null>(activeSessionId)
-  const selectGenerationRef = useRef(0)
-  const pinnedDeepLinkRef = useRef<string | null>(activeSessionId)
-  const navIntentReplayedRef = useRef(false)
-  const openTabIdsRef = useRef<string[]>(openTabIds)
-
-  useEffect(() => {
-    sessionsRef.current = sessions
-  }, [sessions])
-  useEffect(() => {
-    projectsRef.current = projects
-  }, [projects])
-  useEffect(() => {
-    activeSessionIdRef.current = activeSessionId
-  }, [activeSessionId])
+  const sessionsRef = useRef<Session[]>(sessions);
+  const projectsRef = useRef<Project[]>(projects);
+  const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  const selectGenerationRef = useRef(0);
+  const pinnedDeepLinkRef = useRef<string | null>(activeSessionId);
+  const navIntentReplayedRef = useRef(false);
+  const openTabIdsRef = useRef<string[]>(openTabIds);
 
   useEffect(() => {
-    openTabIdsRef.current = openTabIds
-    saveStoredOpenTabs(openTabIds)
-  }, [openTabIds])
+    sessionsRef.current = sessions;
+  }, [sessions]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
 
   useEffect(() => {
-    saveStoredActiveTab(activeSessionId)
-  }, [activeSessionId])
+    openTabIdsRef.current = openTabIds;
+    saveStoredOpenTabs(openTabIds);
+  }, [openTabIds]);
+
+  useEffect(() => {
+    saveStoredActiveTab(activeSessionId);
+  }, [activeSessionId]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
-      openTabIdsRef.current = openTabIds
-    saveStoredOpenTabs(openTabIds)
-      saveStoredActiveTab(activeSessionId)
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [openTabIds, activeSessionId])
+      openTabIdsRef.current = openTabIds;
+      saveStoredOpenTabs(openTabIds);
+      saveStoredActiveTab(activeSessionId);
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [openTabIds, activeSessionId]);
 
   const writeSessionUrl = useCallback((sessionId: string | null) => {
     try {
-      const url = new URL(window.location.href)
+      const url = new URL(window.location.href);
       if (!sessionId || sessionId === DRAFT_SESSION_ID) {
-        url.searchParams.delete('session')
+        url.searchParams.delete("session");
       } else {
-        url.searchParams.set('session', sessionId)
+        url.searchParams.set("session", sessionId);
       }
-      window.history.replaceState({}, '', url.toString())
+      window.history.replaceState({}, "", url.toString());
     } catch {
       // ignore in non-browser environments
     }
-  }, [])
+  }, []);
 
   const applySessionActivation = useCallback(
     (plan: ReturnType<typeof planSessionActivation>) => {
-      if (!plan.session) return
-      const session = plan.session
-      if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, session.id)) return
-      if (pinnedDeepLinkRef.current === session.id) pinnedDeepLinkRef.current = null
+      if (!plan.session) return;
+      const session = plan.session;
+      if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, session.id))
+        return;
+      if (pinnedDeepLinkRef.current === session.id)
+        pinnedDeepLinkRef.current = null;
       if (plan.shouldInsert) {
-        setSessions((prev) => (prev.some((s) => s.id === session.id) ? prev : [session, ...prev]))
+        setSessions((prev) =>
+          prev.some((s) => s.id === session.id) ? prev : [session, ...prev],
+        );
+      } else {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === session.id ? { ...s, ...session } : s)),
+        );
       }
-      setActiveSessionId(session.id)
-      setOpenTabIds((prev) => (prev.includes(session.id) ? prev : [...prev, session.id]))
+      try {
+        const stored = getStoredTabTitles();
+        if (stored[session.id] || session.title) {
+          stored[session.id] = {
+            title: session.title || stored[session.id]?.title || "",
+            directory: session.directory || stored[session.id]?.directory,
+            projectID: session.projectID || stored[session.id]?.projectID,
+            model: session.model?.id ? session.model : stored[session.id]?.model,
+            agent:
+              session.agent && session.agent !== "Default Agent"
+                ? session.agent
+                : stored[session.id]?.agent,
+            time: session.time || stored[session.id]?.time,
+          };
+          saveStoredTabTitles(stored);
+        }
+      } catch {}
+      setActiveSessionId(session.id);
+      setOpenTabIds((prev) =>
+        prev.includes(session.id) ? prev : [...prev, session.id],
+      );
       if (plan.projectId) {
-        setSelectedProjectId(plan.projectId)
+        setSelectedProjectId(plan.projectId);
       }
-      writeSessionUrl(session.id)
+      writeSessionUrl(session.id);
     },
-    [writeSessionUrl]
-  )
+    [writeSessionUrl],
+  );
 
   const refresh = useCallback(async () => {
     try {
-      const urlSessionIdEarly = new URLSearchParams(window.location.search).get('session')
+      const urlSessionIdEarly = new URLSearchParams(window.location.search).get(
+        "session",
+      );
       const earlyTarget =
         urlSessionIdEarly ||
-        (activeSessionIdRef.current && activeSessionIdRef.current !== DRAFT_SESSION_ID
+        (activeSessionIdRef.current &&
+        activeSessionIdRef.current !== DRAFT_SESSION_ID
           ? activeSessionIdRef.current
-          : null)
-      if (earlyTarget) api.prefetchMessages(earlyTarget)
+          : null);
+      if (earlyTarget) api.prefetchMessages(earlyTarget);
 
       const [projList, rawSessList] = await Promise.all([
         api.getProjects(),
         api.getSessions(),
-      ])
-      const sessList = rawSessList.filter((s) => !s.title?.startsWith('[Side Question]'))
-      setProjects(projList)
+      ]);
+      const sessList = rawSessList.filter(
+        (s) => !s.title?.startsWith("[Side Question]"),
+      );
+      setProjects(projList);
 
-      const urlParams = new URLSearchParams(window.location.search)
-      const urlSessionId = urlParams.get('session')
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSessionId = urlParams.get("session");
       const targetSessionId =
         urlSessionId ||
-        (activeSessionIdRef.current && activeSessionIdRef.current !== DRAFT_SESSION_ID
+        (activeSessionIdRef.current &&
+        activeSessionIdRef.current !== DRAFT_SESSION_ID
           ? activeSessionIdRef.current
-          : null)
-      let nextSessions = sessList
-      let fetchedMissing: Session | null = null
+          : null);
+      let nextSessions = sessList;
+      let fetchedMissing: Session | null = null;
 
       if (targetSessionId && !sessList.some((s) => s.id === targetSessionId)) {
         try {
-          fetchedMissing = await api.getSession(targetSessionId)
-          nextSessions = [fetchedMissing, ...sessList.filter((s) => s.id !== fetchedMissing?.id)]
+          fetchedMissing = await api.getSession(targetSessionId);
+          nextSessions = [
+            fetchedMissing,
+            ...sessList.filter((s) => s.id !== fetchedMissing?.id),
+          ];
         } catch (err) {
-          console.error('Failed to fetch deep-linked session:', err)
+          console.error("Failed to fetch deep-linked session:", err);
         }
       }
 
       // Fetch session metadata for any open tabs that were not in default project's session list
-      const currentTabs = openTabIdsRef.current
+      const currentTabs = openTabIdsRef.current;
       const missingTabIds = currentTabs.filter(
-        (id) => id !== DRAFT_SESSION_ID && !nextSessions.some((s) => s.id === id)
-      )
+        (id) =>
+          id !== DRAFT_SESSION_ID && !nextSessions.some((s) => s.id === id),
+      );
 
       if (missingTabIds.length > 0) {
-        const settled = await Promise.allSettled(missingTabIds.map((id) => api.getSession(id)))
-        const newlyFetched: Session[] = []
+        const settled = await Promise.allSettled(
+          missingTabIds.map((id) => api.getSession(id)),
+        );
+        const newlyFetched: Session[] = [];
         settled.forEach((res) => {
-          if (res.status === 'fulfilled' && res.value && res.value.id) {
-            newlyFetched.push(res.value)
+          if (res.status === "fulfilled" && res.value && res.value.id) {
+            newlyFetched.push(res.value);
           }
-        })
+        });
         if (newlyFetched.length > 0) {
-          nextSessions = [...nextSessions, ...newlyFetched]
+          nextSessions = [...nextSessions, ...newlyFetched];
         }
       }
 
       // Preserve cached metadata for any open tabs that could not be resolved from daemon
-      const storedCache = getStoredTabTitles()
+      const storedCache = getStoredTabTitles();
       const stillMissing = currentTabs.filter(
-        (id) => id !== DRAFT_SESSION_ID && !nextSessions.some((s) => s.id === id)
-      )
+        (id) =>
+          id !== DRAFT_SESSION_ID && !nextSessions.some((s) => s.id === id),
+      );
       if (stillMissing.length > 0) {
-        const fallbacks: Session[] = []
+        const fallbacks: Session[] = [];
         for (const id of stillMissing) {
-          const prev = sessionsRef.current.find((s) => s.id === id)
+          const prev = sessionsRef.current.find((s) => s.id === id);
           if (prev) {
-            fallbacks.push(prev)
+            fallbacks.push(prev);
           } else if (storedCache[id]) {
             fallbacks.push({
               id,
               slug: id,
-              projectID: storedCache[id].projectID || 'global',
-              directory: storedCache[id].directory || '',
+              projectID: storedCache[id].projectID || "global",
+              directory: storedCache[id].directory || "",
               title: storedCache[id].title,
-              agent: 'Default Agent',
-              model: { id: '', providerID: '' },
-              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              agent: "Default Agent",
+              model: { id: "", providerID: "" },
+              tokens: {
+                input: 0,
+                output: 0,
+                reasoning: 0,
+                cache: { read: 0, write: 0 },
+              },
               cost: 0,
-              time: { created: storedCache[id].time?.created || 0, updated: storedCache[id].time?.updated || 0 },
-            })
+              time: {
+                created: storedCache[id].time?.created || 0,
+                updated: storedCache[id].time?.updated || 0,
+              },
+            });
           }
         }
         if (fallbacks.length > 0) {
-          nextSessions = [...nextSessions, ...fallbacks]
+          nextSessions = [...nextSessions, ...fallbacks];
         }
       }
 
       // Synchronize all known session titles into persistent localStorage cache
-      const updatedTitlesToStore = { ...storedCache }
-      let titlesChanged = false
+      const updatedTitlesToStore = { ...storedCache };
+      let titlesChanged = false;
       for (const s of nextSessions) {
-        if (!s.id || s.id === DRAFT_SESSION_ID) continue
-        const title = s.title?.trim()
+        if (!s.id || s.id === DRAFT_SESSION_ID) continue;
+        const title = s.title?.trim();
         if (
           title &&
           (!updatedTitlesToStore[s.id] ||
@@ -289,15 +359,15 @@ export function useSessions() {
             directory: s.directory,
             projectID: s.projectID,
             time: s.time,
-          }
-          titlesChanged = true
+          };
+          titlesChanged = true;
         }
       }
       if (titlesChanged) {
-        saveStoredTabTitles(updatedTitlesToStore)
+        saveStoredTabTitles(updatedTitlesToStore);
       }
 
-      setSessions(nextSessions)
+      setSessions(nextSessions);
 
       if (targetSessionId) {
         const plan = planSessionActivation({
@@ -305,410 +375,497 @@ export function useSessions() {
           localSessions: nextSessions,
           fetchedSession: fetchedMissing,
           projects: projList,
-        })
+        });
         if (plan.session) {
-          applySessionActivation({ ...plan, shouldInsert: false })
-          return
+          applySessionActivation({ ...plan, shouldInsert: false });
+          return;
         }
       }
 
-      if (nextSessions.length > 0 && !activeSessionIdRef.current && !urlSessionId) {
+      if (
+        nextSessions.length > 0 &&
+        !activeSessionIdRef.current &&
+        !urlSessionId
+      ) {
         const validSessions = nextSessions.filter((s) => {
           const isAbandoned =
-            Boolean(s.title?.startsWith('New session - ')) &&
+            Boolean(s.title?.startsWith("New session - ")) &&
             (!s.tokens || (s.tokens.input === 0 && s.tokens.output === 0)) &&
-            (!s.summary || s.summary.files === 0)
-          return !isAbandoned
-        })
+            (!s.summary || s.summary.files === 0);
+          return !isAbandoned;
+        });
         if (validSessions.length > 0 && !pinnedDeepLinkRef.current) {
-          const first = validSessions[0]
-          api.prefetchMessages(first.id)
-          setActiveSessionId(first.id)
+          const first = validSessions[0];
+          api.prefetchMessages(first.id);
+          setActiveSessionId(first.id);
           setOpenTabIds((prev) =>
-            prev.length > 0 ? (prev.includes(first.id) ? prev : [...prev, first.id]) : [first.id]
-          )
-          const pid = resolveCanonicalProjectId(first, projList)
-          if (pid) setSelectedProjectId(pid)
+            prev.length > 0
+              ? prev.includes(first.id)
+                ? prev
+                : [...prev, first.id]
+              : [first.id],
+          );
+          const pid = resolveCanonicalProjectId(first, projList);
+          if (pid) setSelectedProjectId(pid);
         }
       }
     } catch (err) {
-      console.error('Failed to load projects/sessions:', err)
+      console.error("Failed to load projects/sessions:", err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [applySessionActivation])
+  }, [applySessionActivation]);
 
   useEffect(() => {
-    refresh()
+    refresh();
 
     // Listen to session lifecycle events from SSE
-    const unsubCreated = sseManager.on('session.created', (rawSession: any) => {
-      const session = normalizeSession(rawSession)
-      setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)])
-    })
+    const unsubCreated = sseManager.on("session.created", (rawSession: any) => {
+      const session = normalizeSession(rawSession);
+      setSessions((prev) => [
+        session,
+        ...prev.filter((s) => s.id !== session.id),
+      ]);
+    });
 
-    const unsubDeleted = sseManager.on('session.deleted', (data: { id?: string; sessionID?: string }) => {
-      const targetId = data.id || data.sessionID
-      if (targetId) {
-        setSessions((prev) => prev.filter((s) => s.id !== targetId))
-        setOpenTabIds((prev) => {
-          const next = prev.filter((id) => id !== targetId)
-          setActiveSessionId((current) => {
-            if (current !== targetId) return current
-            const fallback = next.length > 0 ? next[next.length - 1] : null
-            if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, fallback || '')) {
-              return current
-            }
-            return fallback
-          })
-          return next
-        })
-      }
-    })
+    const unsubDeleted = sseManager.on(
+      "session.deleted",
+      (data: { id?: string; sessionID?: string }) => {
+        const targetId = data.id || data.sessionID;
+        if (targetId) {
+          setSessions((prev) => prev.filter((s) => s.id !== targetId));
+          setOpenTabIds((prev) => {
+            const next = prev.filter((id) => id !== targetId);
+            setActiveSessionId((current) => {
+              if (current !== targetId) return current;
+              const fallback = next.length > 0 ? next[next.length - 1] : null;
+              if (
+                !shouldAcceptSessionActivation(
+                  pinnedDeepLinkRef.current,
+                  fallback || "",
+                )
+              ) {
+                return current;
+              }
+              return fallback;
+            });
+            return next;
+          });
+        }
+      },
+    );
 
-    const unsubUpdated = sseManager.on('session.updated', (rawSession: any) => {
-      const session = normalizeSession(rawSession)
-      setSessions((prev) => prev.map((s) => (s.id === session.id ? { ...s, ...session } : s)))
-      if (session.title && session.id) {
+    const unsubUpdated = sseManager.on("session.updated", (rawSession: any) => {
+      const session = normalizeSession(rawSession);
+      setSessions((prev) =>
+        prev.map((s) => (s.id === session.id ? { ...s, ...session } : s)),
+      );
+      if (session.id) {
         try {
-          const stored = getStoredTabTitles()
+          const stored = getStoredTabTitles();
           stored[session.id] = {
-            title: session.title,
-            directory: session.directory,
-            projectID: session.projectID,
-            time: session.time,
-          }
-          saveStoredTabTitles(stored)
+            title: session.title || stored[session.id]?.title || "",
+            directory: session.directory || stored[session.id]?.directory,
+            projectID: session.projectID || stored[session.id]?.projectID,
+            model: session.model?.id ? session.model : stored[session.id]?.model,
+            agent:
+              session.agent && session.agent !== "Default Agent"
+                ? session.agent
+                : stored[session.id]?.agent,
+            time: session.time || stored[session.id]?.time,
+          };
+          saveStoredTabTitles(stored);
         } catch {}
       }
-    })
+    });
 
     return () => {
-      unsubCreated()
-      unsubDeleted()
-      unsubUpdated()
-    }
-  }, [refresh])
+      unsubCreated();
+      unsubDeleted();
+      unsubUpdated();
+    };
+  }, [refresh]);
 
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'opencode_archived_sessions') {
-        setArchivedIds(getArchivedSessionIds())
+      if (e.key === "opencode_archived_sessions") {
+        setArchivedIds(getArchivedSessionIds());
       }
-    }
-    const handleArchivedUpdate = () => setArchivedIds(getArchivedSessionIds())
-    window.addEventListener('storage', handleStorage)
-    window.addEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    };
+    const handleArchivedUpdate = () => setArchivedIds(getArchivedSessionIds());
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(
+      "opencode_archived_sessions_updated",
+      handleArchivedUpdate,
+    );
     return () => {
-      window.removeEventListener('storage', handleStorage)
-      window.removeEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
-    }
-  }, [])
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(
+        "opencode_archived_sessions_updated",
+        handleArchivedUpdate,
+      );
+    };
+  }, []);
 
-  const selectSession = useCallback((sessionId: string) => {
-    pinnedDeepLinkRef.current = null
-    const generation = ++selectGenerationRef.current
-    if (sessionId === DRAFT_SESSION_ID) {
-      setActiveSessionId(DRAFT_SESSION_ID)
-      setOpenTabIds((prev) => (prev.includes(DRAFT_SESSION_ID) ? prev : [...prev, DRAFT_SESSION_ID]))
-      writeSessionUrl(DRAFT_SESSION_ID)
-      return
-    }
+  const selectSession = useCallback(
+    (sessionId: string) => {
+      pinnedDeepLinkRef.current = null;
+      const generation = ++selectGenerationRef.current;
+      if (sessionId === DRAFT_SESSION_ID) {
+        setActiveSessionId(DRAFT_SESSION_ID);
+        setOpenTabIds((prev) =>
+          prev.includes(DRAFT_SESSION_ID) ? prev : [...prev, DRAFT_SESSION_ID],
+        );
+        writeSessionUrl(DRAFT_SESSION_ID);
+        return;
+      }
 
-    if (sessionId) api.prefetchMessages(sessionId)
+      if (sessionId) api.prefetchMessages(sessionId);
 
-    // Immediately activate tab and select session for 0-latency UI response
-    setActiveSessionId(sessionId)
-    setOpenTabIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]))
-    writeSessionUrl(sessionId)
+      // Immediately activate tab and select session for 0-latency UI response
+      setActiveSessionId(sessionId);
+      setOpenTabIds((prev) =>
+        prev.includes(sessionId) ? prev : [...prev, sessionId],
+      );
+      writeSessionUrl(sessionId);
 
-    const localPlan = planSessionActivation({
-      sessionId,
-      localSessions: sessionsRef.current,
-      fetchedSession: null,
-      projects: projectsRef.current,
-    })
-    if (localPlan.session && shouldAcceptSessionActivation(pinnedDeepLinkRef.current, sessionId)) {
-      applySessionActivation(localPlan)
-      return
-    }
+      const localPlan = planSessionActivation({
+        sessionId,
+        localSessions: sessionsRef.current,
+        fetchedSession: null,
+        projects: projectsRef.current,
+      });
+      if (
+        localPlan.session &&
+        shouldAcceptSessionActivation(pinnedDeepLinkRef.current, sessionId)
+      ) {
+        applySessionActivation(localPlan);
+        if (localPlan.session.model?.id) {
+          return;
+        }
+      }
 
-    void api
-      .getSession(sessionId)
-      .then((fetched) => {
-        if (generation !== selectGenerationRef.current) return
-        const remotePlan = planSessionActivation({
-          sessionId,
-          localSessions: sessionsRef.current,
-          fetchedSession: fetched,
-          projects: projectsRef.current,
+      void api
+        .getSession(sessionId)
+        .then((fetched) => {
+          if (generation !== selectGenerationRef.current) return;
+          const remotePlan = planSessionActivation({
+            sessionId,
+            localSessions: sessionsRef.current,
+            fetchedSession: fetched,
+            projects: projectsRef.current,
+          });
+          applySessionActivation(remotePlan);
         })
-        applySessionActivation(remotePlan)
-      })
-      .catch((err: unknown) => {
-        if (generation !== selectGenerationRef.current) return
-        if (!shouldAcceptSessionActivation(pinnedDeepLinkRef.current, sessionId)) return
-        console.error('Failed to fetch session for selection:', err)
-        if (pinnedDeepLinkRef.current === sessionId) pinnedDeepLinkRef.current = null
-        setActiveSessionId(sessionId)
-        setOpenTabIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]))
-        writeSessionUrl(sessionId)
-      })
-  }, [applySessionActivation, writeSessionUrl])
+        .catch((err: unknown) => {
+          if (generation !== selectGenerationRef.current) return;
+          if (
+            !shouldAcceptSessionActivation(pinnedDeepLinkRef.current, sessionId)
+          )
+            return;
+          console.error("Failed to fetch session for selection:", err);
+          if (pinnedDeepLinkRef.current === sessionId)
+            pinnedDeepLinkRef.current = null;
+          setActiveSessionId(sessionId);
+          setOpenTabIds((prev) =>
+            prev.includes(sessionId) ? prev : [...prev, sessionId],
+          );
+          writeSessionUrl(sessionId);
+        });
+    },
+    [applySessionActivation, writeSessionUrl],
+  );
 
   useEffect(() => {
     const handleSwitchSession = (e: Event) => {
-      const customEvent = e as CustomEvent<{ sessionID?: string; sessionId?: string }>
-      const sid = customEvent.detail?.sessionID || customEvent.detail?.sessionId
+      const customEvent = e as CustomEvent<{
+        sessionID?: string;
+        sessionId?: string;
+      }>;
+      const sid =
+        customEvent.detail?.sessionID || customEvent.detail?.sessionId;
       if (sid) {
-        pinnedDeepLinkRef.current = null
-        selectSession(sid)
+        pinnedDeepLinkRef.current = null;
+        selectSession(sid);
       }
-    }
+    };
     const handlePopState = () => {
       try {
-        const id = new URLSearchParams(window.location.search).get('session')
+        const id = new URLSearchParams(window.location.search).get("session");
         if (id) {
-          pinnedDeepLinkRef.current = null
-          selectSession(id)
+          pinnedDeepLinkRef.current = null;
+          selectSession(id);
         }
       } catch {}
-    }
-    window.addEventListener('switch-session', handleSwitchSession)
-    window.addEventListener('popstate', handlePopState)
+    };
+    window.addEventListener("switch-session", handleSwitchSession);
+    window.addEventListener("popstate", handlePopState);
     return () => {
-      window.removeEventListener('switch-session', handleSwitchSession)
-      window.removeEventListener('popstate', handlePopState)
-    }
-  }, [selectSession])
+      window.removeEventListener("switch-session", handleSwitchSession);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [selectSession]);
 
-  const recentlyClosedRef = useRef<string[]>([])
-  const [recentlyClosedTabIds, setRecentlyClosedTabIds] = useState<string[]>([])
+  const recentlyClosedRef = useRef<string[]>([]);
+  const [recentlyClosedTabIds, setRecentlyClosedTabIds] = useState<string[]>(
+    [],
+  );
 
   const recordClosedTab = useCallback((tabId: string) => {
-    if (tabId === DRAFT_SESSION_ID) return
-    recentlyClosedRef.current = [tabId, ...recentlyClosedRef.current.filter((id) => id !== tabId)].slice(0, 30)
-    setRecentlyClosedTabIds([...recentlyClosedRef.current])
-  }, [])
+    if (tabId === DRAFT_SESSION_ID) return;
+    recentlyClosedRef.current = [
+      tabId,
+      ...recentlyClosedRef.current.filter((id) => id !== tabId),
+    ].slice(0, 30);
+    setRecentlyClosedTabIds([...recentlyClosedRef.current]);
+  }, []);
 
   // Close a tab
   const closeTab = useCallback(
     (sessionId?: string) => {
-      const targetId = sessionId ?? activeSessionId
-      if (!targetId) return
-      recordClosedTab(targetId)
+      const targetId = sessionId ?? activeSessionId;
+      if (!targetId) return;
+      recordClosedTab(targetId);
       setOpenTabIds((prev) => {
-        const result = calculateCloseTabState(prev, activeSessionId, targetId)
+        const result = calculateCloseTabState(prev, activeSessionId, targetId);
         if (activeSessionId === targetId) {
-          setActiveSessionId(result.nextActiveId)
+          setActiveSessionId(result.nextActiveId);
           try {
-            const url = new URL(window.location.href)
-        if (result.nextActiveId && shouldAcceptSessionActivation(pinnedDeepLinkRef.current, result.nextActiveId)) {
-          url.searchParams.set('session', result.nextActiveId)
-        } else if (!pinnedDeepLinkRef.current) {
-          url.searchParams.delete('session')
-        }
-            window.history.replaceState({}, '', url.toString())
+            const url = new URL(window.location.href);
+            if (
+              result.nextActiveId &&
+              shouldAcceptSessionActivation(
+                pinnedDeepLinkRef.current,
+                result.nextActiveId,
+              )
+            ) {
+              url.searchParams.set("session", result.nextActiveId);
+            } else if (!pinnedDeepLinkRef.current) {
+              url.searchParams.delete("session");
+            }
+            window.history.replaceState({}, "", url.toString());
           } catch {}
         }
-        return result.nextTabs
-      })
+        return result.nextTabs;
+      });
     },
-    [activeSessionId, recordClosedTab]
-  )
+    [activeSessionId, recordClosedTab],
+  );
 
   // Reopen the most recently closed session tab (Ctrl+Shift+T)
   const reopenClosedTab = useCallback(() => {
-    const list = recentlyClosedRef.current
-    const foundIdx = list.findIndex((id) => sessions.some((s) => s.id === id) && !openTabIds.includes(id))
-    if (foundIdx === -1) return false
-    const targetId = list[foundIdx]
-    recentlyClosedRef.current = [...list.slice(0, foundIdx), ...list.slice(foundIdx + 1)]
-    setRecentlyClosedTabIds([...recentlyClosedRef.current])
-    selectSession(targetId)
-    return true
-  }, [sessions, openTabIds, selectSession])
+    const list = recentlyClosedRef.current;
+    const foundIdx = list.findIndex(
+      (id) => sessions.some((s) => s.id === id) && !openTabIds.includes(id),
+    );
+    if (foundIdx === -1) return false;
+    const targetId = list[foundIdx];
+    recentlyClosedRef.current = [
+      ...list.slice(0, foundIdx),
+      ...list.slice(foundIdx + 1),
+    ];
+    setRecentlyClosedTabIds([...recentlyClosedRef.current]);
+    selectSession(targetId);
+    return true;
+  }, [sessions, openTabIds, selectSession]);
 
   // Close all tabs except the specified one
   const closeOtherTabs = useCallback(
     (keepId: string) => {
       setOpenTabIds((prev) => {
-        const { nextTabs, closedIds } = closeOtherTabsState(prev, keepId)
-        closedIds.forEach((id) => recordClosedTab(id))
+        const { nextTabs, closedIds } = closeOtherTabsState(prev, keepId);
+        closedIds.forEach((id) => recordClosedTab(id));
         if (activeSessionId !== keepId) {
-          selectSession(keepId)
+          selectSession(keepId);
         }
-        return nextTabs
-      })
+        return nextTabs;
+      });
     },
-    [activeSessionId, recordClosedTab, selectSession]
-  )
+    [activeSessionId, recordClosedTab, selectSession],
+  );
 
   // Close all tabs to the right of the specified one
   const closeTabsToRight = useCallback(
     (targetId: string) => {
       setOpenTabIds((prev) => {
-        const { nextTabs, closedIds } = closeTabsToRightState(prev, targetId)
-        closedIds.forEach((id) => recordClosedTab(id))
+        const { nextTabs, closedIds } = closeTabsToRightState(prev, targetId);
+        closedIds.forEach((id) => recordClosedTab(id));
         if (activeSessionId && closedIds.includes(activeSessionId)) {
-          selectSession(targetId)
+          selectSession(targetId);
         }
-        return nextTabs
-      })
+        return nextTabs;
+      });
     },
-    [activeSessionId, recordClosedTab, selectSession]
-  )
+    [activeSessionId, recordClosedTab, selectSession],
+  );
 
   // Start draft session (does NOT call backend api.createSession)
   const startDraftSession = useCallback(() => {
-    setActiveSessionId(DRAFT_SESSION_ID)
-    setOpenTabIds((prev) => (prev.includes(DRAFT_SESSION_ID) ? prev : [...prev, DRAFT_SESSION_ID]))
+    setActiveSessionId(DRAFT_SESSION_ID);
+    setOpenTabIds((prev) =>
+      prev.includes(DRAFT_SESSION_ID) ? prev : [...prev, DRAFT_SESSION_ID],
+    );
     try {
-      const url = new URL(window.location.href)
-      url.searchParams.delete('session')
-      window.history.replaceState({}, '', url.toString())
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session");
+      window.history.replaceState({}, "", url.toString());
     } catch {}
-  }, [])
+  }, []);
 
   // Create new session
   const createNewSession = useCallback(
     async (params?: {
-      title?: string
-      agent?: string
-      directory?: string
-      model?: { id: string; providerID: string; variant?: string }
+      title?: string;
+      agent?: string;
+      directory?: string;
+      model?: { id: string; providerID: string; variant?: string };
     }) => {
       try {
-        const newSession = await api.createSession(params)
-        setSessions((prev) => [newSession, ...prev])
+        const newSession = await api.createSession(params);
+        setSessions((prev) => [newSession, ...prev]);
         // Swap draft tab in-place if open, or select new session
         setOpenTabIds((prev) => {
           if (prev.includes(DRAFT_SESSION_ID)) {
-            return prev.map((id) => (id === DRAFT_SESSION_ID ? newSession.id : id))
+            return prev.map((id) =>
+              id === DRAFT_SESSION_ID ? newSession.id : id,
+            );
           }
-          return prev.includes(newSession.id) ? prev : [...prev, newSession.id]
-        })
-        setActiveSessionId(newSession.id)
+          return prev.includes(newSession.id) ? prev : [...prev, newSession.id];
+        });
+        setActiveSessionId(newSession.id);
         try {
-          const url = new URL(window.location.href)
-          url.searchParams.set('session', newSession.id)
-          window.history.replaceState({}, '', url.toString())
+          const url = new URL(window.location.href);
+          url.searchParams.set("session", newSession.id);
+          window.history.replaceState({}, "", url.toString());
         } catch {}
-        return newSession
+        return newSession;
       } catch (err) {
-        console.error('Failed to create session:', err)
-        throw err
+        console.error("Failed to create session:", err);
+        throw err;
       }
     },
-    []
-  )
+    [],
+  );
 
   // Delete session
   const deleteSession = useCallback(
     async (sessionId: string) => {
       if (sessionId === DRAFT_SESSION_ID) {
-        closeTab(sessionId)
-        return
+        closeTab(sessionId);
+        return;
       }
       try {
-        await api.deleteSession(sessionId)
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+        await api.deleteSession(sessionId);
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
         try {
-          const stored = getStoredTabTitles()
-          delete stored[sessionId]
-          saveStoredTabTitles(stored)
+          const stored = getStoredTabTitles();
+          delete stored[sessionId];
+          saveStoredTabTitles(stored);
         } catch {}
-        closeTab(sessionId)
+        closeTab(sessionId);
       } catch (err) {
-        console.error('Failed to delete session:', err)
-        throw err
+        console.error("Failed to delete session:", err);
+        throw err;
       }
     },
-    [closeTab]
-  )
+    [closeTab],
+  );
 
   // Filter and group sessions with directory-based matching
   const filteredSessions = useMemo(() => {
     const selectedProject = selectedProjectId
-      ? projects.find((p) => p.id === selectedProjectId || (p.associatedIds && p.associatedIds.includes(selectedProjectId)))
-      : null
+      ? projects.find(
+          (p) =>
+            p.id === selectedProjectId ||
+            (p.associatedIds && p.associatedIds.includes(selectedProjectId)),
+        )
+      : null;
 
     return sessions.filter((s) => {
       // Never show draft session in history list
-      if (s.id === DRAFT_SESSION_ID) return false
+      if (s.id === DRAFT_SESSION_ID) return false;
 
       // Exclude archived sessions from active history list
-      if (archivedIds.includes(s.id)) return false
+      if (archivedIds.includes(s.id)) return false;
 
       // Exclude internal child/subagent sessions spawned by daemon
-      if (s.parentID) return false
+      if (s.parentID) return false;
 
       // Filter out abandoned empty sessions created by previous instant new-session clicks
       const isAbandonedEmpty =
-        Boolean(s.title?.startsWith('New session - ')) &&
+        Boolean(s.title?.startsWith("New session - ")) &&
         (!s.tokens || (s.tokens.input === 0 && s.tokens.output === 0)) &&
-        (!s.summary || s.summary.files === 0)
-      if (isAbandonedEmpty) return false
+        (!s.summary || s.summary.files === 0);
+      if (isAbandonedEmpty) return false;
 
-      let matchProject = true
+      let matchProject = true;
       if (selectedProject) {
-        if (selectedProject.id === 'global' || selectedProject.worktree === '/') {
-          matchProject = true
+        if (
+          selectedProject.id === "global" ||
+          selectedProject.worktree === "/"
+        ) {
+          matchProject = true;
         } else {
           const dirMatch = Boolean(
             s.directory &&
             selectedProject.worktree &&
-            isSameOrSubdirectory(selectedProject.worktree, s.directory)
-          )
+            isSameOrSubdirectory(selectedProject.worktree, s.directory),
+          );
           const idMatch =
             s.projectID === selectedProject.id ||
-            Boolean(selectedProject.associatedIds && selectedProject.associatedIds.includes(s.projectID))
-          matchProject = dirMatch || idMatch
+            Boolean(
+              selectedProject.associatedIds &&
+              selectedProject.associatedIds.includes(s.projectID),
+            );
+          matchProject = dirMatch || idMatch;
         }
       }
 
       const matchQuery = searchQuery
-        ? (s.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        ? (s.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
           s.id.toLowerCase().includes(searchQuery.toLowerCase())
-        : true
+        : true;
 
-      return matchProject && matchQuery
-    })
-  }, [sessions, projects, selectedProjectId, searchQuery])
+      return matchProject && matchQuery;
+    });
+  }, [sessions, projects, selectedProjectId, searchQuery]);
 
   // Group sessions by date category (Today, Yesterday, Older)
   const groupedSessions = useMemo((): SessionGroup[] => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
     const groups: Record<string, Session[]> = {
       Today: [],
       Yesterday: [],
       Older: [],
-    }
+    };
 
     filteredSessions.forEach((session) => {
-      const time = session.time?.updated || session.time?.created || 0
-      const date = new Date(time)
+      const time = session.time?.updated || session.time?.created || 0;
+      const date = new Date(time);
 
       if (date >= today) {
-        groups.Today.push(session)
+        groups.Today.push(session);
       } else if (date >= yesterday) {
-        groups.Yesterday.push(session)
+        groups.Yesterday.push(session);
       } else {
-        groups.Older.push(session)
+        groups.Older.push(session);
       }
-    })
+    });
 
-    const result: SessionGroup[] = []
-    if (groups.Today.length > 0) result.push({ label: 'Today', sessions: groups.Today })
-    if (groups.Yesterday.length > 0) result.push({ label: 'Yesterday', sessions: groups.Yesterday })
-    if (groups.Older.length > 0) result.push({ label: 'Older', sessions: groups.Older })
+    const result: SessionGroup[] = [];
+    if (groups.Today.length > 0)
+      result.push({ label: "Today", sessions: groups.Today });
+    if (groups.Yesterday.length > 0)
+      result.push({ label: "Yesterday", sessions: groups.Yesterday });
+    if (groups.Older.length > 0)
+      result.push({ label: "Older", sessions: groups.Older });
 
-    return result
-  }, [filteredSessions])
+    return result;
+  }, [filteredSessions]);
 
   const activeSession = useMemo(() => {
     if (activeSessionId === DRAFT_SESSION_ID) {
@@ -716,152 +873,179 @@ export function useSessions() {
         ? projects.find(
             (p) =>
               p.id === selectedProjectId ||
-              Boolean(p.associatedIds && p.associatedIds.includes(selectedProjectId))
+              Boolean(
+                p.associatedIds && p.associatedIds.includes(selectedProjectId),
+              ),
           )
-        : null
+        : null;
       return {
         id: DRAFT_SESSION_ID,
-        slug: 'draft',
-        projectID: selectedProjectId || 'global',
+        slug: "draft",
+        projectID: selectedProjectId || "global",
         directory: selectedProject?.worktree
-          ? canonicalizeDirectory(selectedProject.worktree) || ''
-          : '/home/developer/projects/APISpace',
-        title: '新会话',
-        agent: 'build',
-        model: { id: '', providerID: '' },
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          ? canonicalizeDirectory(selectedProject.worktree) || ""
+          : "/home/developer/projects/APISpace",
+        title: "新会话",
+        agent: "build",
+        model: { id: "", providerID: "" },
+        tokens: {
+          input: 0,
+          output: 0,
+          reasoning: 0,
+          cache: { read: 0, write: 0 },
+        },
         cost: 0,
         time: { created: Date.now(), updated: Date.now() },
-      } as Session
+      } as Session;
     }
-    const found = sessions.find((s) => s.id === activeSessionId)
-    if (found) return found
-    if (activeSessionId) return pendingSessionPlaceholder(activeSessionId, selectedProjectId || 'global')
-    return null
-  }, [sessions, activeSessionId, selectedProjectId, projects])
+    const found = sessions.find((s) => s.id === activeSessionId);
+    if (found) return found;
+    if (activeSessionId)
+      return pendingSessionPlaceholder(
+        activeSessionId,
+        selectedProjectId || "global",
+      );
+    return null;
+  }, [sessions, activeSessionId, selectedProjectId, projects]);
 
   const updateSession = useCallback(
     async (sessionId: string, patch: Partial<Session>) => {
-      if (sessionId === DRAFT_SESSION_ID) return
-      const sanitizedPatch = { ...patch }
+      if (sessionId === DRAFT_SESSION_ID) return;
+      const sanitizedPatch = { ...patch };
       if (patch.title !== undefined) {
-        sanitizedPatch.title = sanitizeSessionTitle(patch.title)
+        sanitizedPatch.title = sanitizeSessionTitle(patch.title);
       }
       // 1. Optimistic update in local state and persistent title cache
-      if (sanitizedPatch.title) {
-        try {
-          const stored = getStoredTabTitles()
-          const current = sessionsRef.current.find((s) => s.id === sessionId)
-          stored[sessionId] = {
-            title: sanitizedPatch.title,
-            directory: sanitizedPatch.directory || current?.directory,
-            projectID: sanitizedPatch.projectID || current?.projectID,
-            time: current?.time,
-          }
-          saveStoredTabTitles(stored)
-        } catch {}
-      }
-      setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, ...sanitizedPatch } : s))
-      )
+      try {
+        const stored = getStoredTabTitles();
+        const current = sessionsRef.current.find((s) => s.id === sessionId);
+        stored[sessionId] = {
+          title: sanitizedPatch.title || current?.title || "",
+          directory: sanitizedPatch.directory || current?.directory,
+          projectID: sanitizedPatch.projectID || current?.projectID,
+          model: sanitizedPatch.model || current?.model,
+          agent:
+            sanitizedPatch.agent && sanitizedPatch.agent !== "Default Agent"
+              ? sanitizedPatch.agent
+              : current?.agent,
+          time: current?.time,
+        };
+        saveStoredTabTitles(stored);
+      } catch {}
 
-      // 2. Persist to backend if title is being updated
-      if (patch.title !== undefined) {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, ...sanitizedPatch } : s)),
+      );
+
+      // 2. Persist to backend if title or model is being updated
+      if (patch.title !== undefined || patch.model !== undefined) {
         try {
-          const current = sessions.find((s) => s.id === sessionId)
+          const current = sessionsRef.current.find((s) => s.id === sessionId);
           await api.updateSession(sessionId, {
             title: sanitizedPatch.title,
             directory: current?.directory,
-          })
+            model: sanitizedPatch.model
+              ? {
+                  id: sanitizedPatch.model.id,
+                  providerID: sanitizedPatch.model.providerID,
+                }
+              : undefined,
+          });
         } catch (err) {
-          console.error('Failed to update session title on server:', err)
+          console.error("Failed to update session on server:", err);
         }
       }
     },
-    [sessions]
-  )
+    [],
+  );
 
   const archivedSessions = useMemo(() => {
-    const set = new Set(archivedIds)
-    return sessions.filter((s) => set.has(s.id))
-  }, [sessions, archivedIds])
+    const set = new Set(archivedIds);
+    return sessions.filter((s) => set.has(s.id));
+  }, [sessions, archivedIds]);
 
   const archiveSession = useCallback((sessionId: string) => {
-    const res = archiveSessionId(sessionId)
-    setArchivedIds(res.archivedIds)
-    return res
-  }, [])
+    const res = archiveSessionId(sessionId);
+    setArchivedIds(res.archivedIds);
+    return res;
+  }, []);
 
   const unarchiveSession = useCallback((sessionId: string) => {
-    const res = unarchiveSessionId(sessionId)
-    setArchivedIds(res.archivedIds)
-    return res
-  }, [])
+    const res = unarchiveSessionId(sessionId);
+    setArchivedIds(res.archivedIds);
+    return res;
+  }, []);
 
   const toggleArchiveSession = useCallback((sessionId: string) => {
-    const res = toggleArchiveSessionId(sessionId)
-    setArchivedIds(res.archivedIds)
-    return res
-  }, [])
+    const res = toggleArchiveSessionId(sessionId);
+    setArchivedIds(res.archivedIds);
+    return res;
+  }, []);
 
   // Cross-window and PWA navigation synchronization
   useEffect(() => {
     // 1. PWA Launch Queue (when launched or focused via PWA Link Handling)
-    if (typeof window !== 'undefined' && 'launchQueue' in window) {
+    if (typeof window !== "undefined" && "launchQueue" in window) {
       try {
         (window as any).launchQueue.setConsumer((launchParams: any) => {
           if (launchParams?.targetURL) {
             try {
-              const u = new URL(launchParams.targetURL)
-              const sid = u.searchParams.get('session')
+              const u = new URL(launchParams.targetURL);
+              const sid = u.searchParams.get("session");
               if (sid) {
-                selectSession(sid)
+                selectSession(sid);
               }
             } catch {}
           }
-        })
+        });
       } catch {}
     }
 
     // 2. BroadcastChannel cross-window communication
-    let bc: BroadcastChannel | null = null
+    let bc: BroadcastChannel | null = null;
     try {
-      bc = new BroadcastChannel('opencode_session_nav')
+      bc = new BroadcastChannel("opencode_session_nav");
       bc.onmessage = (event) => {
-        if (event.data?.type === 'NAVIGATE' && event.data?.sessionId) {
-          selectSession(String(event.data.sessionId))
+        if (event.data?.type === "NAVIGATE" && event.data?.sessionId) {
+          selectSession(String(event.data.sessionId));
         }
-      }
+      };
     } catch {}
 
     // 3. Replay a boot-script intent that arrived before this listener existed.
     // Once per mount: selectSession changes must not yank the user back to a stale intent.
     // index.html is the only /api/active-session poller. This hook is the only selectSession writer.
     if (!navIntentReplayedRef.current) {
-      navIntentReplayedRef.current = true
-      const intent = (window as Window & { __ocNavIntent?: { sessionId?: string } }).__ocNavIntent
-      if (intent?.sessionId) selectSession(String(intent.sessionId))
+      navIntentReplayedRef.current = true;
+      const intent = (
+        window as Window & { __ocNavIntent?: { sessionId?: string } }
+      ).__ocNavIntent;
+      if (intent?.sessionId) selectSession(String(intent.sessionId));
     }
 
     // 4. If current window is opened in a normal browser tab with ?session=...
     // automatically notify running PWA and trigger backend window activation
     try {
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-      const params = new URLSearchParams(window.location.search)
-      const targetSession = params.get('session')
+      const isStandalone = window.matchMedia(
+        "(display-mode: standalone)",
+      ).matches;
+      const params = new URLSearchParams(window.location.search);
+      const targetSession = params.get("session");
 
       if (!isStandalone && targetSession) {
-        bc?.postMessage({ type: 'NAVIGATE', sessionId: targetSession })
-        fetch(`/api/focus-app?session=${encodeURIComponent(targetSession)}`).catch(() => {})
+        bc?.postMessage({ type: "NAVIGATE", sessionId: targetSession });
+        fetch(
+          `/api/focus-app?session=${encodeURIComponent(targetSession)}`,
+        ).catch(() => {});
       }
     } catch {}
 
     return () => {
       try {
-        bc?.close()
+        bc?.close();
       } catch {}
-    }
-  }, [selectSession])
+    };
+  }, [selectSession]);
 
   return {
     projects,
@@ -871,7 +1055,8 @@ export function useSessions() {
     archiveSession,
     unarchiveSession,
     toggleArchiveSession,
-    isArchived: (sessionId: string) => isSessionArchived(sessionId, archivedIds),
+    isArchived: (sessionId: string) =>
+      isSessionArchived(sessionId, archivedIds),
     selectedProjectId,
     setSelectedProjectId,
     activeSessionId,
@@ -894,5 +1079,5 @@ export function useSessions() {
     deleteSession,
     updateSession,
     refresh,
-  }
+  };
 }

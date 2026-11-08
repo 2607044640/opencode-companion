@@ -4,6 +4,21 @@
  */
 
 export const WORKSPACE_PATH_MAPPINGS = [
+  // 1. Static OpenCode configuration and global rules
+  { jail: '/home/developer/.config/opencode/AGENTS.md', win: 'C:\\AICore\\global\\rules\\AGENTS_Global.md' },
+  { jail: '/home/developer/.config/opencode/instructions', win: 'C:\\AICore\\opencode-jail\\instructions' },
+  { jail: '/home/developer/.config/opencode/agents', win: 'C:\\AICore\\opencode-jail\\agents' },
+  { jail: '/home/developer/.config/opencode/commands', win: 'C:\\AICore\\opencode-jail\\commands' },
+  { jail: '/home/developer/.config/opencode/plugins', win: 'C:\\AICore\\opencode-jail\\plugins' },
+  { jail: '/home/developer/.config/opencode/opencode-routing.json', win: 'C:\\ObsidianNote\\.opencode\\opencode-routing.json' },
+  { jail: '/home/developer/.config/opencode', win: 'C:\\AICore\\opencode-jail' },
+
+  // 2. Desktop shortcuts
+  { jail: '/mnt/desktop', win: 'C:\\Users\\26070\\Desktop' },
+  { jail: '/mnt/c/Users/26070/Desktop', win: 'C:\\Users\\26070\\Desktop' },
+  { jail: '/home/developer/Desktop', win: 'C:\\Users\\26070\\Desktop' },
+
+  // 3. Known workspace roots
   { jail: '/home/developer/projects/APISpace', win: 'C:\\APISpace' },
   { jail: '/workspace/projects/APISpace', win: 'C:\\APISpace' },
   { jail: '/home/developer/projects/AICore', win: 'C:\\AICore' },
@@ -95,13 +110,19 @@ export function cleanRawPath(raw: string): string {
   clean = clean.replace(/\(\d+(?:,\s*\d+)?\)$/, '')
 
   // 9. Normalize leading slash for jail/POSIX paths
+  // e.g. "\home\developer\.config\opencode\AGENTS.md" -> "/home/developer/.config/opencode/AGENTS.md"
   // e.g. "home/developer/projects/..." -> "/home/developer/projects/..."
-  // e.g. "workspace/projects/..." -> "/workspace/projects/..."
-  // e.g. "projects/..." -> "/projects/..."
-  // e.g. "mnt/c/..." -> "/mnt/c/..."
+  // e.g. "~/.config/opencode/..." -> "/home/developer/.config/opencode/..."
   const slashNormalized = clean.replace(/\\/g, '/')
-  if (/^(?:home\/developer|workspace\/projects|projects|mnt\/[a-zA-Z])\//i.test(slashNormalized)) {
-    clean = '/' + slashNormalized.replace(/^\/+/, '')
+  const unslashed = slashNormalized.replace(/^\/+/, '')
+  if (/^(?:home\/developer|workspace\/projects|projects|mnt\/[a-zA-Z]|\.config\/opencode)/i.test(unslashed)) {
+    clean = '/' + unslashed
+  } else if (slashNormalized.startsWith('~/')) {
+    clean = '/home/developer/' + slashNormalized.slice(2)
+  } else if (slashNormalized === '~') {
+    clean = '/home/developer'
+  } else if (!/^[a-zA-Z]:[/\\\\]/.test(clean) && slashNormalized.startsWith('/')) {
+    clean = slashNormalized
   }
 
   return clean.trim()
@@ -119,24 +140,34 @@ export function toWindowsPath(posixPath: string): string {
     return cleaned.replace(/\//g, '\\')
   }
 
+  // Normalize forward slash for POSIX/jail matching
+  let normalizedPosix = cleaned.replace(/\\/g, '/')
+  if (normalizedPosix.startsWith('~/')) {
+    normalizedPosix = '/home/developer/' + normalizedPosix.slice(2)
+  } else if (normalizedPosix === '~') {
+    normalizedPosix = '/home/developer'
+  } else if (normalizedPosix.startsWith('.config/opencode') || normalizedPosix.startsWith('/.config/opencode')) {
+    normalizedPosix = '/home/developer/' + normalizedPosix.replace(/^\/+/, '')
+  }
+
   // 2. /mnt/c/... or /mnt/d/...
-  const mntMatch = cleaned.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
+  const mntMatch = normalizedPosix.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
   if (mntMatch) {
     return `${mntMatch[1].toUpperCase()}:\\${mntMatch[2].replace(/\//g, '\\')}`
   }
 
-  // 3. Known workspace roots (case-insensitive)
-  const cleanedLower = cleaned.toLowerCase()
+  // 3. Known workspace roots & config roots (case-insensitive)
+  const cleanedLower = normalizedPosix.toLowerCase()
   for (const { jail, win } of WORKSPACE_PATH_MAPPINGS) {
     const jailLower = jail.toLowerCase()
     if (cleanedLower === jailLower || cleanedLower.startsWith(jailLower + '/')) {
-      const rel = cleaned.slice(jail.length).replace(/^\/+/, '')
+      const rel = normalizedPosix.slice(jail.length).replace(/^\/+/, '')
       return rel ? `${win}\\${rel.replace(/\//g, '\\')}` : win
     }
   }
 
   // 4. Generic /home/developer/projects/<name>, /workspace/projects/<name>, or /projects/<name>
-  const genericMatch = cleaned.match(/^(?:(?:\/home\/developer|\/workspace)\/projects|\/projects)\/([^/]+)(?:\/(.*))?$/i)
+  const genericMatch = normalizedPosix.match(/^(?:(?:\/home\/developer|\/workspace)\/projects|\/projects)\/([^/]+)(?:\/(.*))?$/i)
   if (genericMatch) {
     const wsName = genericMatch[1]
     const rest = genericMatch[2] ? '\\' + genericMatch[2].replace(/\//g, '\\') : ''
@@ -151,7 +182,7 @@ export function toWindowsPath(posixPath: string): string {
   }
 
   // 5. Direct workspace name without root prefix (e.g. AICore/..., APISpace/...)
-  const directWsMatch = cleaned.match(/^(aicore|apispace|aispace|obsidiannote|obsidiandev)(?:\/(.*))?$/i)
+  const directWsMatch = normalizedPosix.match(/^(aicore|apispace|aispace|obsidiannote|obsidiandev)(?:\/(.*))?$/i)
   if (directWsMatch) {
     const wsName = directWsMatch[1].toLowerCase()
     const rest = directWsMatch[2] ? '\\' + directWsMatch[2].replace(/\//g, '\\') : ''
@@ -174,8 +205,13 @@ export function toLinuxPath(rawPath: string): string {
   if (!cleaned) return ''
   const trimmed = cleaned.replace(/\\/g, '/')
 
-  if (trimmed.startsWith('/home/developer/projects/') || trimmed.startsWith('/workspace/projects/')) {
+  if (trimmed.startsWith('/home/developer/') || trimmed.startsWith('/workspace/')) {
     return trimmed
+  }
+
+  const trimmedLower = trimmed.toLowerCase()
+  if (trimmedLower === 'c:/obsidiannote/.opencode/opencode-routing.json') {
+    return '/home/developer/.config/opencode/opencode-routing.json'
   }
 
   const winMatch = trimmed.match(/^([a-zA-Z]):\/(.*)$/)

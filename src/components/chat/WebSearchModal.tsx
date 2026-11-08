@@ -218,7 +218,7 @@ export function WebSearchModal({
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
             }`}
           >
-            <Code className="w-3 h-3 text-purple-400" />
+            <Code className="w-3 h-3 text-sky-400" />
             <span>原始响应 (Raw Output)</span>
           </button>
 

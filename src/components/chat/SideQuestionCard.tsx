@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { createMarkdownComponents } from './MessageBubble'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import {
@@ -165,7 +166,7 @@ export function SideQuestionCard({
     <div
       style={{ height: `${cardHeight}px` }}
       className={`relative rounded-xl border border-[#2b303b] bg-[#14171d]/95 backdrop-blur-md shadow-2xl flex flex-col overflow-hidden select-text transition-[border-color,box-shadow] ${
-        isResizing ? 'select-none ring-1 ring-purple-500/50 cursor-ns-resize' : ''
+        isResizing ? 'select-none ring-1 ring-sky-500/50 cursor-ns-resize' : ''
       } ${isZenMode ? 'max-w-3xl mx-auto' : ''}`}
     >
       {/* Top Drag Resizer Handle (Matches Image 3) */}
@@ -303,7 +304,7 @@ export function SideQuestionCard({
               onClick={() => setIsThoughtExpanded(!isThoughtExpanded)}
               className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer py-0.5"
             >
-              <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />
+              <Sparkles className="w-3 h-3 text-sky-400 shrink-0" />
               <span className="font-mono text-[11px] text-zinc-400">
                 {data.status === 'generating' && !data.thoughtDuration && !data.answer
                   ? `Thinking... (${elapsedSeconds}s)`
@@ -318,7 +319,7 @@ export function SideQuestionCard({
 
             {/* Expanded Thought Block */}
             {isThoughtExpanded && (
-              <div className="mt-1.5 mb-2 p-2.5 rounded-lg bg-[#0d0f14] border border-purple-900/30 max-h-56 overflow-y-auto font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap select-text">
+              <div className="mt-1.5 mb-2 p-2.5 rounded-lg bg-[#0d0f14] border border-sky-900/30 max-h-56 overflow-y-auto font-mono text-[11px] text-zinc-400 leading-relaxed whitespace-pre-wrap select-text">
                 {data.thought}
               </div>
             )}
@@ -336,6 +337,7 @@ export function SideQuestionCard({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
+                components={createMarkdownComponents()}
               >
                 {data.answer}
               </ReactMarkdown>

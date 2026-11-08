@@ -180,7 +180,7 @@ export function WorkedSummaryCard({
             </span>
           ) : turn.isAborted ? (
             <DelayedTooltip content={tr('生成已中断', 'Generation was aborted')} variant="warning" placement="top-end">
-              <span className="flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+              <span className="flex items-center gap-1 text-zinc-400 font-mono text-[10px]">
                 <AlertCircle className="w-3 h-3" />
                 <span className="hidden sm:inline">{tr('已中断', 'Aborted')}</span>
               </span>

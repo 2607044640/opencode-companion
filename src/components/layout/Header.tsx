@@ -9,6 +9,7 @@ import { useI18n } from '../../utils/i18n'
 import { TabContextMenu } from './TabContextMenu'
 import { resolveSessionProject } from '../../utils/session-workspace'
 import { getStoredTabTitles } from '../../utils/tab-persistence'
+import { AntigravityRunningIndicator, SessionUnreadDot } from '../common/SessionStatusIndicator'
 
 interface HeaderProps {
   projects?: Project[]
@@ -16,6 +17,7 @@ interface HeaderProps {
   openTabIds: string[]
   activeSessionId: string | null
   unreadSessionIds?: string[]
+  busySessionIds?: string[]
   onSelectTab: (sessionId: string) => void
   onCloseTab: (sessionId: string) => void
   onCloseOtherTabs?: (sessionId: string) => void
@@ -34,6 +36,7 @@ export function Header({
   openTabIds,
   activeSessionId,
   unreadSessionIds,
+  busySessionIds = [],
   onSelectTab,
   onCloseTab,
   onCloseOtherTabs,
@@ -163,6 +166,8 @@ export function Header({
             const isEditing = !isDraft && editingTabId === tabId
             const sessionIdToCopy = isDraft ? 'draft' : (session?.id || tabId)
             const isCopied = copiedTabId === tabId
+            const isUnread = !isDraft && Boolean(unreadSessionIds?.includes(tabId))
+            const isRunning = !isDraft && Boolean(busySessionIds?.includes(tabId))
 
             const handleCommitTitle = () => {
               const trimmed = editingTitle.trim()
@@ -222,7 +227,7 @@ export function Header({
                     : 'bg-[#12121a]/80 text-zinc-400 border-t-transparent hover:bg-[#161622] hover:text-zinc-200 border-x border-[#1c1c2a]'
                 }`}
               >
-                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) - Click to copy session ID */}
+                {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) - Swaps with Running Indicator (Image 2) or Unread Blue Dot */}
                 <div className="relative inline-flex items-center shrink-0">
                   <span
                     onClick={(e) => handleCopySessionId(e, tabId, sessionIdToCopy)}
@@ -230,15 +235,33 @@ export function Header({
                     className={`min-w-[18px] h-3.5 px-0.5 shrink-0 rounded text-[9px] font-bold font-mono tracking-tight flex items-center justify-center select-none shadow-sm cursor-pointer transition-all ${
                       isCopied
                         ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+                        : isRunning
+                        ? 'bg-sky-950/40 text-sky-400 border border-sky-500/40 shadow-[0_0_8px_rgba(56,189,248,0.2)]'
+                        : isUnread
+                        ? 'bg-sky-950/30 text-sky-400 border border-sky-500/30'
                         : 'bg-zinc-800/90 text-zinc-300 border border-zinc-700/60 hover:text-white hover:border-zinc-500 hover:bg-zinc-700/80 active:scale-95'
                     }`}
                     title={
-                      isZh
+                      isCopied
+                        ? (isZh ? '复制session id成功' : 'Session ID copied')
+                        : isRunning
+                        ? (isZh ? '正在进行中… (点击复制会话ID)' : 'In progress… (Click to copy ID)')
+                        : isUnread
+                        ? (isZh ? '新消息未读 (点击切换或复制会话ID)' : 'Unread response (Click to view or copy ID)')
+                        : isZh
                         ? `${projectBadge ? `所属工程: ${projectBadge.name}\n` : ''}点击复制会话ID: ${sessionIdToCopy}`
                         : `${projectBadge ? `Project: ${projectBadge.name}\n` : ''}Click to copy session ID: ${sessionIdToCopy}`
                     }
                   >
-                    {isCopied ? <Check className="w-2.5 h-2.5 text-emerald-300 stroke-[2.5]" /> : tabBadge}
+                    {isCopied ? (
+                      <Check className="w-2.5 h-2.5 text-emerald-300 stroke-[2.5]" />
+                    ) : isRunning ? (
+                      <AntigravityRunningIndicator className="w-full h-full flex items-center justify-center" />
+                    ) : isUnread ? (
+                      <SessionUnreadDot />
+                    ) : (
+                      tabBadge
+                    )}
                   </span>
                   {isCopied && (
                     <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#16181f]/95 text-emerald-400 text-[10px] font-medium rounded-md shadow-xl border border-emerald-500/60 whitespace-nowrap z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-1">
@@ -246,14 +269,6 @@ export function Header({
                     </span>
                   )}
                 </div>
-
-                {/* Unread marker (blue dot) */}
-                {!isDraft && Boolean(unreadSessionIds?.includes(tabId)) && (
-                  <span
-                    className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
-                    title={isZh ? '新消息未读' : 'Unread response'}
-                  />
-                )}
 
                 {isEditing ? (
                   <input

@@ -75,6 +75,19 @@ function parseWorkspaceRoots() {
 
 export const WORKSPACE_ROOTS = parseWorkspaceRoots()
 
+const STATIC_CONFIG_AND_DESKTOP_ROOTS = [
+  { jail: '/home/developer/.config/opencode/AGENTS.md', win: 'C:/AICore/global/rules/AGENTS_Global.md' },
+  { jail: '/home/developer/.config/opencode/instructions', win: 'C:/AICore/opencode-jail/instructions' },
+  { jail: '/home/developer/.config/opencode/agents', win: 'C:/AICore/opencode-jail/agents' },
+  { jail: '/home/developer/.config/opencode/commands', win: 'C:/AICore/opencode-jail/commands' },
+  { jail: '/home/developer/.config/opencode/plugins', win: 'C:/AICore/opencode-jail/plugins' },
+  { jail: '/home/developer/.config/opencode/opencode-routing.json', win: 'C:/ObsidianNote/.opencode/opencode-routing.json' },
+  { jail: '/home/developer/.config/opencode', win: 'C:/AICore/opencode-jail' },
+  { jail: '/mnt/desktop', win: 'C:/Users/26070/Desktop' },
+  { jail: '/mnt/c/Users/26070/Desktop', win: 'C:/Users/26070/Desktop' },
+  { jail: '/mnt/c/Users/26070/Desktop/AI', win: 'C:/Users/26070/Desktop/AI' },
+]
+
 function discoverWorkspaceRoots({
   configuredRoots = WORKSPACE_ROOTS,
   candidateBases = WINDOWS_WORKSPACE_BASES,
@@ -83,7 +96,7 @@ function discoverWorkspaceRoots({
     .map((entry) => entry.name),
   directoryExists = fs.existsSync,
 } = {}) {
-  const roots = [...configuredRoots]
+  const roots = [...configuredRoots, ...STATIC_CONFIG_AND_DESKTOP_ROOTS]
   for (const base of candidateBases) {
     let entries = []
     try {
@@ -115,16 +128,31 @@ export function isAllowedExternalPath(_filePath) {
 }
 
 const JAIL_TO_WIN_WORKSPACE_MAPPINGS = [
+  { jail: '/home/developer/.config/opencode/AGENTS.md', win: 'C:/AICore/global/rules/AGENTS_Global.md' },
+  { jail: '/home/developer/.config/opencode/instructions', win: 'C:/AICore/opencode-jail/instructions' },
+  { jail: '/home/developer/.config/opencode/agents', win: 'C:/AICore/opencode-jail/agents' },
+  { jail: '/home/developer/.config/opencode/commands', win: 'C:/AICore/opencode-jail/commands' },
+  { jail: '/home/developer/.config/opencode/plugins', win: 'C:/AICore/opencode-jail/plugins' },
+  { jail: '/home/developer/.config/opencode/opencode-routing.json', win: 'C:/ObsidianNote/.opencode/opencode-routing.json' },
+  { jail: '/home/developer/.config/opencode', win: 'C:/AICore/opencode-jail' },
+  { jail: '/mnt/desktop', win: 'C:/Users/26070/Desktop' },
   { jail: '/home/developer/projects/APISpace', win: 'C:/APISpace' },
   { jail: '/workspace/projects/APISpace', win: 'C:/APISpace' },
   { jail: '/home/developer/projects/AICore', win: 'C:/AICore' },
   { jail: '/workspace/projects/AICore', win: 'C:/AICore' },
+  { jail: '/home/developer/projects/AISpace/ForageSim', win: 'C:/Godot/ForageSim' },
+  { jail: '/home/developer/projects/AISpace/TetrisBackpack', win: 'C:/Godot/TetrisBackpack' },
+  { jail: '/home/developer/projects/AISpace/ModelShowcase', win: 'C:/Godot/ModelShowcase' },
   { jail: '/home/developer/projects/AISpace', win: 'C:/Godot/AISpace' },
   { jail: '/workspace/projects/AISpace', win: 'C:/Godot/AISpace' },
   { jail: '/home/developer/projects/ObsidianNote', win: 'C:/ObsidianNote' },
   { jail: '/workspace/projects/ObsidianNote', win: 'C:/ObsidianNote' },
   { jail: '/home/developer/projects/ObsidianDev', win: 'C:/ObsidianDev' },
   { jail: '/workspace/projects/ObsidianDev', win: 'C:/ObsidianDev' },
+  { jail: '/home/developer/projects/NullSpace', win: 'C:/NullSpace' },
+  { jail: '/workspace/projects/NullSpace', win: 'C:/NullSpace' },
+  { jail: '/home/developer/projects/ObsidianPublish', win: 'C:/ObsidianPublish' },
+  { jail: '/workspace/projects/ObsidianPublish', win: 'C:/ObsidianPublish' },
 ]
 
 function convertMntPathToWindows(posixPath) {
@@ -134,7 +162,14 @@ function convertMntPathToWindows(posixPath) {
 }
 
 function mapKnownJailPathToWindows(rawPath) {
-  let mapped = rawPath
+  let mapped = String(rawPath || '').replace(/\\/g, '/')
+  if (mapped.startsWith('~/')) {
+    mapped = '/home/developer/' + mapped.slice(2)
+  } else if (mapped === '~') {
+    mapped = '/home/developer'
+  } else if (mapped.startsWith('.config/opencode')) {
+    mapped = '/home/developer/' + mapped
+  }
   for (const m of JAIL_TO_WIN_WORKSPACE_MAPPINGS) {
     if (mapped.startsWith(m.jail)) {
       mapped = mapped.replace(m.jail, m.win)
@@ -186,6 +221,9 @@ export function resolveRollbackDiskPath(rawPath, options = {}) {
 }
 
 export function isAllowedRollbackPath(filePath) {
+  if (typeof filePath === 'string' && (filePath.startsWith('/mnt/desktop') || filePath.toLowerCase().includes('/desktop/') || filePath.toLowerCase().includes('\\desktop\\'))) {
+    return false
+  }
   return resolveRollbackDiskPath(filePath) !== null
 }
 
@@ -353,24 +391,33 @@ export function runGitRevert(directory, mode = 'revert') {
 
 function collectWorkspaceSymlinkRoots(roots) {
   const extraWinRoots = []
-  for (const { win } of roots) {
-    extraWinRoots.push(win)
+  function scanDirSymlinks(dirPath) {
     try {
-      const entries = fs.readdirSync(win, { withFileTypes: true })
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true })
       for (const ent of entries) {
         if (ent.isSymbolicLink() || ent.isDirectory()) {
-          const full = path.join(win, ent.name)
+          const full = path.join(dirPath, ent.name)
+          extraWinRoots.push(full)
           try {
             const real = fs.realpathSync(full)
             if (real && real !== full) {
-              extraWinRoots.push(full, real)
+              extraWinRoots.push(real)
             }
           } catch {}
         }
       }
     } catch {}
   }
-  return extraWinRoots
+
+  for (const { win } of roots) {
+    extraWinRoots.push(win)
+    scanDirSymlinks(win)
+    scanDirSymlinks(path.join(win, '.agents'))
+    scanDirSymlinks(path.join(win, '.agents', 'skills'))
+    scanDirSymlinks(path.join(win, '.claude'))
+    scanDirSymlinks(path.join(win, '.claude', 'skills'))
+  }
+  return [...new Set(extraWinRoots)]
 }
 
 function runExternalRollback(actions) {
@@ -381,6 +428,7 @@ function runExternalRollback(actions) {
   if (new Set(actions.map((action) => action.session)).size !== 1) return { ok: false, error: 'Mixed snapshot sessions are not allowed' }
   const roots = discoverWorkspaceRoots()
   const desktop = process.platform === 'win32' && process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'Desktop') : '/mnt/desktop'
+  const desktopAi = process.platform === 'win32' ? path.join(desktop, 'AI') : '/mnt/desktop/AI'
   const extraWinRoots = collectWorkspaceSymlinkRoots(roots)
   const store = createSnapshotStore({
     allowedRoots: [
@@ -388,11 +436,19 @@ function runExternalRollback(actions) {
       PROJECTS_ROOT,
       ...(process.platform === 'win32'
         ? []
-        : ['AISpace', 'ObsidianNote', 'ObsidianDev', 'APISpace', 'AICore'].map((name) => `${PROJECTS_JAIL_ROOT}/${name}`)),
+        : ['AISpace', 'ObsidianNote', 'ObsidianDev', 'APISpace', 'AICore', 'NullSpace', 'ObsidianPublish'].map((name) => `${PROJECTS_JAIL_ROOT}/${name}`)),
       desktop,
+      desktopAi,
     ],
     resolvePath: (raw) => {
-      if (raw.startsWith('/mnt/desktop/')) return path.resolve(desktop, raw.slice('/mnt/desktop/'.length))
+      if (raw.startsWith('/mnt/desktop/')) {
+        const rel = raw.slice('/mnt/desktop/'.length)
+        const directDesktop = path.resolve(desktop, rel)
+        if (fs.existsSync(directDesktop)) return directDesktop
+        const aiDesktop = path.resolve(desktopAi, rel)
+        if (fs.existsSync(aiDesktop)) return aiDesktop
+        return directDesktop
+      }
       if (process.platform !== 'win32' && raw.startsWith(PROJECTS_JAIL_ROOT + '/')) return path.resolve(raw)
       return resolveRollbackDiskPath(raw)
     },

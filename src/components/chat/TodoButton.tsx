@@ -71,9 +71,9 @@ export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
         aria-label={isZh ? '待办清单' : 'Todo List'}
       >
         <CheckSquare className="w-3.5 h-3.5" />
-        {/* Subtle status badge indicator: amber if in-progress */}
+        {/* Subtle status badge indicator: sky blue if in-progress */}
         {stats.inProgress > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse" />
+          <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
         )}
       </button>
 
@@ -121,7 +121,7 @@ export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
                   key={todo.id || idx}
                   className={`flex items-start gap-2 py-1.5 px-2 rounded-lg transition-colors ${
                     inProgress
-                      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-200'
+                      ? 'bg-sky-500/10 border border-sky-500/20 text-sky-200'
                       : isDone
                       ? 'text-zinc-500 bg-transparent'
                       : 'text-zinc-300 hover:bg-zinc-800/40'
@@ -131,7 +131,7 @@ export const TodoButton: React.FC<TodoButtonProps> = ({ todos }) => {
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                   ) : inProgress ? (
                     <span className="w-3.5 h-3.5 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block" />
+                      <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping inline-block" />
                     </span>
                   ) : (
                     <Circle className="w-3.5 h-3.5 text-zinc-600 shrink-0 mt-0.5" />

@@ -24,6 +24,8 @@ export interface UserPreferences {
   language: LanguagePreference
   showModelSelector: boolean
   showTimelineQuickJump: boolean
+  showTimelineZoomWidget?: boolean
+  timelineZoom?: number
   mouseSideButtonToggleDialogue?: boolean
   modelVisibility?: Record<string, boolean>
   providerVisibility?: Record<string, boolean>
@@ -103,6 +105,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   language: 'zh-CN',
   showModelSelector: true,
   showTimelineQuickJump: true,
+  showTimelineZoomWidget: true,
+  timelineZoom: 100,
   mouseSideButtonToggleDialogue: true,
   modelVisibility: {},
   providerVisibility: {},

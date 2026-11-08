@@ -220,6 +220,14 @@ export function rankPopoverItems<T extends PopoverRankItem>(
 
     if (entry.type === 'file') {
       title = typeof entry.item === 'string' ? entry.item : ''
+    } else if (entry.type === 'conversation') {
+      title = (entry.item as any)?.title || (entry.item as any)?.id || ''
+      description = (entry.item as any)?.directory
+      // If user typed 'conv', 'conversation', or query matches 'conversation', treat as category match
+      if (q === 'conv' || q === 'conversation' || 'conversation'.startsWith(q)) {
+        scored.push({ item: entry, score: 15 + i * 0.001, index: i })
+        continue
+      }
     } else if (entry.item && typeof entry.item === 'object') {
       title = entry.item.name || ''
       description = entry.item.description

@@ -14,6 +14,7 @@ import {
   Terminal,
   FileText,
   ExternalLink,
+  Network,
 } from 'lucide-react'
 import type { ToolPart } from '../../types/opencode'
 import { api, getCachedRoutingConfig } from '../../services/api'
@@ -235,7 +236,8 @@ export function useSubagentModel(subagentType: string, part?: ToolPart) {
     const raw = extractModelString(modelLabel)
     if (!raw || !raw.includes('/')) return ''
     const prov = raw.split('/')[0]
-    return prov === '[object Object]' ? '' : prov
+    if (prov === '[object Object]' || prov.toLowerCase() === 'obsidian') return ''
+    return prov
   }, [modelLabel])
 
   return { modelLabel, cleanModelName, providerName }
@@ -347,7 +349,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
               <span>运行中</span>
             </span>
           ) : isInterrupted ? (
-            <span className="flex items-center gap-1 text-amber-400 font-mono text-[10px]">
+            <span className="flex items-center gap-1 text-zinc-400 font-mono text-[10px]">
               <AlertCircle className="w-3 h-3" />
               <span>已中断</span>
             </span>
@@ -377,6 +379,19 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
               )}
             </button>
           )}
+
+          {/* Open Subagent Topology Tree Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              window.dispatchEvent(new CustomEvent('opencode-open-subagent-topology'))
+            }}
+            className="p-1 text-zinc-400 hover:text-sky-300 rounded hover:bg-zinc-800 transition-colors"
+            title="查看智能体拓扑树与通讯监视 (Ctrl+Shift+A)"
+          >
+            <Network className="w-3.5 h-3.5" />
+          </button>
 
           {/* Open Subagent Floating Inspector Modal Button */}
           {effectiveTaskId && (
@@ -416,7 +431,7 @@ export function SubagentToolCard({ part, isLive }: SubagentToolCardProps) {
               </span>
               <span>
                 <strong className="text-zinc-300 font-medium">调用模型:</strong>{' '}
-                <span className="text-purple-300 font-mono">
+                <span className="text-sky-300 font-mono">
                   {cleanModelName}
                   {providerName ? ` (${providerName})` : ''}
                 </span>

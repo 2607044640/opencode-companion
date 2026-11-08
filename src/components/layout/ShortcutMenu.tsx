@@ -9,32 +9,44 @@ import {
   Check,
   Maximize2,
   FileText,
+  FileDown,
+  Terminal,
   PanelTopClose,
   PanelTopOpen,
 } from 'lucide-react'
 import { useI18n } from '../../utils/i18n'
+import type { Session, Message } from '../../types/opencode'
+import { exportSessionToMarkdown, extractSessionPrompts, downloadTextFile } from '../../utils/export-markdown'
 
-interface ShortcutMenuProps {
+export interface ShortcutMenuProps {
+  activeSession?: Session | null
   activeSessionId?: string | null
+  messages?: Message[]
   onOpenMapAndLocate?: (sessionId?: string) => void
   onAddSessionToMap?: (sessionId: string) => void
   onOpenSearch?: () => void
   onOpenModelRouter?: () => void
+  onOpenBackgroundTasks?: () => void
+  onOpenSubagentTopology?: () => void
   onGetSessionJson?: () => Promise<string>
   onToggleZenMode?: () => void
   onOpenFind?: () => void
   isHeaderVisible?: boolean
   onToggleHeader?: () => void
   compact?: boolean
-  popoverPlacement?: 'right' | 'top' | 'bottom'
+  popoverPlacement?: 'right' | 'top' | 'bottom' | 'right-bottom'
 }
 
 export function ShortcutMenu({
+  activeSession,
   activeSessionId,
+  messages = [],
   onOpenMapAndLocate,
   onAddSessionToMap,
   onOpenSearch,
   onOpenModelRouter,
+  onOpenBackgroundTasks,
+  onOpenSubagentTopology,
   onGetSessionJson,
   onToggleZenMode,
   onOpenFind,
@@ -46,7 +58,9 @@ export function ShortcutMenu({
   const { lang } = useI18n()
   const isZh = lang.startsWith('zh')
   const [isOpen, setIsOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copiedMd, setCopiedMd] = useState(false)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [copiedJson, setCopiedJson] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Close menu on outside click or Escape
@@ -70,24 +84,111 @@ export function ShortcutMenu({
     }
   }, [isOpen])
 
-  const handleCopyJson = async () => {
-    if (!onGetSessionJson) return
+  // 1. Export Markdown (Click to copy & trigger file download)
+  const handleExportMarkdown = async () => {
     try {
-      const json = await onGetSessionJson()
+      const md = exportSessionToMarkdown(activeSession, messages)
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(md)
+      }
+      const safeTitle = (activeSession?.title || 'conversation')
+        .replace(/[/\\?%*:|"<>]/g, '_')
+        .slice(0, 50)
+      downloadTextFile(`${safeTitle}.md`, md)
+
+      setCopiedMd(true)
+      window.dispatchEvent(
+        new CustomEvent('opencode:toast', {
+          detail: { message: isZh ? '已导出并复制 Markdown 记录' : 'Exported and copied Markdown' },
+        })
+      )
+      setTimeout(() => {
+        setCopiedMd(false)
+        setIsOpen(false)
+      }, 1000)
+    } catch (err) {
+      console.error('Failed to export markdown:', err)
+    }
+  }
+
+  // 2. Copy Prompt (Single prompt or combined prompts from session)
+  const handleCopyPrompt = async () => {
+    try {
+      const prompts = extractSessionPrompts(messages)
+      if (prompts.length === 0) {
+        window.dispatchEvent(
+          new CustomEvent('opencode:toast', {
+            detail: { message: isZh ? '当前会话暂无用户 Prompt' : 'No prompt found in session' },
+          })
+        )
+        setIsOpen(false)
+        return
+      }
+
+      const textToCopy = prompts.join('\n\n---\n\n')
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(textToCopy)
+      }
+
+      setCopiedPrompt(true)
+      window.dispatchEvent(
+        new CustomEvent('opencode:toast', {
+          detail: {
+            message:
+              prompts.length === 1
+                ? (isZh ? '已复制会话 Prompt' : 'Copied prompt')
+                : (isZh ? `已复制全部 ${prompts.length} 条 Prompt` : `Copied ${prompts.length} prompts`),
+          },
+        })
+      )
+      setTimeout(() => {
+        setCopiedPrompt(false)
+        setIsOpen(false)
+      }, 1000)
+    } catch (err) {
+      console.error('Failed to copy prompt:', err)
+    }
+  }
+
+  // 3. Export Session JSON (Figure 3)
+  const handleCopyJson = async () => {
+    try {
+      let json = ''
+      if (onGetSessionJson) {
+        json = await onGetSessionJson()
+      } else {
+        json = JSON.stringify({ session: activeSession, messages }, null, 2)
+      }
+
       if (navigator.clipboard) {
         await navigator.clipboard.writeText(json)
-        setCopied(true)
-        setTimeout(() => {
-          setCopied(false)
-          setIsOpen(false)
-        }, 800)
       }
-    } catch {}
+
+      const safeTitle = (activeSession?.title || 'session')
+        .replace(/[/\\?%*:|"<>]/g, '_')
+        .slice(0, 50)
+      downloadTextFile(`${safeTitle}.json`, json, 'application/json')
+
+      setCopiedJson(true)
+      window.dispatchEvent(
+        new CustomEvent('opencode:toast', {
+          detail: { message: isZh ? '已导出并复制会话 JSON' : 'Exported and copied Session JSON' },
+        })
+      )
+      setTimeout(() => {
+        setCopiedJson(false)
+        setIsOpen(false)
+      }, 1000)
+    } catch (err) {
+      console.error('Failed to copy json:', err)
+    }
   }
 
   const popoverStyle: React.CSSProperties =
     popoverPlacement === 'right'
       ? { left: '100%', top: '0', marginLeft: '10px' }
+      : popoverPlacement === 'right-bottom'
+      ? { left: '100%', bottom: '0', marginLeft: '10px' }
       : popoverPlacement === 'top'
       ? { bottom: '100%', left: '0', marginBottom: '8px' }
       : { top: '100%', left: '0', marginTop: '8px' }
@@ -102,11 +203,11 @@ export function ShortcutMenu({
             ? 'w-8 h-8 p-1.5 hover:bg-[#1f232b]'
             : 'px-2 py-1.5 text-xs gap-1.5 hover:bg-[#161920]'
         } ${isOpen ? 'bg-[#1f232b] text-[#f0f6fc]' : ''}`}
-        title={isZh ? '快捷键与工具 (···)' : 'Shortcuts & Tools (···)'}
-        aria-label={isZh ? '快捷键与工具 (···)' : 'Shortcuts & Tools (···)'}
+        title={isZh ? '导出与工作区工具 (···)' : 'Export & Tools (···)'}
+        aria-label={isZh ? '导出与工作区工具 (···)' : 'Export & Tools (···)'}
       >
         <MoreHorizontal className="w-4 h-4" />
-        {!compact && <span>{isZh ? '快捷键与工具' : 'Shortcuts'}</span>}
+        {!compact && <span>{isZh ? '导出与工具' : 'Tools'}</span>}
       </button>
 
       {isOpen && (
@@ -115,12 +216,131 @@ export function ShortcutMenu({
           className="absolute z-50 w-64 rounded-xl border border-[#2a2e38] bg-[#12141a]/98 backdrop-blur-md p-1.5 shadow-2xl text-xs select-none animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="px-2.5 py-1.5 text-[11px] font-semibold text-zinc-400 border-b border-zinc-800/80 mb-1 flex items-center justify-between">
-            <span>{isZh ? '快捷键与工作区工具' : 'Shortcuts & Workspace Tools'}</span>
+            <span>{isZh ? '会话操作与工作区工具' : 'Session & Tools'}</span>
             <span className="text-[10px] font-mono text-zinc-500">···</span>
           </div>
 
           <div className="space-y-0.5">
-            {/* 1. Global Search (Ctrl+K) */}
+            {/* 1. Export Markdown (Primary Button) */}
+            <button
+              type="button"
+              onClick={handleExportMarkdown}
+              className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-zinc-200 hover:text-white hover:bg-sky-950/40 border border-transparent hover:border-sky-800/50 transition-colors cursor-pointer text-left group"
+            >
+              <div className="flex items-center gap-2">
+                {copiedMd ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <FileDown className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                )}
+                <span className="font-medium text-sky-100">
+                  {copiedMd
+                    ? isZh
+                      ? '已导出 Markdown'
+                      : 'Exported Markdown'
+                    : isZh
+                    ? '导出 Markdown'
+                    : 'Export Markdown'}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-sky-400/80 bg-sky-950/80 px-1 py-0.2 rounded border border-sky-800/50">
+                .md
+              </span>
+            </button>
+
+            {/* 2. Copy Prompt (Single prompt / prompts from session like Antigravity) */}
+            <button
+              type="button"
+              onClick={handleCopyPrompt}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+            >
+              <div className="flex items-center gap-2">
+                {copiedPrompt ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <FileText className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+                )}
+                <span>
+                  {copiedPrompt
+                    ? isZh
+                      ? '已复制 Prompt'
+                      : 'Copied Prompt'
+                    : isZh
+                    ? '复制会话 Prompt'
+                    : 'Copy Prompt'}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-500">Prompt</span>
+            </button>
+
+            {/* 3. Export Session JSON (Figure 3) */}
+            <button
+              type="button"
+              onClick={handleCopyJson}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+            >
+              <div className="flex items-center gap-2">
+                {copiedJson ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5 text-zinc-400 group-hover:scale-110 transition-transform" />
+                )}
+                <span>
+                  {copiedJson
+                    ? isZh
+                      ? '已导出会话 JSON'
+                      : 'Exported JSON'
+                    : isZh
+                    ? '导出会话 JSON'
+                    : 'Export Session JSON'}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-500">JSON</span>
+            </button>
+
+            {/* 4. Background Tasks & Terminal Monitor */}
+            {onOpenBackgroundTasks && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenBackgroundTasks()
+                  setIsOpen(false)
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+              >
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                  <span>{isZh ? '后台任务与终端监控' : 'Background Tasks & Terminal'}</span>
+                </div>
+                <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
+                  Ctrl+`
+                </kbd>
+              </button>
+            )}
+
+            {/* 5. Subagent Topology & Communication Inspector */}
+            {onOpenSubagentTopology && (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenSubagentTopology()
+                  setIsOpen(false)
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+              >
+                <div className="flex items-center gap-2">
+                  <Network className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                  <span>{isZh ? '智能体拓扑与通讯监视' : 'Subagent Topology & Monitor'}</span>
+                </div>
+                <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
+                  Ctrl+Shift+A
+                </kbd>
+              </button>
+            )}
+
+            <div className="border-t border-zinc-800/60 my-1" />
+
+            {/* 4. Global Search (Ctrl+K) */}
             {onOpenSearch && (
               <button
                 type="button"
@@ -140,7 +360,7 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 2. Locate Active Session in Map (Ctrl+M) */}
+            {/* 5. Locate Active Session in Map (Ctrl+M) */}
             {onOpenMapAndLocate && (
               <button
                 type="button"
@@ -160,7 +380,7 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 3. Add to Map (Alt+M) */}
+            {/* 6. Add to Map (Alt+M) */}
             {activeSessionId && onAddSessionToMap && (
               <button
                 type="button"
@@ -180,7 +400,7 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 4. Model Router (Ctrl+Shift+3) */}
+            {/* 7. Model Router (Ctrl+Shift+3) */}
             {onOpenModelRouter && (
               <button
                 type="button"
@@ -200,36 +420,7 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 5. Copy / Export Session JSON */}
-            {onGetSessionJson && (
-              <button
-                type="button"
-                onClick={handleCopyJson}
-                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
-              >
-                <div className="flex items-center gap-2">
-                  {copied ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <Copy className="w-3.5 h-3.5 text-zinc-400 group-hover:scale-110 transition-transform" />
-                  )}
-                  <span>
-                    {copied
-                      ? isZh
-                        ? '已复制会话 JSON'
-                        : 'Copied Session JSON'
-                      : isZh
-                      ? '导出会话 JSON'
-                      : 'Export Session JSON'}
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono text-zinc-500">JSON</span>
-              </button>
-            )}
-
-            <div className="border-t border-zinc-800/60 my-1" />
-
-            {/* 6. Find in Page (Ctrl+F) */}
+            {/* 8. Find in Page (Ctrl+F) */}
             {onOpenFind && (
               <button
                 type="button"
@@ -249,7 +440,7 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 7. Zen Mode (F11) */}
+            {/* 9. Zen Mode (F11) */}
             {onToggleZenMode && (
               <button
                 type="button"
@@ -269,7 +460,7 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 8. Toggle Top Bar (Ctrl+Shift+B) */}
+            {/* 10. Toggle Top Bar (Ctrl+Shift+B) */}
             {onToggleHeader && (
               <button
                 type="button"

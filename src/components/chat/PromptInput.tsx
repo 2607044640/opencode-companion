@@ -28,7 +28,6 @@ import {
   buildGroupedModelsForDropdown,
   filterAndSortSelectableAgents,
   mergeBuiltinCommands,
-  parseSpecialSlashCommand,
 } from './prompt-input-helpers'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n } from '../../utils/i18n'
@@ -52,6 +51,12 @@ import {
   saveStoredPromptDraft,
   clearStoredPromptDraft,
 } from '../../utils/prompt-draft'
+import { resolvePromptWithConversationMentions } from '../../utils/conversation-mention'
+import { SlashCommandGuide } from './SlashCommandGuide'
+import {
+  parseSlashCommandInput,
+  formatSlashCommandPrompt,
+} from '../../utils/slash-commands'
 
 export interface DraftInjection {
   text: string
@@ -99,6 +104,8 @@ interface PromptInputProps {
   onSideQuestion?: (question: string) => void
   sideQuestionCount?: number
   onToggleSideQuestion?: () => void
+  onSelectModel?: (model: { providerID: string; modelID: string; name?: string }) => void
+  onSelectAgent?: (agentName: string) => void
 }
 
 export function PromptInput({
@@ -127,6 +134,8 @@ export function PromptInput({
   onSideQuestion,
   sideQuestionCount = 0,
   onToggleSideQuestion,
+  onSelectModel,
+  onSelectAgent,
 }: PromptInputProps) {
   const { prefs } = usePreferences()
   const { t, lang } = useI18n()
@@ -143,6 +152,14 @@ export function PromptInput({
     name: '',
   })
   const seniorDefaultModelRef = useRef<{ providerID: string; modelID: string; name?: string } | null>(null)
+  const selectedModelRef = useRef(selectedModel)
+  const selectedAgentRef = useRef(selectedAgent)
+  useEffect(() => {
+    selectedModelRef.current = selectedModel
+  }, [selectedModel])
+  useEffect(() => {
+    selectedAgentRef.current = selectedAgent
+  }, [selectedAgent])
   const [showAgentMenu, setShowAgentMenu] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [modelSearchQuery, setModelSearchQuery] = useState('')
@@ -281,6 +298,8 @@ export function PromptInput({
       saveStoredPromptDraft(prevSessionIdRef.current, {
         text: textRef.current,
         attachments: attachmentsRef.current,
+        model: selectedModelRef.current.modelID ? selectedModelRef.current : undefined,
+        agent: selectedAgentRef.current,
       })
     }
 
@@ -289,6 +308,13 @@ export function PromptInput({
       setText(stored.text)
       setAttachments(stored.attachments || [])
       setIsDraftSaved(Boolean(stored.text.trim() || (stored.attachments && stored.attachments.length > 0)))
+      if (stored.agent) {
+        const canonical = resolveAgentName(stored.agent) || stored.agent
+        setSelectedAgent(canonical)
+      }
+      if (stored.model?.modelID && isCuratedModel(stored.model.providerID, stored.model.modelID)) {
+        setSelectedModel(stored.model)
+      }
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.style.height = 'auto'
@@ -314,9 +340,16 @@ export function PromptInput({
       const sid = currentSessionIdRef.current
       const curText = textRef.current
       const curAtts = attachmentsRef.current
-      if (curText.trim() || (curAtts && curAtts.length > 0)) {
-        saveStoredPromptDraft(sid, { text: curText, attachments: curAtts })
-        setIsDraftSaved(true)
+      const curModel = selectedModelRef.current.modelID ? selectedModelRef.current : undefined
+      const curAgent = selectedAgentRef.current
+      if (curText.trim() || (curAtts && curAtts.length > 0) || curModel) {
+        saveStoredPromptDraft(sid, {
+          text: curText,
+          attachments: curAtts,
+          model: curModel,
+          agent: curAgent,
+        })
+        setIsDraftSaved(Boolean(curText.trim() || (curAtts && curAtts.length > 0)))
       } else {
         clearStoredPromptDraft(sid)
         setIsDraftSaved(false)
@@ -332,9 +365,16 @@ export function PromptInput({
 
     const debounceTimer = setTimeout(() => {
       const sid = currentSessionIdRef.current
-      if (text.trim() || attachments.length > 0) {
-        saveStoredPromptDraft(sid, { text, attachments })
-        setIsDraftSaved(true)
+      const curModel = selectedModelRef.current.modelID ? selectedModelRef.current : undefined
+      const curAgent = selectedAgentRef.current
+      if (text.trim() || attachments.length > 0 || curModel) {
+        saveStoredPromptDraft(sid, {
+          text,
+          attachments,
+          model: curModel,
+          agent: curAgent,
+        })
+        setIsDraftSaved(Boolean(text.trim() || attachments.length > 0))
       } else {
         clearStoredPromptDraft(sid)
         setIsDraftSaved(false)
@@ -350,8 +390,15 @@ export function PromptInput({
       const sid = currentSessionIdRef.current
       const curText = textRef.current
       const curAtts = attachmentsRef.current
-      if (curText.trim() || (curAtts && curAtts.length > 0)) {
-        saveStoredPromptDraft(sid, { text: curText, attachments: curAtts })
+      const curModel = selectedModelRef.current.modelID ? selectedModelRef.current : undefined
+      const curAgent = selectedAgentRef.current
+      if (curText.trim() || (curAtts && curAtts.length > 0) || curModel) {
+        saveStoredPromptDraft(sid, {
+          text: curText,
+          attachments: curAtts,
+          model: curModel,
+          agent: curAgent,
+        })
       } else {
         clearStoredPromptDraft(sid)
       }
@@ -392,8 +439,13 @@ export function PromptInput({
             modelID: mod,
           })
         }
-      } else if (seniorDefaultModelRef.current) {
-        setSelectedModel(seniorDefaultModelRef.current)
+      } else {
+        const draft = getStoredPromptDraft(activeSession.id)
+        if (draft?.model?.modelID && isCuratedModel(draft.model.providerID, draft.model.modelID)) {
+          setSelectedModel(draft.model)
+        } else if (seniorDefaultModelRef.current) {
+          setSelectedModel(seniorDefaultModelRef.current)
+        }
       }
     }
   }, [activeSession, agents])
@@ -519,22 +571,55 @@ export function PromptInput({
         popoverQuery
       )
 
+      // Historical conversations matching popoverQuery (or top recent sessions on empty @)
+      const sessionList = sessions || []
+      const rankedSessions = rankPopoverItems(
+        sessionList.map((s) => ({ type: 'conversation' as const, item: s })),
+        popoverQuery
+      )
+      const topSessions = rankedSessions.slice(0, 8)
+
       const fileMatches: PopoverItem[] = matchingFiles.map((f) => ({
         type: 'file',
         item: f,
       }))
 
-      return [...rankedAgents, ...fileMatches]
+      return [...rankedAgents, ...topSessions, ...fileMatches]
     }
 
     return []
-  }, [popoverMode, popoverQuery, commands, skills, agents, matchingFiles])
+  }, [popoverMode, popoverQuery, commands, skills, agents, sessions, matchingFiles])
 
   // Derive safe selectedIndex without triggering cascading setState in effect
   const safeSelectedIndex =
     popoverItems.length === 0
       ? 0
       : Math.min(Math.max(0, popoverSelectedIndex), popoverItems.length - 1)
+
+  // Active slash command guidance state
+  const activeSlashCommand = useMemo(() => {
+    return parseSlashCommandInput(text)
+  }, [text])
+
+  const handleSelectSlashPreset = (presetValue: string) => {
+    if (!activeSlashCommand?.definition) return
+    const cmdName = activeSlashCommand.definition.name
+    const newText = `/${cmdName} ${presetValue}`
+    setText(newText)
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.selectionStart = textareaRef.current.selectionEnd = newText.length
+      }
+    }, 10)
+  }
+
+  const handleClearSlashCommand = () => {
+    setText('')
+    if (textareaRef.current) {
+      textareaRef.current.focus()
+    }
+  }
 
   // Auto-grow textarea height
   useEffect(() => {
@@ -691,6 +776,23 @@ export function PromptInput({
       return
     }
 
+    if (entry.type === 'conversation') {
+      const mentionTarget = `conversation:${entry.item.id}`
+      const inserted = applyAtMentionInsertion(text, cursor, mentionTarget)
+      if (inserted) {
+        setText(inserted.newText)
+        setPopoverOpen(false)
+        setPopoverMode(null)
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.focus()
+            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = inserted.newCursor
+          }
+        }, 10)
+      }
+      return
+    }
+
     if (entry.type === 'agent' || entry.type === 'file') {
       const mentionTarget = entry.type === 'agent' ? entry.item.name : entry.item
       const inserted = applyAtMentionInsertion(text, cursor, mentionTarget)
@@ -806,7 +908,7 @@ export function PromptInput({
     }
   }
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (isProcessingImage) {
       return
     }
@@ -815,44 +917,81 @@ export function PromptInput({
       return
     }
 
+    // Slash Command Directive State Machine
+    const slashResult = formatSlashCommandPrompt(text)
+    if (slashResult.isSpecialExecution) {
+      if (slashResult.specialKind === 'compact') {
+        if (activeSessionId) {
+          window.dispatchEvent(
+            new CustomEvent('opencode:toast', {
+              detail: { message: '正在调用官方原版后端压缩会话上下文 (Summarizing session…)' },
+            })
+          )
+          void api.compactSession(activeSessionId, selectedModel).catch((err) => {
+            console.error('[PromptInput] Compact session failed:', err)
+            window.dispatchEvent(
+              new CustomEvent('opencode:toast', {
+                detail: { message: '压缩会话失败，请检查模型连接或后端状态' },
+              })
+            )
+          })
+        }
+        clearComposer()
+        return
+      }
+
+      if (slashResult.specialKind === 'btw') {
+        const question = slashResult.formattedText || text.replace(/^\/btw\s*/, '').trim()
+        if (question) {
+          if (onSideQuestion) {
+            onSideQuestion(question)
+          } else {
+            onSend(question, { agent: selectedAgent, model: selectedModel, attachments })
+          }
+          clearComposer()
+          return
+        }
+      }
+
+      if (slashResult.specialKind === 'undo') {
+        if (onAbort) {
+          onAbort()
+        }
+        clearComposer()
+        return
+      }
+    }
+
+    // Auto-switch suggested agent if command requests it (e.g. /plan -> plan, /goal -> build)
+    let agentToSend = selectedAgent
+    if (slashResult.suggestedAgent && agents.some((a) => a.name === slashResult.suggestedAgent)) {
+      agentToSend = slashResult.suggestedAgent
+      setSelectedAgent(slashResult.suggestedAgent)
+    }
+
+    let textToSend = slashResult.formattedText || text
+
+    // Resolve @conversation mentions: mount referenced historical conversation context into prompt payload
+    if (textToSend.includes('@conversation')) {
+      try {
+        const { resolvedText } = await resolvePromptWithConversationMentions(
+          textToSend,
+          sessions || [],
+          (sid) => api.getMessages(sid)
+        )
+        textToSend = resolvedText
+      } catch (err) {
+        console.warn('[PromptInput] Failed to resolve conversation mentions:', err)
+      }
+    }
+
     const draft: PromptDraft = {
-      text,
+      text: textToSend,
       options: {
-        agent: selectedAgent,
+        agent: agentToSend,
         model: selectedModel,
         attachments,
       },
-    }
-
-    const specialCmd = parseSpecialSlashCommand(text)
-    if (specialCmd?.kind === 'btw') {
-      if (onSideQuestion) {
-        onSideQuestion(specialCmd.question)
-      } else {
-        onSend(draft.text, draft.options)
-      }
-      clearComposer()
-      return
-    }
-
-    if (specialCmd?.kind === 'compact') {
-      if (activeSessionId) {
-        window.dispatchEvent(
-          new CustomEvent('opencode:toast', {
-            detail: { message: '正在调用官方原版后端压缩会话上下文 (Summarizing session…)' },
-          })
-        )
-        void api.compactSession(activeSessionId, selectedModel).catch((err) => {
-          console.error('[PromptInput] Compact session failed:', err)
-          window.dispatchEvent(
-            new CustomEvent('opencode:toast', {
-              detail: { message: '压缩会话失败，请检查模型连接或后端状态' },
-            })
-          )
-        })
-      }
-      clearComposer()
-      return
     }
 
     // While the model is working OR when items are already waiting in the queue,
@@ -949,6 +1088,17 @@ export function PromptInput({
           onSelect={handleSelectPopoverItem}
           onHoverIndex={setPopoverSelectedIndex}
         />
+
+        {/* Interactive Slash Command Guidance Bar */}
+        {activeSlashCommand?.definition && !popoverOpen && (
+          <SlashCommandGuide
+            definition={activeSlashCommand.definition}
+            args={activeSlashCommand.args}
+            onSelectPreset={handleSelectSlashPreset}
+            onClearCommand={handleClearSlashCommand}
+            isZh={isZh}
+          />
+        )}
 
         {/* Thumbnail & Pasted Card Preview Bar (M4 + Claude Pasted Snippets p1, p2) */}
         {attachments.length > 0 && (
@@ -1099,10 +1249,18 @@ export function PromptInput({
                         key={agent.name}
                         onClick={() => {
                           setSelectedAgent(agent.name)
+                          selectedAgentRef.current = agent.name
                           setShowAgentMenu(false)
+                          onSelectAgent?.(agent.name)
                           if (activeSession?.id) {
                             api.switchSessionAgent(activeSession.id, agent.name).catch(() => {})
                           }
+                          saveStoredPromptDraft(currentSessionIdRef.current, {
+                            text: textRef.current,
+                            attachments: attachmentsRef.current,
+                            model: selectedModelRef.current.modelID ? selectedModelRef.current : undefined,
+                            agent: agent.name,
+                          })
                         }}
                         className={`w-full text-left px-2 py-1.5 rounded text-xs flex flex-col ${
                           selectedAgent === agent.name
@@ -1186,13 +1344,22 @@ export function PromptInput({
                               <button
                                 key={`${group.providerID}-${m.id}`}
                                 onClick={() => {
-                                  setSelectedModel({
+                                  const nextModel = {
                                     providerID: group.providerID,
                                     modelID: m.id,
                                     name: m.name,
-                                  })
+                                  }
+                                  setSelectedModel(nextModel)
+                                  selectedModelRef.current = nextModel
                                   setShowModelMenu(false)
                                   setModelSearchQuery('')
+                                  onSelectModel?.(nextModel)
+                                  saveStoredPromptDraft(currentSessionIdRef.current, {
+                                    text: textRef.current,
+                                    attachments: attachmentsRef.current,
+                                    model: nextModel,
+                                    agent: selectedAgentRef.current,
+                                  })
                                 }}
                                 className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs flex items-center justify-between transition-colors cursor-pointer ${
                                   isSelected

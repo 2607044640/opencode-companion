@@ -123,10 +123,10 @@ export function SideQuestionModelSelector({
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#181a20] hover:bg-[#22252e] border border-purple-500/30 text-purple-200 text-xs font-medium cursor-pointer transition-colors shadow-sm"
+        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#181a20] hover:bg-[#22252e] border border-sky-500/30 text-sky-200 text-xs font-medium cursor-pointer transition-colors shadow-sm"
         title="切换 Side Question 模型 (Switch Side Question model)"
       >
-        <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />
+        <Sparkles className="w-3 h-3 text-sky-400 shrink-0" />
         <span className="truncate max-w-[120px] text-[11px] font-sans">
           {displayName}
         </span>
@@ -153,7 +153,7 @@ export function SideQuestionModelSelector({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="搜索模型..."
-                className="w-full pl-8 pr-2.5 py-1 bg-[#0c0d10] border border-[#272a32] focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 rounded-md text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
+                className="w-full pl-8 pr-2.5 py-1 bg-[#0c0d10] border border-[#272a32] focus:border-sky-500/80 focus:ring-1 focus:ring-sky-500/30 rounded-md text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
                 autoFocus
               />
               {searchQuery && (
@@ -200,13 +200,13 @@ export function SideQuestionModelSelector({
                         }}
                         className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs flex items-center justify-between transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-purple-600/20 text-purple-300 font-medium'
+                            ? 'bg-sky-950/60 text-sky-300 font-medium border border-sky-800/40'
                             : 'text-zinc-300 hover:bg-[#1e222a]'
                         }`}
                       >
                         <span className="truncate pr-2">{m.name || m.id}</span>
                         {isSelected && (
-                          <Check className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                          <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                         )}
                       </button>
                     )

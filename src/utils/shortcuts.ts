@@ -64,6 +64,9 @@ export interface ShortcutsMap {
   collapseAllConversations: ShortcutItem
   toggleCenterDialogue: ShortcutItem
   togglePinSession: ShortcutItem
+  zoomIn: ShortcutItem
+  zoomOut: ShortcutItem
+  zoomReset: ShortcutItem
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutsMap = {
@@ -281,6 +284,27 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     label: 'Ctrl + Shift + 3',
     category: 'general',
   },
+  zoomIn: {
+    key: '=',
+    ctrlKey: true,
+    description: '放大字体与排版 (Zoom In)',
+    label: 'Ctrl + +',
+    category: 'dialogue',
+  },
+  zoomOut: {
+    key: '-',
+    ctrlKey: true,
+    description: '缩小字体与排版 (Zoom Out)',
+    label: 'Ctrl + -',
+    category: 'dialogue',
+  },
+  zoomReset: {
+    key: '0',
+    ctrlKey: true,
+    description: '重置字体缩放为 100% (Reset Zoom)',
+    label: 'Ctrl + 0',
+    category: 'dialogue',
+  },
 }
 
 export function filterShortcutKeys(
@@ -491,4 +515,3 @@ export function hasActiveOverlay(customDoc?: Document): boolean {
     doc.querySelector('[data-popover]')
   )
 }
-

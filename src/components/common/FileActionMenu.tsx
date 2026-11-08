@@ -241,7 +241,7 @@ export function FileActionMenu({
               title={linuxPath}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0 group-hover:scale-110 transition-transform" />
+                <Terminal className="w-3.5 h-3.5 text-sky-400 shrink-0 group-hover:scale-110 transition-transform" />
                 <span className="font-medium text-xs">{tr('复制 Linux 路径', 'Copy Linux Path')}</span>
               </div>
               <span className="text-[10px] font-mono text-zinc-500 shrink-0">Linux</span>
@@ -282,9 +282,9 @@ export function FileActionMenu({
             >
               <div className="flex items-center gap-2 min-w-0">
                 {loadingAction === 'explorer' ? (
-                  <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+                  <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
                 ) : (
-                  <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0 group-hover:scale-110 transition-transform" />
+                  <FolderOpen className="w-3.5 h-3.5 text-sky-400 shrink-0 group-hover:scale-110 transition-transform" />
                 )}
                 <span className="font-medium text-xs">{tr('在资源管理器中定位', 'Reveal in Explorer')}</span>
               </div>

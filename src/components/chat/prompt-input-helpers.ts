@@ -1,15 +1,16 @@
 import type { AgentInfo, CommandItem, ProviderInfo } from '../../types/opencode'
 import { isModelVisible } from '../../utils/model-filter'
+import { ANTIGRAVITY_SLASH_COMMANDS } from '../../utils/slash-commands'
 
 const ALIAS_AGENT_NAMES = new Set(['prometheus', 'atlas', 'sisyphus'])
 
-const BUILTIN_DEFAULT_COMMANDS: readonly CommandItem[] = [
-  { name: 'btw', description: 'Ask a quick question without interrupting the main conversation.' },
-  { name: 'compact', description: 'Summarize the session to reduce context size' },
-  { name: 'summary', description: 'Generate structured conversation summary' },
-  { name: 'title', description: 'Auto-generate descriptive session title' },
-  { name: 'undo', description: 'Revert last exchange or tool invocation' },
-]
+const BUILTIN_DEFAULT_COMMANDS: readonly CommandItem[] = ANTIGRAVITY_SLASH_COMMANDS.map((cmd) => ({
+  name: cmd.name,
+  description: cmd.descriptionZh || cmd.description,
+  category: cmd.category,
+  argumentHint: cmd.argumentHint,
+  icon: cmd.icon,
+}))
 
 function agentPriority(name: string): number {
   if (name === 'build') return 1

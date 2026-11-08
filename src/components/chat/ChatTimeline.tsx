@@ -5,11 +5,13 @@ import { MessageBubble, getAgentBadge } from './MessageBubble'
 import { ConfirmUndoModal, type ConfirmUndoFileDiff } from './ConfirmUndoModal'
 import { extractDraftFromMessage } from '../../utils/draft'
 import { TimelineQuickJump } from './TimelineQuickJump'
+import { TimelineZoomWidget } from './TimelineZoomWidget'
 import { SelectionCopyFeedback } from './SelectionCopyFeedback'
 import { FindInPageBar } from './FindInPageBar'
 import { api } from '../../services/api'
 import { findJumpTargetIndex, findNextJumpTargetIndex } from './quick-jump'
 import { usePreferences } from '../../utils/preferences'
+import { useTimelineZoom } from '../../utils/timeline-zoom'
 import { getShortcuts, createDoubleTapTracker, isEditableTarget, matchesShortcut, hasActiveOverlay } from '../../utils/shortcuts'
 import { groupTimelineMessages } from '../../utils/timeline-grouping'
 import { isPendingSession } from '../../utils/session-workspace'
@@ -44,15 +46,14 @@ function GeneratingBubble({ agent, modelID, isZenMode }: GeneratingBubbleProps) 
         <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-[#242436] text-xs text-zinc-400">
           <div className="flex items-center gap-2">
             <div
-              className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold border ${badge.bg}`}
+              className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${badge.bg}`}
               title={`Agent: ${badge.label}`}
             >
               {badge.initial}
             </div>
-            <span className="font-semibold text-zinc-200">{badge.label}</span>
             {modelName && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800/80 text-[10px] font-mono text-zinc-300 border border-zinc-700/60">
-                <Cpu className="w-2.5 h-2.5 text-zinc-400" />
+              <span className="flex items-center gap-1 text-[10px] font-mono text-zinc-400 select-none">
+                <Cpu className="w-2.5 h-2.5 text-zinc-500" />
                 <span>{modelName}</span>
               </span>
             )}
@@ -150,6 +151,28 @@ export function ChatTimeline({
   const lastTargetTimeRef = useRef<number>(0)
   const { prefs } = usePreferences()
   const { isZh } = useI18n()
+  const { zoomLevel, zoomIn, zoomOut, resetZoom } = useTimelineZoom()
+
+  // Ctrl + Wheel: smoothly scale conversation font zoom level
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      if (e.deltaY < 0) {
+        zoomIn()
+      } else if (e.deltaY > 0) {
+        zoomOut()
+      }
+    }
+
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      container.removeEventListener('wheel', handleWheel)
+    }
+  }, [zoomIn, zoomOut])
 
   // Mouse upper side button & shortcut: toggle dialogue block at screen center
   useEffect(() => {
@@ -725,6 +748,19 @@ export function ChatTimeline({
         />
       )}
 
+      {/* Floating Timeline Font Zoom Controller Widget */}
+      {!isConfirmUndoOpen && (prefs.showTimelineZoomWidget ?? true) && (
+        <div className={`absolute z-30 pointer-events-none ${isZenMode ? 'bottom-5 right-8' : 'bottom-3 right-8'}`}>
+          <TimelineZoomWidget
+            zoomLevel={zoomLevel}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onResetZoom={resetZoom}
+            isZenMode={isZenMode}
+          />
+        </div>
+      )}
+
       <div
         ref={containerRef}
         data-chat-timeline-container="true"
@@ -803,6 +839,9 @@ export function ChatTimeline({
         </div>
       ) : (
         <div
+          style={{
+            zoom: zoomLevel !== 100 ? `${zoomLevel}%` : undefined,
+          }}
           className={`mx-auto w-full transition-all duration-300 ${
             prefs.conversationWidth === 'narrow'
               ? 'max-w-2xl'

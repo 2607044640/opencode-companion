@@ -126,8 +126,8 @@
 }
 
 .session-card--selected {
-  border-color: #f97316 !important;
-  box-shadow: 0 0 18px rgba(249, 115, 22, 0.5), 0 12px 28px rgba(0, 0, 0, 0.6) !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.5), 0 12px 28px rgba(0, 0, 0, 0.6) !important;
   background: #1a1f29;
 }
 
@@ -153,7 +153,7 @@
   width: 100%;
   box-sizing: border-box;
   padding: 2px 6px;
-  border: 1px solid #f97316;
+  border: 1px solid #38bdf8;
   border-radius: 4px;
   background: #090a0d;
   color: #fff;
@@ -296,8 +296,8 @@
 }
 
 .session-card__refresh:hover {
-  color: #f97316;
-  border-color: #f97316;
+  color: #38bdf8;
+  border-color: #38bdf8;
 }
 
 .talk-map__band {

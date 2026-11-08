@@ -63,6 +63,52 @@ describe('Path Resolver Utilities (path-resolver.ts)', () => {
         'C:\\Users\\26070\\test.txt'
       )
     })
+
+    it('maps /home/developer/.config/opencode/AGENTS.md to C:\\AICore\\global\\rules\\AGENTS_Global.md', () => {
+      assert.equal(
+        toWindowsPath('/home/developer/.config/opencode/AGENTS.md'),
+        'C:\\AICore\\global\\rules\\AGENTS_Global.md'
+      )
+    })
+
+    it('maps backslash variant \\home\\developer\\.config\\opencode\\AGENTS.md to C:\\AICore\\global\\rules\\AGENTS_Global.md', () => {
+      assert.equal(
+        toWindowsPath('\\home\\developer\\.config\\opencode\\AGENTS.md'),
+        'C:\\AICore\\global\\rules\\AGENTS_Global.md'
+      )
+    })
+
+    it('maps ~/.config/opencode/AGENTS.md and .config/opencode/AGENTS.md to C:\\AICore\\global\\rules\\AGENTS_Global.md', () => {
+      assert.equal(
+        toWindowsPath('~/.config/opencode/AGENTS.md'),
+        'C:\\AICore\\global\\rules\\AGENTS_Global.md'
+      )
+      assert.equal(
+        toWindowsPath('.config/opencode/AGENTS.md'),
+        'C:\\AICore\\global\\rules\\AGENTS_Global.md'
+      )
+    })
+
+    it('maps /home/developer/.config/opencode/instructions to C:\\AICore\\opencode-jail\\instructions', () => {
+      assert.equal(
+        toWindowsPath('/home/developer/.config/opencode/instructions/opencode-agent.md'),
+        'C:\\AICore\\opencode-jail\\instructions\\opencode-agent.md'
+      )
+    })
+
+    it('maps /home/developer/.config/opencode/opencode.jsonc to C:\\AICore\\opencode-jail\\opencode.jsonc', () => {
+      assert.equal(
+        toWindowsPath('/home/developer/.config/opencode/opencode.jsonc'),
+        'C:\\AICore\\opencode-jail\\opencode.jsonc'
+      )
+    })
+
+    it('maps /home/developer/.config/opencode/opencode-routing.json to C:\\ObsidianNote\\.opencode\\opencode-routing.json', () => {
+      assert.equal(
+        toWindowsPath('/home/developer/.config/opencode/opencode-routing.json'),
+        'C:\\ObsidianNote\\.opencode\\opencode-routing.json'
+      )
+    })
   })
 
   describe('toLinuxPath', () => {
@@ -88,6 +134,13 @@ describe('Path Resolver Utilities (path-resolver.ts)', () => {
       assert.equal(
         toLinuxPath('C:\\AICore\\skills\\AICtl\\SKILL.md'),
         '/home/developer/projects/AICore/skills/AICtl/SKILL.md'
+      )
+    })
+
+    it('maps C:\\AICore\\global\\rules\\AGENTS_Global.md to /home/developer/projects/AICore/global/rules/AGENTS_Global.md', () => {
+      assert.equal(
+        toLinuxPath('C:\\AICore\\global\\rules\\AGENTS_Global.md'),
+        '/home/developer/projects/AICore/global/rules/AGENTS_Global.md'
       )
     })
 

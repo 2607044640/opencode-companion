@@ -330,11 +330,11 @@ export function SubagentSessionModal({
   // Subagent type badge style
   const getTypeBadgeStyle = (type: string) => {
     const t = type.toLowerCase()
-    if (t.includes('explore')) return 'bg-blue-950/60 text-blue-300 border-blue-800/50'
-    if (t.includes('plan')) return 'bg-purple-950/60 text-purple-300 border-purple-800/50'
-    if (t.includes('exec') || t.includes('build')) return 'bg-emerald-950/60 text-emerald-300 border-emerald-800/50'
-    if (t.includes('scout') || t.includes('research')) return 'bg-amber-950/60 text-amber-300 border-amber-800/50'
-    return 'bg-cyan-950/60 text-cyan-300 border-cyan-800/50'
+    if (t.includes('explore')) return 'bg-sky-950/60 text-sky-300 border-sky-800/50'
+    if (t.includes('plan')) return 'bg-zinc-800 text-zinc-300 border-zinc-700'
+    if (t.includes('exec') || t.includes('build')) return 'bg-sky-950/60 text-sky-300 border-sky-800/50'
+    if (t.includes('scout') || t.includes('research')) return 'bg-sky-950/40 text-sky-300 border-sky-800/40'
+    return 'bg-sky-950/60 text-sky-300 border-sky-800/50'
   }
 
   if (!isOpen || typeof document === 'undefined') return null
@@ -354,8 +354,8 @@ export function SubagentSessionModal({
           {subagentType}
         </span>
         {modelLabel && (
-          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-950/60 text-purple-300 border border-purple-800/50 shrink-0 flex items-center gap-1">
-            <Sparkles className="w-2.5 h-2.5 text-purple-400" />
+          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/60 text-sky-300 border border-sky-800/50 shrink-0 flex items-center gap-1">
+            <Sparkles className="w-2.5 h-2.5 text-sky-400" />
             <span>{modelLabel}</span>
           </span>
         )}
@@ -452,13 +452,13 @@ export function SubagentSessionModal({
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
                   {step.type === 'prompt' ? (
-                    <FileText className="w-4 h-4 text-purple-400 shrink-0" />
+                    <FileText className="w-4 h-4 text-zinc-400 shrink-0" />
                   ) : step.type === 'thought' ? (
-                    <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                    <Sparkles className="w-4 h-4 text-sky-400 shrink-0" />
                   ) : step.type === 'tool' ? (
-                    <Terminal className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <Terminal className="w-4 h-4 text-sky-300 shrink-0" />
                   ) : (
-                    <Bot className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <Bot className="w-4 h-4 text-sky-400 shrink-0" />
                   )}
 
                   <span className="font-semibold text-xs text-zinc-100 font-mono truncate">
@@ -488,7 +488,7 @@ export function SubagentSessionModal({
                       <XCircle className="w-3.5 h-3.5" />
                     </span>
                   ) : step.status === 'running' || step.status === 'pending' ? (
-                    <span className="flex items-center gap-1 text-[10px] font-mono text-purple-400">
+                    <span className="flex items-center gap-1 text-[10px] font-mono text-sky-400">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     </span>
                   ) : null}
@@ -536,15 +536,15 @@ export function SubagentSessionModal({
                   {/* 2. Thought Step */}
                   {step.type === 'thought' && (
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] text-purple-300">
+                      <div className="flex items-center justify-between text-[11px] text-sky-300">
                         <div className="flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-purple-400" />
+                          <Sparkles className="w-3 h-3 text-sky-400" />
                           <span>模型思考推演</span>
                         </div>
                         <button
                           type="button"
                           onClick={(e) => handleCopyStepText(stepCopyKey, step.content || '', e)}
-                          className="flex items-center gap-1 text-purple-300/80 hover:text-purple-200 transition-colors"
+                          className="flex items-center gap-1 text-sky-300/80 hover:text-sky-200 transition-colors"
                         >
                           {copiedStepId === stepCopyKey ? (
                             <>
@@ -559,7 +559,7 @@ export function SubagentSessionModal({
                           )}
                         </button>
                       </div>
-                      <div className="bg-[#0e0c15] border border-purple-900/30 rounded-md p-3 text-purple-200/90 font-mono text-xs whitespace-pre-wrap leading-relaxed select-text">
+                      <div className="bg-[#0e1118] border border-sky-900/30 rounded-md p-3 text-sky-200/90 font-mono text-xs whitespace-pre-wrap leading-relaxed select-text">
                         {step.content}
                       </div>
                     </div>

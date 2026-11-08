@@ -101,7 +101,13 @@ describe('Tab Persistence Utilities (tab-persistence.ts)', () => {
     it('persists and restores tab titles and metadata across sessions', () => {
       const storage = createMockStorage()
       const mockTitles = {
-        'ses_1': { title: '背包元设计', directory: '/projects/AICore', projectID: 'aicore' },
+        'ses_1': {
+          title: '背包元设计',
+          directory: '/projects/AICore',
+          projectID: 'aicore',
+          model: { id: 'gpt-6.1-sol', providerID: 'obsidian' },
+          agent: 'build',
+        },
         'ses_2': { title: '重构API', directory: '/projects/APISpace', projectID: 'apispace' },
       }
       saveStoredTabTitles(mockTitles, storage)

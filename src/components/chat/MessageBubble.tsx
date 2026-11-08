@@ -9,7 +9,6 @@ import {
   Clock,
   Coins,
   Cpu,
-  ArrowRight,
   ChevronDown,
   ChevronUp,
   Undo2,
@@ -17,7 +16,7 @@ import {
   AlertTriangle,
   AlertCircle,
   Loader2,
-  FileCode,
+  MessageSquare,
 } from 'lucide-react'
 import type { Message, TextPart, ReasoningPart, ToolPart, FilePart, MessagePart } from '../../types/opencode'
 import { extractRelayErrorMessage, isAbortError } from '../../services/api'
@@ -36,11 +35,14 @@ import {
   getDialogueExpandedState,
   setDialogueExpandedState,
 } from '../../utils/dialogue-collapse-cache'
-import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
 import { ImageLightboxModal, ImageThumbnailRow, type LightboxImage } from './ImageLightboxModal'
 import { PastedSnippetCard } from './PastedSnippetCard'
 import { PastedContentModal } from './PastedContentModal'
 import { parsePastedSnippetsFromText, type ParsedPastedSnippet } from '../../utils/pasted-snippets'
+import {
+  parseReferencedConversationsFromText,
+  type ParsedReferencedConversation,
+} from '../../utils/conversation-mention'
 import { cleanRawPath } from '../../utils/path-resolver'
 import { findBestMatchingFileInGroups, normalizeFilePath } from '../../utils/file-matcher'
 
@@ -61,6 +63,53 @@ interface MessageBubbleProps {
   showTerminalError?: boolean
 }
 
+/**
+ * Format user message timestamp in clean short format:
+ * - 2-digit year (e.g. 26, not 2026)
+ * - 2-digit month and day separated by dots (xx.xx.xx)
+ * - 24-hour clock (HH:mm)
+ * Example: '26.11.08 18:46'
+ */
+export function formatAbsoluteUserTime(timestamp?: number): string {
+  if (!timestamp || typeof timestamp !== 'number' || timestamp <= 0) return ''
+  const ms = timestamp < 1e11 ? timestamp * 1000 : timestamp
+  const d = new Date(ms)
+  if (isNaN(d.getTime())) return ''
+  const yy = String(d.getFullYear()).slice(-2)
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${yy}.${mm}.${dd} ${hh}:${min}`
+}
+
+export function formatUserMessageTime(timestamp?: number, nowMs?: number): string {
+  if (!timestamp || typeof timestamp !== 'number' || timestamp <= 0) return ''
+  const ms = timestamp < 1e11 ? timestamp * 1000 : timestamp
+  const d = new Date(ms)
+  if (isNaN(d.getTime())) return ''
+
+  const current = typeof nowMs === 'number' ? nowMs : Date.now()
+  const diffMs = current - ms
+
+  // Within 48 hours: show relative time (e.g. 'just now', '2m ago', '2h ago', '27h ago')
+  const FORTY_EIGHT_HOURS_MS = 48 * 3600 * 1000
+  if (diffMs >= 0 && diffMs < FORTY_EIGHT_HOURS_MS) {
+    const diffSec = Math.floor(diffMs / 1000)
+    if (diffSec < 60) {
+      return 'just now'
+    }
+    const diffMin = Math.floor(diffSec / 60)
+    if (diffMin < 60) {
+      return `${diffMin}m ago`
+    }
+    const diffHours = Math.floor(diffMin / 60)
+    return `${diffHours}h ago`
+  }
+
+  // Beyond 48 hours: fall back to 26.MM.DD HH:mm format
+  return formatAbsoluteUserTime(ms)
+}
 
 function formatTokens(n: number | undefined): string {
   if (!n) return '0'
@@ -73,7 +122,7 @@ export function getAgentBadge(agent?: string) {
   const name = (agent || '').toLowerCase()
   if (name.includes('sisyphus')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'S',
       label: agent || 'Sisyphus',
       accent: 'border-l-sky-500',
@@ -81,7 +130,7 @@ export function getAgentBadge(agent?: string) {
   }
   if (name.includes('atlas')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'A',
       label: agent || 'Atlas',
       accent: 'border-l-sky-500',
@@ -89,7 +138,7 @@ export function getAgentBadge(agent?: string) {
   }
   if (name.includes('build')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'B',
       label: agent || 'build',
       accent: 'border-l-sky-500',
@@ -97,7 +146,7 @@ export function getAgentBadge(agent?: string) {
   }
   if (name.includes('plan')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'P',
       label: agent || 'plan',
       accent: 'border-l-sky-500',
@@ -105,7 +154,7 @@ export function getAgentBadge(agent?: string) {
   }
   if (name.includes('scout')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'S',
       label: agent || 'scout',
       accent: 'border-l-sky-500',
@@ -113,7 +162,7 @@ export function getAgentBadge(agent?: string) {
   }
   if (name.includes('compaction')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'C',
       label: 'Compaction Engine',
       accent: 'border-l-sky-500',
@@ -121,14 +170,14 @@ export function getAgentBadge(agent?: string) {
   }
   if (name.includes('prometheus')) {
     return {
-      bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+      bg: 'bg-zinc-800 text-zinc-200',
       initial: 'P',
       label: agent || 'Prometheus',
       accent: 'border-l-sky-500',
     }
   }
   return {
-    bg: 'bg-zinc-800 text-zinc-200 border-zinc-700/60',
+    bg: 'bg-zinc-800 text-zinc-200',
     initial: (agent?.charAt(0) || 'B').toUpperCase(),
     label: agent || 'build',
     accent: 'border-l-sky-500',
@@ -279,10 +328,10 @@ function MarkdownCodeBlock({ children, isZenMode, node, ...props }: MarkdownCode
         <button
           type="button"
           onClick={handleCopy}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded font-sans text-xs transition-all duration-150 cursor-pointer select-none ${
+          className={`flex items-center gap-1 px-2 py-0.5 rounded font-sans text-xs transition-colors cursor-pointer select-none ${
             copied
-              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-              : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200 border border-transparent hover:border-zinc-600/50'
+              ? 'bg-emerald-500/20 text-emerald-300'
+              : 'hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200'
           }`}
           title={copied ? tr('已复制', 'Copied', 'Kopiert') : tr('复制代码/文本', 'Copy code/text', 'Code/Text kopieren')}
           aria-label={copied ? 'Copied' : 'Copy code'}
@@ -353,19 +402,39 @@ export function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (targ
       </td>
     ),
     h1: ({ children, ...props }: any) => (
-      <h1 className="text-base sm:text-lg font-bold text-zinc-100 mt-4 mb-2 pb-1 border-b border-zinc-800" {...props}>
+      <h1 className="text-base sm:text-lg lg:text-xl font-bold text-sky-400 mt-5 mb-2.5 pb-1 border-b border-sky-900/40 tracking-tight" {...props}>
         {children}
       </h1>
     ),
     h2: ({ children, ...props }: any) => (
-      <h2 className="text-sm sm:text-base font-semibold text-zinc-100 mt-3.5 mb-1.5 pb-0.5 border-b border-zinc-800/60" {...props}>
+      <h2 className="text-sm sm:text-base lg:text-lg font-bold text-sky-300 mt-4 mb-2 pb-0.5 border-b border-sky-900/30 tracking-tight" {...props}>
         {children}
       </h2>
     ),
     h3: ({ children, ...props }: any) => (
-      <h3 className="text-xs sm:text-sm font-semibold text-zinc-200 mt-2.5 mb-1" {...props}>
+      <h3 className="text-xs sm:text-sm lg:text-base font-semibold text-sky-300 mt-3.5 mb-1.5 tracking-tight flex items-center gap-1.5 flex-wrap" {...props}>
         {children}
       </h3>
+    ),
+    h4: ({ children, ...props }: any) => (
+      <h4 className="text-xs sm:text-sm font-semibold text-sky-200 mt-3 mb-1 tracking-tight" {...props}>
+        {children}
+      </h4>
+    ),
+    h5: ({ children, ...props }: any) => (
+      <h5 className="text-xs font-semibold text-sky-200/90 mt-2.5 mb-1 tracking-tight" {...props}>
+        {children}
+      </h5>
+    ),
+    h6: ({ children, ...props }: any) => (
+      <h6 className="text-xs font-medium text-sky-200/80 mt-2 mb-1 tracking-tight" {...props}>
+        {children}
+      </h6>
+    ),
+    strong: ({ children, ...props }: any) => (
+      <strong className="font-semibold text-zinc-100" {...props}>
+        {children}
+      </strong>
     ),
     p: ({ children, ...props }: any) => (
       <p className="my-2 leading-relaxed text-zinc-200" {...props}>
@@ -373,17 +442,17 @@ export function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (targ
       </p>
     ),
     ul: ({ children, ...props }: any) => (
-      <ul className="my-2 ml-4 list-disc space-y-1 text-zinc-300 text-xs sm:text-sm" {...props}>
+      <ul className="my-2.5 ml-4 sm:ml-5 list-disc space-y-1.5 text-zinc-300 text-xs sm:text-sm marker:text-sky-400" {...props}>
         {children}
       </ul>
     ),
     ol: ({ children, ...props }: any) => (
-      <ol className="my-2 ml-4 list-decimal space-y-1 text-zinc-300 text-xs sm:text-sm" {...props}>
+      <ol className="my-2.5 ml-4 sm:ml-5 list-decimal space-y-1.5 text-zinc-300 text-xs sm:text-sm marker:text-sky-400" {...props}>
         {children}
       </ol>
     ),
     li: ({ children, ...props }: any) => (
-      <li className="leading-relaxed" {...props}>
+      <li className="leading-relaxed pl-1" {...props}>
         {children}
       </li>
     ),
@@ -416,9 +485,9 @@ export function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (targ
                 }
               : undefined
           }
-          className={`bg-zinc-800/80 text-zinc-200 border border-zinc-700/60 px-1.5 py-0.5 rounded-md font-mono font-medium ${
+          className={`inline-block align-baseline bg-[#161d2b] text-sky-200 border border-sky-700/40 px-1.5 py-0.5 rounded-md font-mono font-medium shadow-xs ${
             isFile
-              ? 'cursor-pointer hover:bg-zinc-700/80 hover:text-cyan-300 hover:border-cyan-600/50 transition-colors'
+              ? 'cursor-pointer hover:bg-sky-950/80 hover:text-sky-100 hover:border-sky-500/70 transition-colors'
               : ''
           } ${
             isZenMode ? 'text-xs sm:text-[13px]' : 'text-[11px] sm:text-xs'
@@ -591,8 +660,8 @@ interface UserMessageBubbleProps {
 function UserMessageBubble({
   message,
   fullText,
-  agentName,
-  modelName,
+  agentName: _agentName,
+  modelName: _modelName,
   isZenMode,
   autoCollapsePrompt,
   promptCharThreshold,
@@ -606,10 +675,16 @@ function UserMessageBubble({
   const { t, tr } = useI18n()
   const [copied, setCopied] = useState(false)
   const [activePastedSnippet, setActivePastedSnippet] = useState<ParsedPastedSnippet | null>(null)
+  const [activeReferencedConv, setActiveReferencedConv] = useState<ParsedReferencedConversation | null>(null)
 
-  const { snippets: pastedSnippets, cleanText: displayText } = useMemo(
+  const { snippets: pastedSnippets, cleanText: displayTextAfterPasted } = useMemo(
     () => parsePastedSnippetsFromText(fullText),
     [fullText]
+  )
+
+  const { references: referencedConversations, cleanText: displayText } = useMemo(
+    () => parseReferencedConversationsFromText(displayTextAfterPasted),
+    [displayTextAfterPasted]
   )
 
   const { isCollapsible, defaultCollapsed } = useMemo(
@@ -679,9 +754,7 @@ function UserMessageBubble({
   }
 
   const createdTime = message.info.time?.created
-  const formattedTime = createdTime
-    ? new Date(createdTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : ''
+  const formattedTime = formatUserMessageTime(createdTime)
 
   const fileParts = message.parts
     .filter((p) => p.type === 'file')
@@ -738,6 +811,25 @@ function UserMessageBubble({
                 compact
                 onClick={() => setActivePastedSnippet(snippet)}
               />
+            ))}
+          </div>
+        )}
+
+        {/* Mounted Referenced Conversation Cards (@conversation) */}
+        {referencedConversations.length > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
+            {referencedConversations.map((ref) => (
+              <button
+                key={ref.sessionId}
+                type="button"
+                onClick={() => setActiveReferencedConv(ref)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-950/40 hover:bg-sky-900/60 border border-sky-800/60 text-sky-300 text-xs transition-colors cursor-pointer select-none shadow-sm"
+                title={ref.directory ? `工作区: ${ref.directory}` : ref.title}
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                <span className="font-medium truncate max-w-[240px]">{ref.title}</span>
+                <span className="text-[10px] text-sky-400/80 font-mono">(@conversation)</span>
+              </button>
             ))}
           </div>
         )}
@@ -803,7 +895,7 @@ function UserMessageBubble({
         )}
       </div>
 
-      {/* User Message Footer (Matches official Antigravity screenshot): Target / Time / Copy / Undo */}
+      {/* User Message Footer (Matches official Antigravity screenshot): Time / Copy / Undo */}
       <div className="flex items-center justify-end gap-2 mt-1.5 text-[11px] text-zinc-400 select-none pr-1">
         {isReverted && (
           <span className="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono text-zinc-400">
@@ -811,19 +903,11 @@ function UserMessageBubble({
           </span>
         )}
 
-        {(agentName || modelName) && (
-          <span
-            className="flex items-center gap-1 text-[10px] text-zinc-500 font-mono"
-            title={`Agent: ${agentName || 'Default'}${modelName ? ` | Model: ${modelName}` : ''}`}
-          >
-            <ArrowRight className="w-2.5 h-2.5 text-zinc-500" />
-            <span>{agentName || 'Default'}</span>
-            {modelName && <span className="text-zinc-400">({modelName})</span>}
-          </span>
-        )}
-
         {formattedTime && (
-          <span className="text-[10px] text-zinc-500 font-mono tracking-tight">
+          <span
+            className="text-[10px] text-zinc-500 hover:text-zinc-300 font-mono tracking-tight cursor-default transition-colors"
+            title={createdTime ? formatAbsoluteUserTime(createdTime) : undefined}
+          >
             {formattedTime}
           </span>
         )}
@@ -891,6 +975,16 @@ function UserMessageBubble({
           onClose={() => setActivePastedSnippet(null)}
         />
       )}
+
+      {/* Referenced Conversation Viewer Modal */}
+      {activeReferencedConv && (
+        <PastedContentModal
+          isOpen={true}
+          pastedId={`@conversation: ${activeReferencedConv.title}`}
+          content={activeReferencedConv.content}
+          onClose={() => setActiveReferencedConv(null)}
+        />
+      )}
     </div>
   )
 }
@@ -911,7 +1005,6 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const { prefs } = usePreferences()
   const { t, tr } = useI18n()
-  const { openTurn: openDiffTurn } = useDiffDrawer()
   const [copied, setCopied] = useState(false)
   const autoCollapseResponse = prefs.autoCollapseResponse ?? true
   const [isReportExpanded, setIsReportExpanded] = useState(() => {
@@ -1052,9 +1145,6 @@ export function MessageBubble({
     showTerminalError && !isAborted && message.info.error
       ? extractRelayErrorMessage(message.info.error)
       : null
-  const editGroups = turn.groups.filter((g): g is { kind: 'edit'; item: any } => g.kind === 'edit')
-  const hasEdits = editGroups.length > 0
-
   const isExplicitlyDone =
     Boolean(message.info.time.completed) ||
     Boolean(message.info.finish) ||
@@ -1116,7 +1206,7 @@ export function MessageBubble({
       data-collapsible={isAnswerCollapsible ? 'true' : 'false'}
       data-expanded={isReportExpanded ? 'true' : 'false'}
       id={`msg_${message.info.id}`}
-      className={`w-full my-4 ${isZenMode ? 'my-6' : ''}`}
+      className={`group/assistant w-full my-4 ${isZenMode ? 'my-6' : ''}`}
     >
       {allMessageIds &&
         allMessageIds
@@ -1135,31 +1225,27 @@ export function MessageBubble({
         <div className="flex flex-wrap items-center justify-between pb-1.5 mb-2.5 text-xs text-zinc-400 gap-2">
           {/* Left: Real Author Agent & Model Badges */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Agent Badge */}
+            {/* Agent Badge - Borderless & no text label */}
             <div
-              className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold border ${badge.bg}`}
+              className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${badge.bg}`}
               title={`Agent: ${badge.label}`}
             >
               {badge.initial}
             </div>
-            <span className="font-semibold text-zinc-200">{badge.label}</span>
             {isReverted && (
-              <span className="px-1.5 py-0.2 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono text-zinc-400">
+              <span className="px-1.5 py-0.2 rounded bg-zinc-800 text-[9px] font-mono text-zinc-400">
                 {t.chat.revertedBadge}
               </span>
             )}
 
-            {/* Model Pill */}
+            {/* Model Pill - Borderless & without provider suffix */}
             {modelName && (
               <span
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-300 border border-zinc-700/60"
-                title={`Provider: ${providerName || 'default'} | Model: ${modelName}`}
+                className="flex items-center gap-1 text-[10px] font-mono text-zinc-400 select-none"
+                title={providerName ? `Provider: ${providerName} | Model: ${modelName}` : `Model: ${modelName}`}
               >
-                <Cpu className="w-2.5 h-2.5 text-zinc-400" />
+                <Cpu className="w-2.5 h-2.5 text-zinc-500" />
                 <span>{modelName}</span>
-                {providerName && (
-                  <span className="text-zinc-500 text-[9px]">({providerName})</span>
-                )}
               </span>
             )}
 
@@ -1178,10 +1264,10 @@ export function MessageBubble({
               </span>
             )}
 
-            {/* Duration Tag (Only shown if no Worked bar is rendered and not generating) */}
+            {/* Duration Tag (Only shown if no Worked bar is rendered and not generating) - Borderless & revealed on hover */}
             {runKnown && !isTurnGenerating && !turn.hasWork && durationStr && (
               <span
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900 text-[10px] font-mono text-zinc-400 border border-zinc-800"
+                className="inline-flex items-center gap-1 text-[10px] font-mono text-zinc-500 opacity-0 group-hover/assistant:opacity-100 transition-opacity duration-150 select-none"
                 title="Response elapsed time"
               >
                 <Clock className="w-2.5 h-2.5 text-zinc-500" />
@@ -1189,10 +1275,10 @@ export function MessageBubble({
               </span>
             )}
 
-            {/* Message Tokens Pill */}
+            {/* Message Tokens Pill - Borderless & Revealed on hover */}
             {tokens && (tokens.output > 0 || tokens.input > 0) && (
               <span
-                className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900 text-[10px] font-mono text-zinc-400 border border-zinc-800"
+                className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono text-zinc-500 opacity-0 group-hover/assistant:opacity-100 transition-opacity duration-150 select-none"
                 title={`Input: ${tokens.input} | Output: ${tokens.output} | Reasoning: ${tokens.reasoning}`}
               >
                 <Coins className="w-2.5 h-2.5 text-zinc-500" />
@@ -1204,28 +1290,8 @@ export function MessageBubble({
             )}
           </div>
 
-          {/* Right Action Controls: Diff, Retry & Copy */}
+          {/* Right Action Controls: Copy */}
           <div className="flex items-center gap-2">
-            {hasEdits && (
-              <button
-                type="button"
-                onClick={() => {
-                  const editItems = editGroups.map((g) => g.item)
-                  const turnFiles = editItemsToTurnFiles(editItems, message.info.id)
-                  openDiffTurn({
-                    messageId: message.info.id,
-                    title: 'For Turn',
-                    turnBadge: agentName || undefined,
-                    files: turnFiles,
-                  })
-                }}
-                className="flex items-center gap-1 px-2 py-0.5 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded text-[11px] transition-colors border border-zinc-700/60 cursor-pointer"
-                title={tr('在审查面板查看本轮文件差异', 'Review turn file diffs', 'Datei-Diffs dieser Runde prüfen')}
-              >
-                <FileCode className="w-3 h-3" />
-                <span>Diff</span>
-              </button>
-            )}
             {fullText && (
               <button
                 onClick={handleCopy}
@@ -1294,7 +1360,7 @@ export function MessageBubble({
                         key={part.id}
                         className={`prose prose-invert max-w-none transition-all ${
                           isZenMode
-                            ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-zinc-100'
+                            ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-sky-300'
                             : 'text-sm text-zinc-200'
                         }`}
                       >
@@ -1471,7 +1537,7 @@ export function MessageBubble({
                           key={`${part.id}_seg_${sIdx}`}
                           className={`prose prose-invert max-w-none transition-all ${
                             isZenMode
-                              ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-zinc-100'
+                              ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-sky-300'
                               : 'text-sm text-zinc-200'
                           }`}
                         >

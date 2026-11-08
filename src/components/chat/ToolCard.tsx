@@ -82,11 +82,11 @@ export function ToolCard({ part, isLive }: ToolCardProps) {
       case 'shell':
         return <Terminal className="w-3.5 h-3.5 text-zinc-400" />
       case 'edit':
-        return <FileEdit className="w-3.5 h-3.5 text-amber-400" />
+        return <FileEdit className="w-3.5 h-3.5 text-sky-400" />
       case 'write':
-        return <FileCode className="w-3.5 h-3.5 text-emerald-400" />
+        return <FileCode className="w-3.5 h-3.5 text-sky-400" />
       case 'read':
-        return <Eye className="w-3.5 h-3.5 text-blue-400" />
+        return <Eye className="w-3.5 h-3.5 text-sky-400" />
       case 'grep':
       case 'find':
         return <Search className="w-3.5 h-3.5 text-zinc-400" />
@@ -117,7 +117,7 @@ export function ToolCard({ part, isLive }: ToolCardProps) {
               <span className="text-[10px]">Running</span>
             </span>
           ) : isInterrupted ? (
-            <span className="flex items-center gap-1 text-amber-400/90" title="Tool execution interrupted">
+            <span className="flex items-center gap-1 text-zinc-400" title="Tool execution interrupted">
               <AlertCircle className="w-3 h-3" />
               <span className="text-[10px]">Interrupted</span>
             </span>

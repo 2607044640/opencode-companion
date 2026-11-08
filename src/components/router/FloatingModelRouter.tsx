@@ -751,7 +751,7 @@ function QueueTab({
                   <td className="px-3 py-2">{model.ttftTimeout}s</td>
                   <td className="px-3 py-2">
                     {open ? (
-                      <span className="text-amber-300">熔断冷却中 ({getModelRemainingSeconds(model, now)}s)</span>
+                      <span className="text-zinc-400">熔断冷却中 ({getModelRemainingSeconds(model, now)}s)</span>
                     ) : half ? (
                       <span className="text-sky-300">探测中 (Half-Open)</span>
                     ) : (
@@ -856,9 +856,9 @@ function ModelEditor({
           {model.name} <span className="text-xs text-zinc-500">({model.id})</span>
         </span>
         {isModelCooling(model, now) && (
-          <span className="text-xs text-amber-300">冷却中 ({getModelRemainingSeconds(model, now)}s)</span>
+          <span className="text-xs text-zinc-400">冷却中 ({getModelRemainingSeconds(model, now)}s)</span>
         )}
-        {note && <span className="text-xs text-amber-400/80">{note}</span>}
+        {note && <span className="text-xs text-sky-400/80">{note}</span>}
       </label>
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-zinc-400">Priority:</span>

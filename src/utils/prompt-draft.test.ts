@@ -95,4 +95,44 @@ describe('Prompt Draft Persistence (prompt-draft.ts)', () => {
     clearStoredPromptDraft('ses_sent', storage)
     assert.equal(getStoredPromptDraft('ses_sent', storage), null)
   })
+
+  it('persists and restores model and agent selections across tab switches', () => {
+    const storage = createMockStorage()
+    saveStoredPromptDraft(
+      'ses_model_test',
+      {
+        text: 'Review this code',
+        model: { providerID: 'obsidian', modelID: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
+        agent: 'build',
+      },
+      storage
+    )
+
+    const draft = getStoredPromptDraft('ses_model_test', storage)
+    assert.ok(draft)
+    assert.equal(draft.text, 'Review this code')
+    assert.deepEqual(draft.model, {
+      providerID: 'obsidian',
+      modelID: 'gpt-6.1-sol',
+      name: 'GPT-6.1 Sol',
+    })
+    assert.equal(draft.agent, 'build')
+  })
+
+  it('retains draft in storage if only model is selected (empty text)', () => {
+    const storage = createMockStorage()
+    saveStoredPromptDraft(
+      'ses_only_model',
+      {
+        text: '',
+        model: { providerID: 'obsidian', modelID: 'gpt-6.1-sol' },
+      },
+      storage
+    )
+
+    const draft = getStoredPromptDraft('ses_only_model', storage)
+    assert.ok(draft)
+    assert.equal(draft.text, '')
+    assert.equal(draft.model?.modelID, 'gpt-6.1-sol')
+  })
 })

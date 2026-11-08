@@ -9,6 +9,17 @@ describe('FileActionMenu integration helpers', () => {
     assert.equal(win, 'C:\\AICore\\global\\rules\\AGENTS_Antigravity.md')
   })
 
+  it('correctly maps jail AGENTS.md (forward or backslash) to Windows global rule file', () => {
+    assert.equal(
+      toWindowsPath('/home/developer/.config/opencode/AGENTS.md'),
+      'C:\\AICore\\global\\rules\\AGENTS_Global.md'
+    )
+    assert.equal(
+      toWindowsPath('\\home\\developer\\.config\\opencode\\AGENTS.md'),
+      'C:\\AICore\\global\\rules\\AGENTS_Global.md'
+    )
+  })
+
   it('correctly preserves Linux jail path for Linux copy', () => {
     const raw = '/home/developer/projects/AICore/global/rules/AGENTS_Antigravity.md'
     const linux = toLinuxPath(raw)

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getShortcuts, matchesShortcut, type ShortcutsMap } from '../utils/shortcuts'
 import { getNextTabId, getPrevTabId, getTabIdByIndex } from '../utils/tab-navigation'
 import { togglePinSessionId } from '../utils/pinning'
+import { zoomIn, zoomOut, resetZoom } from '../utils/timeline-zoom'
 
 export interface UseGlobalShortcutsParams {
   activeSessionId: string | null
@@ -17,6 +18,9 @@ export interface UseGlobalShortcutsParams {
   setIsFindOpen: React.Dispatch<React.SetStateAction<boolean>>
   isModelRouterOpen: boolean
   setIsModelRouterOpen: React.Dispatch<React.SetStateAction<boolean>>
+  isBackgroundTasksOpen?: boolean
+  setIsBackgroundTasksOpen?: React.Dispatch<React.SetStateAction<boolean>>
+  setIsSubagentTopologyOpen?: React.Dispatch<React.SetStateAction<boolean>>
   handleNewSession: (directory?: string) => void
   toggleSidebar: (force?: boolean) => void
   toggleHeader: (force?: boolean) => void
@@ -41,6 +45,8 @@ export function useGlobalShortcuts({
   setIsFindOpen,
   isModelRouterOpen,
   setIsModelRouterOpen,
+  setIsBackgroundTasksOpen,
+  setIsSubagentTopologyOpen,
   handleNewSession,
   toggleSidebar,
   toggleHeader,
@@ -339,6 +345,33 @@ export function useGlobalShortcuts({
         return
       }
 
+      // Background Tasks & Terminal Monitor (Ctrl+` or Ctrl+Shift+J)
+      const isCtrlBackquote = (e.ctrlKey || e.metaKey) && (e.key === '`' || e.code === 'Backquote')
+      const isCtrlShiftJ = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key.toLowerCase() === 'j' || e.code === 'KeyJ')
+      if (isCtrlBackquote || isCtrlShiftJ) {
+        if (setIsBackgroundTasksOpen) {
+          e.preventDefault()
+          e.stopPropagation()
+          setIsBackgroundTasksOpen((prev) => !prev)
+          return
+        }
+      }
+
+      // Subagent Topology & Communication Inspector (Ctrl+Shift+A)
+      const isCtrlShiftA =
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        (e.key.toLowerCase() === 'a' || e.code === 'KeyA')
+      if (isCtrlShiftA) {
+        if (setIsSubagentTopologyOpen) {
+          e.preventDefault()
+          e.stopPropagation()
+          setIsSubagentTopologyOpen((prev) => !prev)
+          return
+        }
+      }
+
       if (
         matchesShortcut(e, shortcuts.addSessionToMap) ||
         (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key.toLowerCase() === 'm' || e.code === 'KeyM'))
@@ -364,6 +397,46 @@ export function useGlobalShortcuts({
           setMapTargetSessionId(null)
         }
         return
+      }
+
+      // Timeline Font Scaling & Zoom Shortcuts (Ctrl + +, Ctrl + -, Ctrl + 0)
+      const isCtrlKey = (e.ctrlKey || e.metaKey) && !e.altKey
+      if (isCtrlKey) {
+        if (
+          e.key === '=' ||
+          e.key === '+' ||
+          e.code === 'Equal' ||
+          e.code === 'NumpadAdd' ||
+          matchesShortcut(e, shortcuts.zoomIn)
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          zoomIn()
+          return
+        }
+        if (
+          e.key === '-' ||
+          e.key === '_' ||
+          e.code === 'Minus' ||
+          e.code === 'NumpadSubtract' ||
+          matchesShortcut(e, shortcuts.zoomOut)
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          zoomOut()
+          return
+        }
+        if (
+          e.key === '0' ||
+          e.code === 'Digit0' ||
+          e.code === 'Numpad0' ||
+          matchesShortcut(e, shortcuts.zoomReset)
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          resetZoom()
+          return
+        }
       }
 
       if (matchesShortcut(e, shortcuts.openSettings) || ((e.ctrlKey || e.metaKey) && e.key === ',')) {
@@ -399,6 +472,8 @@ export function useGlobalShortcuts({
     setIsSearchOpen,
     setIsFindOpen,
     setIsModelRouterOpen,
+    setIsBackgroundTasksOpen,
+    setIsSubagentTopologyOpen,
   ])
 
   return {

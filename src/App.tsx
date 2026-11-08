@@ -36,6 +36,8 @@ import {
   UNREAD_UPDATE_EVENT,
 } from './utils/session-unread'
 import { ScheduledTasksModal } from './components/tasks/ScheduledTasksModal'
+import { BackgroundTasksModal } from './components/tasks/BackgroundTasksModal'
+import { SubagentTopologyInspector } from './components/chat/SubagentTopologyInspector'
 import { FloatingModelRouter } from './components/router/FloatingModelRouter'
 import { SessionHistoryStack } from './utils/session-history'
 import { getPreferences } from './utils/preferences'
@@ -70,6 +72,8 @@ export default function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isScheduledTasksOpen, setIsScheduledTasksOpen] = useState(false)
+  const [isBackgroundTasksOpen, setIsBackgroundTasksOpen] = useState(false)
+  const [isSubagentTopologyOpen, setIsSubagentTopologyOpen] = useState(false)
   const [isModelRouterOpen, setIsModelRouterOpen] = useState(false)
   const [modelRouterTab, setModelRouterTab] = useState<'workflow' | 'relay'>('workflow')
   const { t, lang } = useI18n()
@@ -91,9 +95,14 @@ export default function App() {
     }
     window.addEventListener(UNREAD_UPDATE_EVENT, handleUnreadUpdate)
     window.addEventListener('storage', handleStorage)
+
+    const handleOpenTopology = () => setIsSubagentTopologyOpen(true)
+    window.addEventListener('opencode-open-subagent-topology', handleOpenTopology)
+
     return () => {
       window.removeEventListener(UNREAD_UPDATE_EVENT, handleUnreadUpdate)
       window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('opencode-open-subagent-topology', handleOpenTopology)
     }
   }, [])
 
@@ -120,6 +129,30 @@ export default function App() {
     return () => {
       unsubIdle()
       unsubStatus()
+    }
+  }, [])
+
+  // Poll daemon session statuses to discover active busy sessions on load and reconnect
+  useEffect(() => {
+    let mounted = true
+    const checkStatuses = async () => {
+      try {
+        const statusMap = await api.getAllSessionStatuses()
+        if (!mounted || !statusMap) return
+        const daemonBusyIds = Object.entries(statusMap)
+          .filter(([_, s]) => s && (s.type === 'busy' || s.type === 'retry'))
+          .map(([id]) => id)
+        setBusySessionIds((prev) => {
+          const merged = new Set([...prev, ...daemonBusyIds])
+          return Array.from(merged)
+        })
+      } catch {}
+    }
+    checkStatuses()
+    const timer = setInterval(checkStatuses, 4000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
     }
   }, [])
 
@@ -572,6 +605,9 @@ export default function App() {
     setIsFindOpen,
     isModelRouterOpen,
     setIsModelRouterOpen,
+    isBackgroundTasksOpen,
+    setIsBackgroundTasksOpen,
+    setIsSubagentTopologyOpen,
     handleNewSession,
     toggleSidebar,
     toggleHeader,
@@ -621,6 +657,7 @@ export default function App() {
             sessions={sessions}
             activeSessionId={activeSessionId}
             unreadSessionIds={unreadSessionIds}
+            busySessionIds={effectiveBusySessionIds}
             onSelectSession={handleSelectSessionWithHistory}
             onNewSession={handleNewSession}
             onDeleteSession={(id) => {
@@ -634,6 +671,8 @@ export default function App() {
             onOpenSettings={() => handleOpenSettings()}
             onOpenSearch={() => setIsSearchOpen(true)}
             onOpenScheduledTasks={() => setIsScheduledTasksOpen(true)}
+            onOpenBackgroundTasks={() => setIsBackgroundTasksOpen(true)}
+            onOpenSubagentTopology={() => setIsSubagentTopologyOpen(true)}
             onToggleSidebar={() => toggleSidebar()}
             canGoBack={canGoBack}
             canGoForward={canGoForward}
@@ -686,6 +725,7 @@ export default function App() {
               openTabIds={openTabIds}
               activeSessionId={activeSessionId}
               unreadSessionIds={unreadSessionIds}
+              busySessionIds={effectiveBusySessionIds}
               onSelectTab={(sessionId) => {
                 markSessionRead(sessionId)
                 selectSession(sessionId)
@@ -704,15 +744,15 @@ export default function App() {
 
           {sessionsLoading ? (
             <div className="flex-1 flex items-center justify-center text-zinc-500 gap-2">
-              <Loader2 className="w-5 h-5 animate-spin text-orange-400" />
+              <Loader2 className="w-5 h-5 animate-spin text-sky-400" />
               <span className="text-xs">Connecting to OpenCode backend...</span>
             </div>
           ) : (
             <main className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
               {activeSessionId && isArchived(activeSessionId) && (
-                <div className="bg-[#1c1a14] border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-200/90 shrink-0 z-20 backdrop-blur-sm">
+                <div className="bg-[#14161d] border-b border-sky-800/40 px-4 py-2 flex items-center justify-between text-xs text-sky-200/90 shrink-0 z-20 backdrop-blur-sm">
                   <div className="flex items-center gap-2">
-                    <Archive className="w-4 h-4 text-amber-400 shrink-0" />
+                    <Archive className="w-4 h-4 text-sky-400 shrink-0" />
                     <span>
                       {isZh
                         ? '此会话已归档。它已被移出活跃列表，但历史消息与上下文完整保留。发送新消息将自动恢复此会话。'
@@ -722,7 +762,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => unarchiveSession(activeSessionId)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-100 border border-amber-500/40 text-xs font-medium transition-colors cursor-pointer shrink-0 ml-3"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-sky-950/60 hover:bg-sky-900/60 text-sky-300 hover:text-sky-100 border border-sky-700/50 text-xs font-medium transition-colors cursor-pointer shrink-0 ml-3"
                   >
                     <ArchiveRestore className="w-3.5 h-3.5" />
                     <span>{isZh ? '恢复会话' : 'Unarchive'}</span>
@@ -818,6 +858,18 @@ export default function App() {
                     onNewProject={async () => { await refresh() }}
                     sessions={sessions}
                     todos={todos}
+                    onSelectModel={(model) => {
+                      if (activeSessionId && activeSessionId !== DRAFT_SESSION_ID) {
+                        updateSession(activeSessionId, {
+                          model: { id: model.modelID, providerID: model.providerID },
+                        })
+                      }
+                    }}
+                    onSelectAgent={(agentName) => {
+                      if (activeSessionId && activeSessionId !== DRAFT_SESSION_ID) {
+                        updateSession(activeSessionId, { agent: agentName })
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -876,6 +928,28 @@ export default function App() {
           onRunTaskNow={handleRunScheduledTaskNow}
         />
 
+        <BackgroundTasksModal
+          isOpen={isBackgroundTasksOpen}
+          onClose={() => setIsBackgroundTasksOpen(false)}
+          activeSessionId={activeSessionId}
+          activeSessionTitle={activeSession?.title}
+          messages={messages}
+          onAbortSession={async () => {
+            await abort()
+          }}
+          onSendInput={async (input) => {
+            await handleSendPrompt(input, {})
+          }}
+        />
+
+        <SubagentTopologyInspector
+          isOpen={isSubagentTopologyOpen}
+          onClose={() => setIsSubagentTopologyOpen(false)}
+          messages={messages}
+          activeSession={activeSession}
+          childSessions={sessions.filter((s) => s.parentID === activeSessionId)}
+        />
+
         <FloatingModelRouter
           isOpen={isModelRouterOpen}
           initialTab={modelRouterTab}
@@ -889,7 +963,7 @@ export default function App() {
             {toastMessage.includes('成功') ? (
               <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[2.5]" />
             ) : (
-              <MapPin className="w-3.5 h-3.5 text-orange-400" />
+              <MapPin className="w-3.5 h-3.5 text-sky-400" />
             )}
             <span>{toastMessage}</span>
           </div>
