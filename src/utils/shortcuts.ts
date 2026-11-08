@@ -66,6 +66,7 @@ export interface ShortcutsMap {
   collapseAllConversations: ShortcutItem
   toggleCenterDialogue: ShortcutItem
   togglePinSession: ShortcutItem
+  quoteSelection: ShortcutItem
   zoomIn: ShortcutItem
   zoomOut: ShortcutItem
   zoomReset: ShortcutItem
@@ -102,6 +103,13 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     shiftKey: true,
     description: '展开/收缩面前对话 (Toggle Dialogue in View / Mouse Upper Side Button)',
     label: 'Ctrl + Shift + D',
+    category: 'dialogue',
+  },
+  quoteSelection: {
+    key: 'l',
+    ctrlKey: true,
+    description: '引用所选文字 (Quote Selection)',
+    label: 'Ctrl + L',
     category: 'dialogue',
   },
   prevDialogue: {

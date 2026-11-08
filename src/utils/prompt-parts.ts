@@ -11,6 +11,10 @@ import {
   isPastedAttachment,
   serializePromptWithPastedSnippets,
 } from './pasted-snippets'
+import {
+  isQuoteAttachment,
+  serializePromptWithQuotes,
+} from './quote'
 
 /**
  * Builds canonical MessagePartInput[] payload for OpenCode backend.
@@ -25,7 +29,7 @@ export function buildPromptParts(
   if (typeof input === 'string') {
     if (attachments && attachments.length > 0) {
       for (const att of attachments) {
-        if (!isPastedAttachment(att) && att.url) {
+        if (!isPastedAttachment(att) && !isQuoteAttachment(att) && att.url) {
           parts.push({
             type: 'file',
             mime: att.mime || 'image/png',
@@ -35,7 +39,8 @@ export function buildPromptParts(
         }
       }
     }
-    const serializedText = serializePromptWithPastedSnippets(input, attachments)
+    const withPasted = serializePromptWithPastedSnippets(input, attachments)
+    const serializedText = serializePromptWithQuotes(withPasted, attachments)
     const trimmed = serializedText.trim()
     if (trimmed) {
       parts.push({ type: 'text', text: trimmed })
@@ -49,7 +54,7 @@ export function buildPromptParts(
   const combined = [...input]
   if (attachments && attachments.length > 0) {
     for (const att of attachments) {
-      if (isPastedAttachment(att) || !att.url) continue
+      if (isPastedAttachment(att) || isQuoteAttachment(att) || !att.url) continue
       const exists = combined.some(
         (p) => p.type === 'file' && (p as any).url === att.url
       )
@@ -90,7 +95,7 @@ export function buildOptimisticMessage(params: {
 
   if (params.attachments && params.attachments.length > 0) {
     params.attachments.forEach((att, idx) => {
-      if (isPastedAttachment(att) || !att.url) return
+      if (isPastedAttachment(att) || isQuoteAttachment(att) || !att.url) return
       optimisticParts.push({
         id: `prt_${Date.now()}_att_${idx}`,
         sessionID: params.sessionId,
@@ -104,7 +109,8 @@ export function buildOptimisticMessage(params: {
     })
   }
 
-  const serializedText = serializePromptWithPastedSnippets(params.text, params.attachments)
+  const withPasted = serializePromptWithPastedSnippets(params.text, params.attachments)
+  const serializedText = serializePromptWithQuotes(withPasted, params.attachments)
   const trimmedText = serializedText.trim()
   if (trimmedText) {
     optimisticParts.push({

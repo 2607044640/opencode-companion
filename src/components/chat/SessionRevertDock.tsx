@@ -18,8 +18,20 @@ export function SessionRevertDock({
   isRestoring = false,
 }: SessionRevertDockProps) {
   const { t } = useI18n()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
+
+  const handleToggleExpand = () => {
+    setExpanded((prev) => {
+      const next = !prev
+      requestAnimationFrame(() => {
+        window.dispatchEvent(
+          new CustomEvent('session-dock-resized', { detail: { expanded: next } })
+        )
+      })
+      return next
+    })
+  }
 
   if (!activeSession?.revert?.messageID) return null
 
@@ -49,7 +61,7 @@ export function SessionRevertDock({
       <div className="rounded-xl bg-[#16181d] border border-zinc-800/80 shadow-lg backdrop-blur-md overflow-hidden transition-all">
         {/* Dock Header (Collapsible matching Figure 3) */}
         <div
-          onClick={() => setExpanded(!expanded)}
+          onClick={handleToggleExpand}
           className="flex items-center justify-between px-4 py-2.5 cursor-pointer select-none hover:bg-zinc-800/30 transition-colors"
         >
           <div className="flex items-center gap-2.5 min-w-0">
@@ -61,6 +73,10 @@ export function SessionRevertDock({
 
           <button
             type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleToggleExpand()
+            }}
             className="text-zinc-500 hover:text-zinc-300 p-0.5 rounded transition-colors"
             title={expanded ? t.chat.collapseRolledBack : t.chat.expandRolledBack}
           >

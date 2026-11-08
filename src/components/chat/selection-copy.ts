@@ -32,14 +32,15 @@ export function calculatePopoverPosition(
     minMargin?: number
     popoverHeight?: number
     offset?: number
+    anchorX?: number
   } = {}
 ): PopoverPosition {
   const minMargin = options.minMargin ?? 75
   const offset = options.offset ?? 8
   const popoverHeight = options.popoverHeight ?? 36
 
-  const centerX = rect.left + rect.width / 2
-  const clampedX = Math.max(minMargin, Math.min(viewport.width - minMargin, centerX))
+  const targetX = typeof options.anchorX === 'number' ? options.anchorX : rect.left + rect.width / 2
+  const clampedX = Math.max(minMargin, Math.min(viewport.width - minMargin, targetX))
 
   // If there's enough space above the selection, position above, otherwise below
   const hasSpaceAbove = rect.top >= popoverHeight + offset
@@ -51,6 +52,24 @@ export function calculatePopoverPosition(
     y: Math.round(y),
     placement,
   }
+}
+
+/**
+ * Checks if a keyboard event matches the Quote shortcut (Ctrl+L / Cmd+L).
+ */
+export function isQuoteShortcut(e: {
+  key: string
+  ctrlKey?: boolean
+  metaKey?: boolean
+  altKey?: boolean
+  shiftKey?: boolean
+}): boolean {
+  return (
+    (Boolean(e.ctrlKey) || Boolean(e.metaKey)) &&
+    !e.altKey &&
+    !e.shiftKey &&
+    (e.key === 'l' || e.key === 'L')
+  )
 }
 
 /**

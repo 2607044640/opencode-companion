@@ -334,8 +334,8 @@ export interface PromptAttachment {
   name?: string
   mime: string
   url: string
-  /** Optional attachment kind: 'image' (default) or 'pasted' for numbered pasted text cards (p1, p2...) */
-  kind?: 'image' | 'pasted'
+  /** Optional attachment kind: 'image' (default), 'pasted' for numbered pasted text cards (p1, p2...), or 'quote' for quoted chat snippets */
+  kind?: 'image' | 'pasted' | 'quote'
   /** Short reference ID such as 'p1', 'p2' */
   pastedId?: string
   /** Full text content when kind === 'pasted' */

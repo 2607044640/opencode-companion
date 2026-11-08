@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, Quote as QuoteIcon } from 'lucide-react'
 import {
   calculatePopoverPosition,
   isValidTextSelection,
@@ -7,36 +7,42 @@ import {
   shouldDismissOnEscape,
   shouldDismissOnMouseDownOutside,
   shouldDismissOnCollapsedSelection,
+  isQuoteShortcut,
   type PopoverPosition,
 } from './selection-copy'
 
 export interface SelectionCopyFeedbackProps {
   /** Target container to scope selection listening (defaults to document) */
   containerRef?: React.RefObject<HTMLElement | null>
-  /** Auto-dismiss duration in milliseconds after copy (default: 1000ms / 1s) */
+  /** Auto-dismiss duration in milliseconds after copy or quote (default: 1000ms / 1s) */
   durationMs?: number
   /** Active session ID to auto-dismiss on session switch */
   sessionId?: string
+  /** Callback invoked when the user quotes the active text selection */
+  onQuote?: (text: string) => void
 }
 
 export function SelectionCopyFeedback({
   containerRef,
   durationMs = 1000,
   sessionId,
+  onQuote,
 }: SelectionCopyFeedbackProps) {
   const [isVisible, setIsVisible] = useState(false)
-  const [isCopied, setIsCopied] = useState(false)
+  const [feedbackState, setFeedbackState] = useState<'copied' | 'quoted' | null>(null)
   const [selectedText, setSelectedText] = useState('')
   const [position, setPosition] = useState<PopoverPosition | null>(null)
 
   const popoverRef = useRef<HTMLDivElement>(null)
   const isVisibleRef = useRef(false)
-  const isCopiedRef = useRef(false)
+  const feedbackStateRef = useRef<'copied' | 'quoted' | null>(null)
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentRangeRef = useRef<Range | null>(null)
+  const selectedTextRef = useRef('')
 
   isVisibleRef.current = isVisible
-  isCopiedRef.current = isCopied
+  feedbackStateRef.current = feedbackState
+  selectedTextRef.current = selectedText
 
   const clearDismissTimer = useCallback(() => {
     if (dismissTimerRef.current) {
@@ -48,51 +54,89 @@ export function SelectionCopyFeedback({
   const dismiss = useCallback(() => {
     clearDismissTimer()
     setIsVisible(false)
-    setIsCopied(false)
+    setFeedbackState(null)
     currentRangeRef.current = null
     setPosition(null)
   }, [clearDismissTimer])
 
   // Recalculate position from current selection range
-  const updatePositionFromRange = useCallback(
-    (range: Range) => {
-      const rect = range.getBoundingClientRect()
-      if (rect.width === 0 && rect.height === 0) return false
+  const updatePositionFromRange = useCallback((range: Range) => {
+    const rect = range.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) return false
 
-      // Check if selection is inside viewport
-      if (rect.bottom < 0 || rect.top > window.innerHeight) {
-        return false
+    // Check if selection is inside viewport
+    if (rect.bottom < 0 || rect.top > window.innerHeight) {
+      return false
+    }
+
+    const viewport = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }
+
+    // Anchor near the selection's end position if client rects are available
+    let anchorX: number | undefined
+    try {
+      const rects = range.getClientRects()
+      if (rects.length > 0) {
+        const lastRect = rects[rects.length - 1]
+        anchorX = lastRect.right - Math.min(60, lastRect.width / 2)
       }
+    } catch {
+      // fallback
+    }
 
-      const viewport = {
-        width: window.innerWidth,
-        height: window.innerHeight,
-      }
+    const pos = calculatePopoverPosition(rect, viewport, {
+      minMargin: 75,
+      popoverHeight: 34,
+      offset: 8,
+      anchorX,
+    })
 
-      const pos = calculatePopoverPosition(rect, viewport, {
-        minMargin: 75,
-        popoverHeight: 32,
-        offset: 8,
-      })
+    setPosition(pos)
+    return true
+  }, [])
 
-      setPosition(pos)
-      return true
+  // Trigger feedback state with auto-dismiss
+  const triggerFeedback = useCallback(
+    (type: 'copied' | 'quoted') => {
+      clearDismissTimer()
+      setFeedbackState(type)
+      setIsVisible(true)
+
+      dismissTimerRef.current = setTimeout(() => {
+        dismiss()
+      }, durationMs)
     },
-    []
+    [clearDismissTimer, dismiss, durationMs]
   )
 
-  // Trigger copy feedback state with auto-dismiss
-  const triggerCopiedFeedback = useCallback(() => {
-    clearDismissTimer()
-    setIsCopied(true)
-    setIsVisible(true)
+  // Perform Quote action
+  const triggerQuote = useCallback(
+    (textToQuote: string) => {
+      const clean = textToQuote.trim()
+      if (!clean) return
 
-    dismissTimerRef.current = setTimeout(() => {
-      dismiss()
-    }, durationMs)
-  }, [clearDismissTimer, dismiss, durationMs])
+      if (onQuote) {
+        onQuote(clean)
+      }
 
-  // Cleanup timer strictly on unmount
+      try {
+        window.dispatchEvent(
+          new CustomEvent('companion:quote-selection', {
+            detail: { text: clean },
+          })
+        )
+      } catch {
+        // ignore
+      }
+
+      triggerFeedback('quoted')
+    },
+    [onQuote, triggerFeedback]
+  )
+
+  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       clearDismissTimer()
@@ -110,7 +154,7 @@ export function SelectionCopyFeedback({
   const checkSelection = useCallback(() => {
     const selection = window.getSelection()
     const isCollapsed = !selection || selection.isCollapsed || selection.rangeCount === 0
-    if (shouldDismissOnCollapsedSelection(isCollapsed, isCopiedRef.current)) {
+    if (shouldDismissOnCollapsedSelection(isCollapsed, Boolean(feedbackStateRef.current))) {
       dismiss()
       return
     }
@@ -118,7 +162,7 @@ export function SelectionCopyFeedback({
 
     const text = selection.toString()
     if (!isValidTextSelection(text, document.activeElement)) {
-      if (!isCopiedRef.current) {
+      if (!feedbackStateRef.current) {
         dismiss()
       }
       return
@@ -130,7 +174,7 @@ export function SelectionCopyFeedback({
     if (containerRef?.current) {
       const commonNode = range.commonAncestorContainer
       if (!isNodeInsideContainer(commonNode, containerRef.current)) {
-        if (!isCopiedRef.current) {
+        if (!feedbackStateRef.current) {
           dismiss()
         }
         return
@@ -140,18 +184,28 @@ export function SelectionCopyFeedback({
     currentRangeRef.current = range.cloneRange()
     const valid = updatePositionFromRange(range)
     if (!valid) {
-      if (!isCopiedRef.current) {
+      if (!feedbackStateRef.current) {
         dismiss()
       }
       return
     }
 
-    setSelectedText(text.trim())
-    if (!isCopiedRef.current) {
+    const trimmed = text.trim()
+    setSelectedText(trimmed)
+    selectedTextRef.current = trimmed
+    if (!feedbackStateRef.current) {
       setIsVisible(true)
-      setIsCopied(false)
+      setFeedbackState(null)
     }
   }, [containerRef, updatePositionFromRange, dismiss])
+
+  // Handle user clicking Quote button
+  const handleQuoteClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!selectedText) return
+    triggerQuote(selectedText)
+  }
 
   // Handle user clicking the floating copy button
   const handleCopyClick = async (e: React.MouseEvent) => {
@@ -178,7 +232,7 @@ export function SelectionCopyFeedback({
       }
     }
 
-    triggerCopiedFeedback()
+    triggerFeedback('copied')
   }
 
   useEffect(() => {
@@ -186,7 +240,6 @@ export function SelectionCopyFeedback({
       if (popoverRef.current && popoverRef.current.contains(e.target as Node)) {
         return
       }
-      // Brief timeout to let the browser finalize selection range
       setTimeout(checkSelection, 20)
     }
 
@@ -199,6 +252,17 @@ export function SelectionCopyFeedback({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (shouldDismissOnEscape(e.key, isVisibleRef.current)) {
         dismiss()
+        return
+      }
+
+      // Check Ctrl+L shortcut for Quote
+      if (isQuoteShortcut(e)) {
+        const textToQuote = selectedTextRef.current || window.getSelection()?.toString().trim()
+        if (textToQuote && isValidTextSelection(textToQuote, document.activeElement)) {
+          e.preventDefault()
+          e.stopPropagation()
+          triggerQuote(textToQuote)
+        }
       }
     }
 
@@ -224,7 +288,6 @@ export function SelectionCopyFeedback({
         }
       }
 
-      // Update position to the current selection range if available
       if (selection.rangeCount > 0) {
         const range = selection.getRangeAt(0)
         currentRangeRef.current = range.cloneRange()
@@ -232,7 +295,8 @@ export function SelectionCopyFeedback({
       }
 
       setSelectedText(text)
-      triggerCopiedFeedback()
+      selectedTextRef.current = text
+      triggerFeedback('copied')
     }
 
     const handleScroll = () => {
@@ -259,7 +323,7 @@ export function SelectionCopyFeedback({
       document.removeEventListener('copy', handleCopyEvent)
       window.removeEventListener('scroll', handleScroll, true)
     }
-  }, [checkSelection, triggerCopiedFeedback, updatePositionFromRange, dismiss, containerRef])
+  }, [checkSelection, triggerFeedback, triggerQuote, updatePositionFromRange, dismiss, containerRef])
 
   if (!isVisible || !position) {
     return null
@@ -276,12 +340,14 @@ export function SelectionCopyFeedback({
         zIndex: 9999,
       }}
       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-sans shadow-2xl transition-all duration-150 select-none ${
-        isCopied
+        feedbackState === 'copied'
           ? 'bg-[#0f1d15]/95 border border-emerald-500/70 text-emerald-300 shadow-emerald-950/40 animate-in zoom-in-95 duration-100'
+          : feedbackState === 'quoted'
+          ? 'bg-[#0d1829]/95 border border-sky-500/70 text-sky-300 shadow-sky-950/40 animate-in zoom-in-95 duration-100'
           : 'bg-[#181a20]/95 backdrop-blur-md border border-[#30363d] text-zinc-200 hover:border-zinc-500 shadow-black/70 animate-in fade-in zoom-in-95 duration-100'
       }`}
     >
-      {isCopied ? (
+      {feedbackState === 'copied' ? (
         <div
           onClick={dismiss}
           className="flex items-center gap-1.5 font-medium text-[11px] text-emerald-300 cursor-pointer"
@@ -290,23 +356,53 @@ export function SelectionCopyFeedback({
           <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span>已复制</span>
         </div>
-      ) : (
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            // Crucial: prevent losing selection on mouse down before click
-            e.preventDefault()
-          }}
-          onClick={handleCopyClick}
-          className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer group"
-          title="复制所选文字 (Ctrl+C)"
+      ) : feedbackState === 'quoted' ? (
+        <div
+          onClick={dismiss}
+          className="flex items-center gap-1.5 font-medium text-[11px] text-sky-300 cursor-pointer"
+          title="点击关闭"
         >
-          <Copy className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-200 transition-colors shrink-0" />
-          <span className="font-medium text-[11px]">复制</span>
-          <span className="text-[9px] text-zinc-500 font-mono ml-0.5 group-hover:text-zinc-400">
-            Ctrl+C
-          </span>
-        </button>
+          <QuoteIcon className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          <span>已引用</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1">
+          {/* Quote Button (Ctrl+L) matching Antigravity design */}
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+            }}
+            onClick={handleQuoteClick}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-zinc-800/80 hover:text-white transition-colors cursor-pointer group"
+            title="引用所选文字到输入框 (Ctrl+L)"
+          >
+            <QuoteIcon className="w-3.5 h-3.5 text-sky-400 group-hover:text-sky-300 transition-colors shrink-0" />
+            <span className="font-medium text-[11px] text-zinc-100 group-hover:text-white">Quote</span>
+            <span className="text-[9px] text-zinc-400 font-mono ml-0.5 group-hover:text-zinc-300">
+              Ctrl+L
+            </span>
+          </button>
+
+          <div className="w-px h-3 bg-zinc-700/60 mx-0.5" />
+
+          {/* Copy Button (Ctrl+C) */}
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+            }}
+            onClick={handleCopyClick}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-zinc-800/80 hover:text-white transition-colors cursor-pointer group"
+            title="复制所选文字 (Ctrl+C)"
+          >
+            <Copy className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-200 transition-colors shrink-0" />
+            <span className="font-medium text-[11px] text-zinc-300 group-hover:text-white">复制</span>
+            <span className="text-[9px] text-zinc-500 font-mono ml-0.5 group-hover:text-zinc-400">
+              Ctrl+C
+            </span>
+          </button>
+        </div>
       )}
     </div>
   )

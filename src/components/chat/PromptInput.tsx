@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, type ChangeEvent, type KeyboardEvent, type ClipboardEvent } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ClipboardEvent } from 'react'
 import {
   Plus,
   ArrowRight,
@@ -34,6 +34,14 @@ import { categorizeDroppedFiles, formatFileMentions, hasFilePayload } from './dr
 import { ImageLightboxModal, type LightboxImage } from './ImageLightboxModal'
 import { PastedSnippetCard } from './PastedSnippetCard'
 import { PastedContentModal } from './PastedContentModal'
+import { QuoteCard } from './QuoteCard'
+import {
+  isQuoteAttachment,
+  createQuoteAttachment,
+  allocateNextQuoteId,
+  insertQuoteMentionIntoText,
+  formatQuoteTag,
+} from '../../utils/quote'
 import {
   shouldConvertToPastedSnippet,
   createPastedAttachment,
@@ -239,6 +247,44 @@ export function PromptInput({
       textareaRef.current.setSelectionRange(len, len)
     }
   }, [queueEditRequest])
+
+  // Handle incoming quote selection (@[Quote])
+  const handleQuoteText = useCallback((quoteContent: string) => {
+    const trimmed = (quoteContent || '').trim()
+    if (!trimmed) return
+
+    const currentText = textRef.current || ''
+    const currentAtts = attachmentsRef.current || []
+
+    const quoteId = allocateNextQuoteId(currentText, currentAtts)
+    const quoteTag = formatQuoteTag(quoteId)
+    const quoteAtt = createQuoteAttachment(trimmed, currentAtts, quoteId, currentText)
+
+    setAttachments((prev) => [...prev, quoteAtt])
+
+    const cursorPos = textareaRef.current?.selectionStart ?? currentText.length
+    const { newText, newCursor } = insertQuoteMentionIntoText(currentText, quoteTag, cursorPos)
+
+    setText(newText)
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(newCursor, newCursor)
+      }
+    }, 15)
+  }, [])
+
+  useEffect(() => {
+    const handleQuoteEvent = (e: Event) => {
+      const custom = e as CustomEvent<{ text?: string }>
+      if (custom.detail?.text) {
+        handleQuoteText(custom.detail.text)
+      }
+    }
+    window.addEventListener('companion:quote-selection', handleQuoteEvent)
+    return () => window.removeEventListener('companion:quote-selection', handleQuoteEvent)
+  }, [handleQuoteText])
 
   const activeProjectName = useMemo(() => {
     if (activeSession) {
@@ -1093,10 +1139,31 @@ export function PromptInput({
           />
         )}
 
-        {/* Thumbnail & Pasted Card Preview Bar (M4 + Claude Pasted Snippets p1, p2) */}
+        {/* Thumbnail & Pasted Card & Quote Card Preview Bar */}
         {attachments.length > 0 && (
           <div className="flex items-center gap-2.5 px-3 pt-3 pb-1.5 overflow-x-auto no-scrollbar border-b border-zinc-800/60">
             {attachments.map((att) => {
+              if (isQuoteAttachment(att)) {
+                return (
+                  <QuoteCard
+                    key={att.id || att.pastedId}
+                    quoteId={att.pastedId || att.name || 'Quote'}
+                    content={att.content || ''}
+                    onClick={() =>
+                      setActivePastedModal({
+                        attachmentId: att.id || att.pastedId || 'Quote',
+                        editMode: false,
+                      })
+                    }
+                    onRemove={() =>
+                      setAttachments((prev) =>
+                        prev.filter((a) => (a.id || a.pastedId) !== (att.id || att.pastedId))
+                      )
+                    }
+                  />
+                )
+              }
+
               if (isPastedAttachment(att)) {
                 return (
                   <PastedSnippetCard

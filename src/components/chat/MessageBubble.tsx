@@ -38,7 +38,9 @@ import {
 import { ImageLightboxModal, ImageThumbnailRow, type LightboxImage } from './ImageLightboxModal'
 import { PastedSnippetCard } from './PastedSnippetCard'
 import { PastedContentModal } from './PastedContentModal'
+import { QuoteCard } from './QuoteCard'
 import { parsePastedSnippetsFromText, type ParsedPastedSnippet } from '../../utils/pasted-snippets'
+import { parseQuotesFromText, type ParsedQuoteItem } from '../../utils/quote'
 import {
   parseReferencedConversationsFromText,
   type ParsedReferencedConversation,
@@ -657,6 +659,26 @@ interface UserMessageBubbleProps {
   isReverting?: boolean
 }
 
+function renderUserPromptWithQuotePills(text: string) {
+  if (!text || !text.includes('@[Quote')) {
+    return text
+  }
+  const parts = text.split(/(@\[Quote(?:\s+\d+)?\])/gi)
+  return parts.map((part, i) => {
+    if (/^@\[Quote(?:\s+\d+)?\]$/i.test(part)) {
+      return (
+        <span
+          key={i}
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono bg-sky-950/80 border border-sky-700/80 text-sky-300 font-semibold align-baseline mx-0.5 shadow-xs"
+        >
+          {part}
+        </span>
+      )
+    }
+    return part
+  })
+}
+
 function UserMessageBubble({
   message,
   fullText,
@@ -676,15 +698,21 @@ function UserMessageBubble({
   const [copied, setCopied] = useState(false)
   const [activePastedSnippet, setActivePastedSnippet] = useState<ParsedPastedSnippet | null>(null)
   const [activeReferencedConv, setActiveReferencedConv] = useState<ParsedReferencedConversation | null>(null)
+  const [activeQuote, setActiveQuote] = useState<ParsedQuoteItem | null>(null)
 
   const { snippets: pastedSnippets, cleanText: displayTextAfterPasted } = useMemo(
     () => parsePastedSnippetsFromText(fullText),
     [fullText]
   )
 
-  const { references: referencedConversations, cleanText: displayText } = useMemo(
-    () => parseReferencedConversationsFromText(displayTextAfterPasted),
+  const { quotes, cleanText: displayTextAfterQuotes } = useMemo(
+    () => parseQuotesFromText(displayTextAfterPasted),
     [displayTextAfterPasted]
+  )
+
+  const { references: referencedConversations, cleanText: displayText } = useMemo(
+    () => parseReferencedConversationsFromText(displayTextAfterQuotes),
+    [displayTextAfterQuotes]
   )
 
   const { isCollapsible, defaultCollapsed } = useMemo(
@@ -800,6 +828,21 @@ function UserMessageBubble({
           )
         })()}
 
+        {/* Quoted Text Cards (@[Quote] - Antigravity style) */}
+        {quotes.length > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
+            {quotes.map((q) => (
+              <QuoteCard
+                key={q.id}
+                quoteId={q.quoteId}
+                content={q.content}
+                compact
+                onClick={() => setActiveQuote(q)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Pasted Text Snippet Cards (p1, p2 - Claude Web style) */}
         {pastedSnippets.length > 0 && (
           <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
@@ -863,7 +906,7 @@ function UserMessageBubble({
                     : undefined
                 }
               >
-                {displayText}
+                {renderUserPromptWithQuotePills(displayText)}
               </div>
             </div>
 
@@ -983,6 +1026,16 @@ function UserMessageBubble({
           pastedId={`@conversation: ${activeReferencedConv.title}`}
           content={activeReferencedConv.content}
           onClose={() => setActiveReferencedConv(null)}
+        />
+      )}
+
+      {/* Quoted Text Viewer Modal */}
+      {activeQuote && (
+        <PastedContentModal
+          isOpen={true}
+          pastedId={activeQuote.tag}
+          content={activeQuote.content}
+          onClose={() => setActiveQuote(null)}
         />
       )}
     </div>

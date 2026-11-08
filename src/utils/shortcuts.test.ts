@@ -43,7 +43,8 @@ describe('shortcuts matching and registration', () => {
     }
 
     const dialogueKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'dialogue')
-    assert.equal(dialogueKeys.length, 13)
+    assert.equal(dialogueKeys.length, 14)
+    assert.ok(dialogueKeys.includes('quoteSelection'))
     assert.ok(dialogueKeys.includes('zoomIn'))
     assert.ok(dialogueKeys.includes('zoomOut'))
     assert.ok(dialogueKeys.includes('zoomReset'))

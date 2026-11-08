@@ -115,6 +115,7 @@ interface ChatTimelineProps {
   onRevertToMessage?: (messageId: string, options?: { mode?: RevertMode }) => Promise<any>
   onUnrevert?: () => Promise<any>
   onDraftInject?: (draft: { text: string; attachments?: PromptAttachment[]; timestamp: number }) => void
+  onQuote?: (text: string) => void
   isReverting?: boolean
   targetMessageId?: string | null
   onTargetMessageScrolled?: () => void
@@ -142,6 +143,7 @@ export function ChatTimeline({
   onRevertToMessage,
   onUnrevert: _onUnrevert,
   onDraftInject,
+  onQuote,
   isReverting,
   targetMessageId,
   onTargetMessageScrolled,
@@ -763,6 +765,48 @@ export function ChatTimeline({
     return () => clearTimeout(timer)
   }, [targetMessageId, messages, onTargetMessageScrolled, scrollElementIntoContainer])
 
+  // Re-anchor to bottom when revert boundaries change or visible count adjusts
+  const prevRevertMessageIdRef = useRef<string | null>(revertMessageId || null)
+  useEffect(() => {
+    if (revertMessageId !== prevRevertMessageIdRef.current) {
+      prevRevertMessageIdRef.current = revertMessageId || null
+      if (containerRef.current) {
+        isAutoScrollEnabled.current = true
+        scrollToBottom('smooth')
+      }
+    }
+  }, [revertMessageId, scrollToBottom])
+
+  // Adapt scroll position when SessionRevertDock expands or collapses
+  useEffect(() => {
+    const handleDockResize = () => {
+      if (!containerRef.current) return
+      requestAnimationFrame(() => {
+        if (!containerRef.current) return
+        const { scrollTop, scrollHeight, clientHeight } = containerRef.current
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 250 || isAutoScrollEnabled.current
+        if (isNearBottom) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight
+        }
+      })
+    }
+    window.addEventListener('session-dock-resized', handleDockResize)
+    return () => window.removeEventListener('session-dock-resized', handleDockResize)
+  }, [])
+
+  // Container resize observer: seamlessly adapt scroll when container height changes
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const ro = new ResizeObserver(() => {
+      if (isAutoScrollEnabled.current) {
+        container.scrollTop = container.scrollHeight
+      }
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [])
+
   return (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
       {/* In-Page Find Bar (Ctrl+F) */}
@@ -953,7 +997,7 @@ export function ChatTimeline({
           style={{
             zoom: prefs.showTimelineZoomWidget && zoomLevel !== 100 ? `${zoomLevel}%` : undefined,
           }}
-          className={`mx-auto w-full transition-all duration-300 ${
+          className={`mx-auto w-full min-h-full flex flex-col transition-all duration-300 ${
             prefs.conversationWidth === 'narrow'
               ? 'max-w-2xl'
               : prefs.conversationWidth === 'wide'
@@ -961,6 +1005,9 @@ export function ChatTimeline({
               : 'max-w-4xl xl:max-w-5xl'
           } ${isZenMode ? 'space-y-6 pb-36' : 'space-y-4'}`}
         >
+          {/* Top adaptive spacer: absorbs free vertical space when messages are fewer than viewport height */}
+          <div className="flex-1 min-h-0" />
+
           {visibleItems.map((item, idx) => {
             const isLastVisibleItem = idx === visibleItems.length - 1
             if (item.type === 'user' || item.type === 'system') {
@@ -1112,6 +1159,7 @@ export function ChatTimeline({
         containerRef={containerRef}
         durationMs={1000}
         sessionId={activeSession?.id}
+        onQuote={onQuote}
       />
 
       {/* New Project Modal on Timeline */}

@@ -7,6 +7,7 @@ import {
   shouldDismissOnEscape,
   shouldDismissOnMouseDownOutside,
   shouldDismissOnCollapsedSelection,
+  isQuoteShortcut,
 } from './selection-copy'
 
 describe('selection-copy utility tests', () => {
@@ -169,6 +170,16 @@ describe('selection-copy utility tests', () => {
 
     it('returns false when selection is collapsed but in copied state (preserving auto-dismiss)', () => {
       assert.equal(shouldDismissOnCollapsedSelection(true, true), false)
+    })
+  })
+
+  describe('isQuoteShortcut', () => {
+    it('matches Ctrl+L and Cmd+L without alt or shift', () => {
+      assert.equal(isQuoteShortcut({ key: 'l', ctrlKey: true }), true)
+      assert.equal(isQuoteShortcut({ key: 'L', metaKey: true }), true)
+      assert.equal(isQuoteShortcut({ key: 'l', ctrlKey: true, shiftKey: true }), false)
+      assert.equal(isQuoteShortcut({ key: 'l', ctrlKey: true, altKey: true }), false)
+      assert.equal(isQuoteShortcut({ key: 'c', ctrlKey: true }), false)
     })
   })
 })

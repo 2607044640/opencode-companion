@@ -4,6 +4,7 @@ import { getNextTabId, getPrevTabId, getTabIdByIndex } from '../utils/tab-naviga
 import { togglePinSessionId } from '../utils/pinning'
 import { zoomIn, zoomOut, resetZoom } from '../utils/timeline-zoom'
 import { getPreferences } from '../utils/preferences'
+import { isValidTextSelection } from '../components/chat/selection-copy'
 
 export interface UseGlobalShortcutsParams {
   activeSessionId: string | null
@@ -127,6 +128,28 @@ export function useGlobalShortcuts({
       }
       // The board owns its keyboard, including Escape, editing and focus trapping.
       if (isSessionBoardOpen) return
+
+      // Quote shortcut (Ctrl+L): quotes selected text into input composer, or focuses composer if nothing selected
+      if (matchesShortcut(e, shortcuts.quoteSelection)) {
+        e.preventDefault()
+        e.stopPropagation()
+        const sel = window.getSelection()
+        const selText = sel?.toString().trim()
+        if (selText && isValidTextSelection(selText, document.activeElement)) {
+          window.dispatchEvent(
+            new CustomEvent('companion:quote-selection', {
+              detail: { text: selText },
+            })
+          )
+        } else {
+          const textarea = document.querySelector('textarea') as HTMLTextAreaElement | null
+          if (textarea) {
+            textarea.focus()
+          }
+        }
+        return
+      }
+
       const isPlainF11 = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === 'F11'
       if (matchesShortcut(e, shortcuts.zenMode) || isPlainF11) {
         e.preventDefault()
