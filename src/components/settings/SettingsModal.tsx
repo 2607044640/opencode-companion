@@ -437,6 +437,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     </button>
                   </div>
 
+                  {/* Stealth / Translucent Prompt Input */}
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-200">
+                        {tr('输入框半隐形悬浮显现', 'Stealth Prompt Input (Dim when idle)', 'Transparente Eingabeleiste')}
+                      </div>
+                      <div className="text-[11px] text-zinc-500">
+                        {tr(
+                          '平时输入框半透明隐形（如 F11 沉浸模式），鼠标悬浮或聚焦输入时完全显现',
+                          'Keep prompt input semi-translucent like in F11 Zen mode; fully reveals on hover or focus',
+                          'Eingabeleiste im Ruhezustand transparent halten; bei Hover/Fokus vollständig sichtbar'
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updatePreferences({ translucentPromptInput: !prefs.translucentPromptInput })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                        prefs.translucentPromptInput ? 'bg-blue-600' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          prefs.translucentPromptInput ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
                   {/* Conversation Width */}
                   <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
                     <div>
@@ -803,6 +832,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     type="checkbox"
                     checked={prefs.showTimelineZoomWidget ?? false}
                     onChange={(e) => updatePreferences({ showTimelineZoomWidget: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
+                {/* Translucent / Stealth Prompt Input */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">
+                      {tr('输入框半隐形悬浮显现', 'Stealth Prompt Input (Dim when idle)', 'Transparente Eingabeleiste')}
+                    </div>
+                    <div className="text-[11px] text-zinc-500">
+                      {tr(
+                        '非全屏沉浸模式下也保持输入框半透明隐形，鼠标悬浮或聚焦时完全显现，减少视觉干扰',
+                        'Keep the prompt input box semi-translucent like in F11 Zen mode; fully reveals on mouse hover or focus to minimize visual distraction',
+                        'Eingabeleiste im Ruhezustand transparent halten; wird bei Mauszeigerkontakt oder Fokus vollständig sichtbar'
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.translucentPromptInput ?? false}
+                    onChange={(e) => updatePreferences({ translucentPromptInput: e.target.checked })}
                     className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
                   />
                 </div>

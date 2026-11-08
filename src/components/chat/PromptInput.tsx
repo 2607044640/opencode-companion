@@ -1071,12 +1071,18 @@ export function PromptInput({
     clearComposer()
   }
 
+  const isDimmedPrompt = Boolean(isZenMode || prefs.translucentPromptInput)
+
   return (
     <div
       className={
         isZenMode
           ? 'w-full select-none opacity-40 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl'
           : `mx-auto w-full px-4 sm:px-6 lg:px-8 pb-4 select-none ${
+              prefs.translucentPromptInput
+                ? 'opacity-40 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl '
+                : ''
+            }${
               prefs.conversationWidth === 'narrow'
                 ? 'max-w-2xl'
                 : prefs.conversationWidth === 'wide'
@@ -1104,7 +1110,7 @@ export function PromptInput({
         className={`relative rounded-2xl border shadow-2xl transition-all focus-within:border-zinc-700 focus-within:ring-1 focus-within:ring-sky-500/20 ${
           isDragging
             ? 'border-sky-500/80 ring-2 ring-sky-500/30 bg-[#13131a]'
-            : isZenMode
+            : isDimmedPrompt
             ? 'bg-[#101016]/95 backdrop-blur-md border-[#2b2b3f] hover:border-zinc-700'
             : 'bg-[#13131a] border-[#262638] hover:border-zinc-700'
         }`}
