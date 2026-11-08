@@ -23,6 +23,7 @@ export interface RelayQuotaResult {
   totalQuota?: number
   usedQuota?: number
   isUnmetered?: boolean
+  isAbnormal?: boolean
   note?: string
   currency: 'USD' | 'CNY'
   error?: string
@@ -35,6 +36,8 @@ export const DEFAULT_REFRESH_INTERVAL_MS = 10 * 60 * 1000 // 10 minutes (only ac
 
 export const DEFAULT_QUOTA_RATE = 500_000 // NewAPI/OneAPI standard: 500k quota = $1 USD
 export const DEFAULT_CNY_RATE = 7.2
+export const MAX_REASONABLE_BALANCE_USD = 10_000 // Real user relay balance cannot realistically exceed $10,000 USD
+export const UNLIMITED_SENTINEL_THRESHOLD = 500_000 // OneAPI/NewAPI sentinel for unlimited tokens is 10,000,000 or 100,000,000
 
 /**
  * Reads configured relay providers from storage.
@@ -135,11 +138,15 @@ export function deleteRelayProvider(id: string, storage?: Storage): RelayProvide
 export function parseQuotaResponse(
   data: unknown,
   provider: RelayProvider
-): { balance: number; totalQuota?: number; usedQuota?: number; isUnmetered?: boolean; note?: string } {
+): { balance: number; totalQuota?: number; usedQuota?: number; isUnmetered?: boolean; isAbnormal?: boolean; note?: string } {
   const quotaRate = provider.quotaRate && provider.quotaRate > 0 ? provider.quotaRate : DEFAULT_QUOTA_RATE
   const cnyRate = provider.cnyRate && provider.cnyRate > 0 ? provider.cnyRate : DEFAULT_CNY_RATE
+  const maxLimitUsd = MAX_REASONABLE_BALANCE_USD
 
   if (typeof data === 'number') {
+    if (data > maxLimitUsd) {
+      return { balance: 0, isAbnormal: true, note: '错误获取 (超出上限)' }
+    }
     return { balance: Number(data.toFixed(2)) }
   }
 
@@ -151,11 +158,32 @@ export function parseQuotaResponse(
       const hardLimit = Number(record.hard_limit_usd ?? record.system_hard_limit_usd ?? 0)
       const totalUsage = Number(record.total_usage ?? 0)
 
-      // In NewAPI, hard_limit_usd is directly remaining balance if total_usage is 0.
-      // If total_usage is present and positive, remaining = hardLimit - totalUsage.
+      // Sentinel & ceiling check: OneAPI/NewAPI token quota with unlimited setting is 10,000,000 or 100,000,000.
+      if (hardLimit >= UNLIMITED_SENTINEL_THRESHOLD || hardLimit > maxLimitUsd) {
+        return {
+          balance: 0,
+          totalQuota: hardLimit,
+          usedQuota: totalUsage,
+          isUnmetered: true,
+          isAbnormal: true,
+          note: '错误获取 (不限额/超出上限)',
+        }
+      }
+
       let remainingUsd = hardLimit
       if (totalUsage > 0 && totalUsage <= hardLimit) {
         remainingUsd = hardLimit - totalUsage
+      }
+
+      if (remainingUsd > maxLimitUsd) {
+        return {
+          balance: 0,
+          totalQuota: hardLimit,
+          usedQuota: totalUsage,
+          isUnmetered: true,
+          isAbnormal: true,
+          note: '错误获取 (超出上限)',
+        }
       }
 
       const balance = provider.currency === 'CNY' ? remainingUsd * cnyRate : remainingUsd
@@ -172,6 +200,13 @@ export function parseQuotaResponse(
 
     if (typeof nestedData.balance === 'number' || typeof nestedData.balance === 'string') {
       const bal = Number(nestedData.balance)
+      if (bal > (provider.currency === 'CNY' ? maxLimitUsd * cnyRate : maxLimitUsd) || bal >= UNLIMITED_SENTINEL_THRESHOLD) {
+        return {
+          balance: 0,
+          isAbnormal: true,
+          note: '错误获取 (超出上限)',
+        }
+      }
       return {
         balance: Number(bal.toFixed(2)),
         isUnmetered: false,
@@ -182,6 +217,14 @@ export function parseQuotaResponse(
     if (typeof nestedData.quota === 'number' || typeof nestedData.quota === 'string') {
       const rawQuota = Number(nestedData.quota)
       const usd = rawQuota / quotaRate
+      if (usd > maxLimitUsd || rawQuota >= UNLIMITED_SENTINEL_THRESHOLD * quotaRate) {
+        return {
+          balance: 0,
+          totalQuota: rawQuota,
+          isAbnormal: true,
+          note: '错误获取 (超出上限)',
+        }
+      }
       const balance = provider.currency === 'CNY' ? usd * cnyRate : usd
       return {
         balance: Math.max(0, Number(balance.toFixed(2))),
@@ -193,6 +236,13 @@ export function parseQuotaResponse(
     // 4. total_available field
     if (typeof nestedData.total_available === 'number' || typeof nestedData.total_available === 'string') {
       const bal = Number(nestedData.total_available)
+      if (bal > (provider.currency === 'CNY' ? maxLimitUsd * cnyRate : maxLimitUsd)) {
+        return {
+          balance: 0,
+          isAbnormal: true,
+          note: '错误获取 (超出上限)',
+        }
+      }
       return {
         balance: Math.max(0, Number(bal.toFixed(2))),
         isUnmetered: false,
@@ -242,9 +292,9 @@ export async function fetchRelayQuota(
   } else {
     // Modern relays (TokenShop, GGUU, NewAPI v3) return exact { balance: number } on /v1/usage
     urls.push(`${base}/v1/usage`)
+    urls.push(`${base}/api/user/self`)
     urls.push(`${base}/v1/dashboard/billing/subscription`)
     urls.push(`${base}/dashboard/billing/subscription`)
-    urls.push(`${base}/api/user/self`)
     urls.push(`${base}/v1/models`)
   }
 
@@ -281,6 +331,14 @@ export async function fetchRelayQuota(
       if (resp.ok) {
         const json = await resp.json()
         const parsed = parseQuotaResponse(json, provider)
+
+        // If this endpoint returned an abnormal / unlimited sentinel value (e.g. $10,000,000):
+        if (parsed.isAbnormal) {
+          lastError = '错误获取'
+          // Don't settle on this fake/sentinel balance; keep checking other probe URLs for real money!
+          continue
+        }
+
         return {
           ok: true,
           balance: parsed.balance,
@@ -303,7 +361,7 @@ export async function fetchRelayQuota(
     ok: false,
     balance: 0,
     currency: provider.currency,
-    error: lastError,
+    error: lastError || '错误获取',
   }
 }
 
@@ -321,7 +379,7 @@ export async function syncRelayPresets(
     })
     if (!resp.ok) return getRelayProviders(storage)
     const json = (await resp.json()) as { ok?: boolean; presets?: RelayProvider[] }
-    if (!json || !Array.isArray(json.presets) || json.presets.length === 0) {
+    if (!json || !Array.isArray(json.presets)) {
       return getRelayProviders(storage)
     }
 
@@ -357,6 +415,20 @@ export async function syncRelayPresets(
       if (p.baseUrl.includes('xn--fiq104an1x80s.com') && p.name.includes('(')) {
         p.name = '稳定中转'
         modified = true
+      }
+      if (p.baseUrl.includes('mcdesign.cn') || p.baseUrl.includes('api.mcdesign.cn')) {
+        const boundMatch = p.name.match(/\(([^)]+)\)/)
+        const boundSuffix = boundMatch ? ` (${boundMatch[1]})` : ' (gpt-6.1-sol)'
+        const expectedName = `词元超市${boundSuffix}`
+        if (p.name !== expectedName) {
+          p.name = expectedName
+          modified = true
+        }
+        const walletUrl = `${p.baseUrl.replace(/\/+$/, '')}/wallet`
+        if (p.redeemUrl !== walletUrl) {
+          p.redeemUrl = walletUrl
+          modified = true
+        }
       }
     }
 
@@ -447,7 +519,11 @@ export function aggregateBalances(providers: RelayProvider[]): BalanceSummary {
     if (p.status === 'loading') isLoading = true
     if (p.status === 'error') hasError = true
 
+    // Skip error or abnormal sentinels so total summary is not polluted
+    if (p.status === 'error') continue
     const val = typeof p.balance === 'number' && !isNaN(p.balance) ? p.balance : 0
+    if (val > MAX_REASONABLE_BALANCE_USD) continue
+
     if (p.currency === 'USD') {
       totalUsd += val
       hasUsd = true
@@ -522,6 +598,9 @@ export function parseRelayIntake(rawText: string): ParsedRelayIntake | null {
       const hostname = parsed.hostname.toLowerCase()
       if (hostname.includes('xn--fiq104an1x80s.com') || text.includes('稳定中转')) {
         inferredName = '稳定中转'
+      } else if (hostname.includes('mcdesign.cn') || text.includes('词元超市') || text.includes('mcdesign')) {
+        inferredName = '词元超市'
+        redeemUrl = `${origin}/wallet`
       } else if (hostname.includes('gguu')) {
         inferredName = 'GGUU'
       } else if (hostname.includes('127.0.0.1') || hostname.includes('localhost')) {
@@ -530,6 +609,10 @@ export function parseRelayIntake(rawText: string): ParsedRelayIntake | null {
         const parts = hostname.replace(/^www\./, '').split('.')
         const mainPart = parts[0]
         inferredName = mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+      }
+
+      if (parsed.pathname.includes('/wallet')) {
+        redeemUrl = `${origin}/wallet`
       }
     } catch {
       // ignore URL parse error

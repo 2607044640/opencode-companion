@@ -536,8 +536,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                         </span>
                       </div>
 
-                      <div className="text-xs font-mono font-semibold text-sky-300 shrink-0">
-                        {formatBalance(p.balance, p.currency)}
+                      <div className={`text-xs font-mono font-semibold shrink-0 ${isItemError ? 'text-rose-400' : 'text-sky-300'}`}>
+                        {isItemError ? (p.error?.includes('错误获取') ? '错误获取' : (p.error || '错误获取')) : formatBalance(p.balance, p.currency)}
                       </div>
                     </div>
 
@@ -545,9 +545,9 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                     <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1 border-t border-[#1f232c]">
                       <span className="truncate max-w-[130px]" title={p.error || formatTime(p.lastUpdated)}>
                         {isItemError ? (
-                          <span className="text-rose-400 flex items-center gap-1 truncate">
+                          <span className="text-rose-400 flex items-center gap-1 truncate" title={p.error}>
                             <AlertCircle className="w-3 h-3 shrink-0" />
-                            {p.error || '查询失败'}
+                            {p.error || '错误获取'}
                           </span>
                         ) : (
                           `更新: ${formatTime(p.lastUpdated)}`

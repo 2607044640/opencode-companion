@@ -745,6 +745,7 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
           else if (cleanBase.includes('llmfree.work')) id = 'relay_llmfree'
           else if (cleanBase.includes('gguuai.com')) id = 'relay_gguu'
           else if (cleanBase.includes('aimoniker.top')) id = 'relay_moniker'
+          else if (cleanBase.includes('mcdesign.cn')) id = 'relay_mcdesign'
           else {
             try {
               const u = new URL(cleanBase)
@@ -764,7 +765,10 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             name = '稳定中转'
           } else if (id === 'relay_llmfree') {
             name = 'LLMFree'
-          } else if (bound && !name.includes('(')) {
+          } else if (id === 'relay_mcdesign' || cleanBase.includes('mcdesign.cn') || String(c.name || '').includes('mcdesign')) {
+            name = '词元超市'
+          }
+          if (bound && !name.includes('(')) {
             name = `${name} (${bound})`
           }
 
@@ -773,7 +777,7 @@ function fetchViaProxy(targetUrl, headers = {}, proxyUrl, signal) {
             name,
             baseUrl: cleanBase,
             apiKey: c.key,
-            redeemUrl: `${cleanBase}/redeem`,
+            redeemUrl: cleanBase.includes('mcdesign.cn') ? `${cleanBase}/wallet` : `${cleanBase}/redeem`,
             currency: 'USD',
             quotaRate: 500000,
             cnyRate: 7.2,

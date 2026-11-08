@@ -627,8 +627,8 @@ export const RelayHubSettings: React.FC = () => {
                   {/* Right balance & actions */}
                   <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end border-t md:border-t-0 pt-2 md:pt-0 border-[#1e222c]">
                     <div className="text-right">
-                      <div className="text-sm font-mono font-bold text-sky-300">
-                        {formatBalance(p.balance, p.currency)}
+                      <div className={`text-sm font-mono font-bold ${isItemError ? 'text-rose-400' : 'text-sky-300'}`}>
+                        {isItemError ? (p.error?.includes('错误获取') ? '错误获取' : (p.error || '错误获取')) : formatBalance(p.balance, p.currency)}
                       </div>
                       <div className="text-[10px] text-zinc-500">
                         {p.lastUpdated

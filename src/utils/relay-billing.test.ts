@@ -202,6 +202,37 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       assert.equal(res.isUnmetered, false)
       assert.equal(res.note, '已连接 ($0.00)')
     })
+
+    it('detects abnormal unlimited sentinels and balances exceeding MAX_REASONABLE_BALANCE_USD', () => {
+      // 100,000,000 NewAPI unlimited sentinel
+      const res1 = parseQuotaResponse(
+        {
+          object: 'billing_subscription',
+          hard_limit_usd: 100_000_000,
+          total_usage: 0,
+        },
+        baseProvider
+      )
+      assert.equal(res1.isAbnormal, true)
+      assert.equal(res1.balance, 0)
+
+      // Direct balance exceeding ceiling limit
+      const res2 = parseQuotaResponse({ balance: 99_999_999 }, baseProvider)
+      assert.equal(res2.isAbnormal, true)
+      assert.equal(res2.balance, 0)
+
+      // Normal balance passes through
+      const res3 = parseQuotaResponse(
+        {
+          object: 'billing_subscription',
+          hard_limit_usd: 5.5,
+          total_usage: 0.5,
+        },
+        baseProvider
+      )
+      assert.equal(res3.isAbnormal, undefined)
+      assert.equal(res3.balance, 5.0)
+    })
   })
 
   describe('fetchRelayQuota Mock Tests', () => {
@@ -417,6 +448,32 @@ describe('Relay Billing Utilities (relay-billing.ts)', () => {
       assert.equal(p?.name, 'TokenFree (gpt-6.1-sol)')
       assert.equal(p?.redeemUrl, 'https://llmfree.work/redeem')
     })
+
+    it('auto-normalizes mcdesign.cn provider to 词元超市 and wallet redeemUrl', async () => {
+      const storage = createMockStorage()
+      addRelayProvider(
+        {
+          name: 'api.mcdesign.cn (gpt-6.1-sol)',
+          baseUrl: 'https://api.mcdesign.cn',
+          apiKey: 'sk-mcdesign',
+          redeemUrl: 'https://api.mcdesign.cn/redeem',
+          currency: 'USD',
+        },
+        storage
+      )
+
+      const mockFetch = (async () => {
+        return {
+          ok: true,
+          json: async () => ({ presets: [] }),
+        } as unknown as Response
+      }) as typeof fetch
+
+      const res = await syncRelayPresets(storage, mockFetch)
+      const p = res.find((item) => item.baseUrl.includes('mcdesign.cn'))
+      assert.equal(p?.name, '词元超市 (gpt-6.1-sol)')
+      assert.equal(p?.redeemUrl, 'https://api.mcdesign.cn/wallet')
+    })
   })
 
   describe('parseRelayIntake (Smart URL & Key Parsing)', () => {
@@ -458,6 +515,14 @@ sk-example-key-1234567890abcdef1234567890
       assert.ok(res2)
       assert.equal(res2.baseUrl, 'http://127.0.0.1:3000')
       assert.equal(res2.name, 'Local New API')
+    })
+
+    it('parses markdown link for 词元超市 and wallet redeemUrl', () => {
+      const res = parseRelayIntake('[词元超市](https://api.mcdesign.cn/wallet)')
+      assert.ok(res)
+      assert.equal(res.baseUrl, 'https://api.mcdesign.cn')
+      assert.equal(res.redeemUrl, 'https://api.mcdesign.cn/wallet')
+      assert.equal(res.name, '词元超市')
     })
   })
 })
