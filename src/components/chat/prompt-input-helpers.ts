@@ -6,7 +6,7 @@ const ALIAS_AGENT_NAMES = new Set(['prometheus', 'atlas', 'sisyphus'])
 
 const BUILTIN_DEFAULT_COMMANDS: readonly CommandItem[] = ANTIGRAVITY_SLASH_COMMANDS.map((cmd) => ({
   name: cmd.name,
-  description: cmd.descriptionZh || cmd.description,
+  description: cmd.description,
   category: cmd.category,
   argumentHint: cmd.argumentHint,
   icon: cmd.icon,

@@ -63,4 +63,32 @@ describe('Slash Command Guide & Palette Integration', () => {
     assert.ok(boost.formattedText.includes('[Workflow Directive: /boost]'))
     assert.ok(boost.formattedText.includes('Memory leak in WebSocket pool'))
   })
+
+  it('mergeBuiltinCommands uses pure English descriptions for all commands', () => {
+    const merged = mergeBuiltinCommands([])
+    for (const cmd of merged) {
+      assert.ok(cmd.description, `Command ${cmd.name} has description`)
+      assert.ok(
+        !/[\u4e00-\u9fa5]/.test(cmd.description),
+        `Command ${cmd.name} description should be English only, found: ${cmd.description}`
+      )
+    }
+  })
+
+  it('ANTIGRAVITY_SLASH_COMMANDS are cleanly grouped contiguously by category (no chaotic interleaving)', () => {
+    const seenCategories = new Set<string>()
+    let currentCategory: string | null = null
+
+    for (const cmd of ANTIGRAVITY_SLASH_COMMANDS) {
+      if (cmd.category !== currentCategory) {
+        assert.ok(
+          !seenCategories.has(cmd.category),
+          `Category ${cmd.category} is interleaved! It was seen earlier, broke, and reappeared.`
+        )
+        seenCategories.add(cmd.category)
+        currentCategory = cmd.category
+      }
+    }
+    assert.strictEqual(seenCategories.size, 5)
+  })
 })

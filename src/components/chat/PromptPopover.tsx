@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { Terminal, Bot, FileText, Sparkles, MessageSquare } from 'lucide-react'
 import type { CommandItem, AgentInfo, SkillItem, Session } from '../../types/opencode'
 import { formatSessionRelativeTime } from '../../utils/conversation-mention'
@@ -17,6 +17,55 @@ interface PromptPopoverProps {
   selectedIndex: number
   onSelect: (item: PopoverItem) => void
   onHoverIndex: (index: number) => void
+}
+
+function getCategoryBadge(category?: string): { label: string; className: string } {
+  if (!category) {
+    return {
+      label: 'Command',
+      className: 'text-zinc-400 bg-zinc-800/60 border-zinc-700/50',
+    }
+  }
+
+  const label = category
+    .replace(' & Planning', '')
+    .replace(' & Goals', '')
+    .replace(' & Automation', '')
+    .replace(' & Memory', '')
+    .replace('Utilities', 'Utility')
+
+  switch (label.toLowerCase()) {
+    case 'workflow':
+      return {
+        label: 'Workflow',
+        className: 'text-sky-300 bg-sky-950/60 border-sky-800/60',
+      }
+    case 'autonomous':
+      return {
+        label: 'Autonomous',
+        className: 'text-purple-300 bg-purple-950/60 border-purple-800/60',
+      }
+    case 'execution':
+      return {
+        label: 'Execution',
+        className: 'text-emerald-300 bg-emerald-950/60 border-emerald-800/60',
+      }
+    case 'context':
+      return {
+        label: 'Context',
+        className: 'text-amber-300 bg-amber-950/60 border-amber-800/60',
+      }
+    case 'utility':
+      return {
+        label: 'Utility',
+        className: 'text-zinc-300 bg-zinc-800/70 border-zinc-700/60',
+      }
+    default:
+      return {
+        label,
+        className: 'text-zinc-400 bg-zinc-800/60 border-zinc-700/50',
+      }
+  }
 }
 
 export function PromptPopover({
@@ -62,44 +111,77 @@ export function PromptPopover({
       <div className="space-y-0.5">
         {items.map((entry, index) => {
           const isSelected = selectedIndex === index
+          const prevEntry = index > 0 ? items[index - 1] : null
+
+          let sectionDivider: React.ReactNode = null
+          if (mode === 'commands') {
+            if (entry.type === 'command') {
+              const isFirstOfCategory =
+                !prevEntry || prevEntry.type !== 'command' || prevEntry.item.category !== entry.item.category
+              if (isFirstOfCategory && entry.item.category) {
+                sectionDivider = (
+                  <div
+                    key={`cat_hdr_${entry.item.category}_${index}`}
+                    className="pt-2 pb-1 px-2.5 text-[10px] font-semibold tracking-wider uppercase text-zinc-500 flex items-center gap-1.5 select-none"
+                  >
+                    <span>{entry.item.category}</span>
+                    <div className="h-px bg-zinc-800/80 flex-1 ml-1" />
+                  </div>
+                )
+              }
+            } else if (entry.type === 'skill') {
+              const isFirstOfSkill = !prevEntry || prevEntry.type !== 'skill'
+              if (isFirstOfSkill) {
+                sectionDivider = (
+                  <div
+                    key={`skill_hdr_${index}`}
+                    className="pt-2 pb-1 px-2.5 text-[10px] font-semibold tracking-wider uppercase text-zinc-500 flex items-center gap-1.5 select-none"
+                  >
+                    <span>Skills</span>
+                    <div className="h-px bg-zinc-800/80 flex-1 ml-1" />
+                  </div>
+                )
+              }
+            }
+          }
 
           if (entry.type === 'command') {
-            const categoryBadge = entry.item.category
-              ? entry.item.category.replace(' & Planning', '').replace(' & Goals', '').replace(' & Automation', '').replace(' & Memory', '')
-              : 'Command'
+            const badge = getCategoryBadge(entry.item.category)
             return (
-              <button
-                key={`cmd_${entry.item.name}_${index}`}
-                type="button"
-                data-selected={isSelected}
-                onMouseEnter={() => onHoverIndex(index)}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  onSelect(entry)
-                }}
-                onClick={() => onSelect(entry)}
-                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
-                  isSelected
-                    ? 'bg-sky-600/20 text-sky-200 border-l-2 border-sky-500 font-medium'
-                    : 'text-zinc-300 hover:bg-[#1c2028]'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Terminal className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                  <span className="font-mono text-zinc-100 font-semibold shrink-0">/{entry.item.name}</span>
-                  {entry.item.argumentHint && (
-                    <span className="font-mono text-[11px] text-sky-400/70 shrink-0 hidden sm:inline">
-                      {entry.item.argumentHint}
-                    </span>
-                  )}
-                  {entry.item.description && (
-                    <span className="text-[11px] text-zinc-400 truncate">{entry.item.description}</span>
-                  )}
-                </div>
-                <span className="text-[10px] font-mono text-zinc-400 bg-zinc-800/60 border border-zinc-700/50 px-1.5 py-0.5 rounded shrink-0">
-                  {categoryBadge}
-                </span>
-              </button>
+              <Fragment key={`entry_cmd_${entry.item.name}_${index}`}>
+                {sectionDivider}
+                <button
+                  type="button"
+                  data-selected={isSelected}
+                  onMouseEnter={() => onHoverIndex(index)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onSelect(entry)
+                  }}
+                  onClick={() => onSelect(entry)}
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
+                    isSelected
+                      ? 'bg-sky-600/20 text-sky-200 border-l-2 border-sky-500 font-medium'
+                      : 'text-zinc-300 hover:bg-[#1c2028]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Terminal className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                    <span className="font-mono text-zinc-100 font-semibold shrink-0">/{entry.item.name}</span>
+                    {entry.item.argumentHint && (
+                      <span className="font-mono text-[11px] text-sky-400/70 shrink-0 hidden sm:inline">
+                        {entry.item.argumentHint}
+                      </span>
+                    )}
+                    {entry.item.description && (
+                      <span className="text-[11px] text-zinc-400 truncate">{entry.item.description}</span>
+                    )}
+                  </div>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${badge.className}`}>
+                    {badge.label}
+                  </span>
+                </button>
+              </Fragment>
             )
           }
 
@@ -193,33 +275,37 @@ export function PromptPopover({
 
           if (entry.type === 'skill') {
             return (
-              <button
-                key={`skill_${entry.item.name}_${index}`}
-                type="button"
-                data-selected={isSelected}
-                onMouseEnter={() => onHoverIndex(index)}
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  onSelect(entry)
-                }}
-                onClick={() => onSelect(entry)}
-                className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
-                  isSelected
-                    ? 'bg-sky-600/20 text-sky-200 border-l-2 border-sky-500 font-medium'
-                    : 'text-zinc-300 hover:bg-[#1c2028]'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#161c24] border border-sky-700/50 text-sky-300 font-mono text-[11px] font-semibold leading-none">
-                    <span className="text-sky-500/90">&lt;&gt;</span>
-                    <span className="truncate max-w-[140px]">{entry.item.name}</span>
+              <Fragment key={`entry_skill_${entry.item.name}_${index}`}>
+                {sectionDivider}
+                <button
+                  type="button"
+                  data-selected={isSelected}
+                  onMouseEnter={() => onHoverIndex(index)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onSelect(entry)
+                  }}
+                  onClick={() => onSelect(entry)}
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-colors ${
+                    isSelected
+                      ? 'bg-sky-600/20 text-sky-200 border-l-2 border-sky-500 font-medium'
+                      : 'text-zinc-300 hover:bg-[#1c2028]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#161c24] border border-sky-700/50 text-sky-300 font-mono text-[11px] font-semibold leading-none">
+                      <span className="text-sky-500/90">&lt;&gt;</span>
+                      <span className="truncate max-w-[140px]">{entry.item.name}</span>
+                    </span>
+                    {entry.item.description && (
+                      <span className="text-[11px] text-zinc-400 truncate">{entry.item.description}</span>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-800/50 px-1.5 py-0.5 rounded shrink-0">
+                    Skill
                   </span>
-                  {entry.item.description && (
-                    <span className="text-[11px] text-zinc-500 truncate">{entry.item.description}</span>
-                  )}
-                </div>
-                <span className="text-[10px] font-mono text-zinc-600 shrink-0">Skill</span>
-              </button>
+                </button>
+              </Fragment>
             )
           }
 

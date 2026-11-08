@@ -63,10 +63,10 @@ export function SlashCommandGuide({
   args,
   onSelectPreset,
   onClearCommand,
-  isZh = true,
+  isZh = false,
 }: SlashCommandGuideProps) {
   const icon = getCommandIcon(definition.icon)
-  const description = isZh ? definition.descriptionZh : definition.description
+  const description = definition.description || (isZh ? definition.descriptionZh : '')
   const presets = definition.presets || []
 
   return (
@@ -85,7 +85,7 @@ export function SlashCommandGuide({
 
           {definition.argumentHint && (
             <span className="text-[10px] font-mono text-zinc-500 hidden sm:inline">
-              用法: /{definition.name} {definition.argumentHint}
+              Usage: /{definition.name} {definition.argumentHint}
             </span>
           )}
         </div>
@@ -94,7 +94,7 @@ export function SlashCommandGuide({
           type="button"
           onClick={onClearCommand}
           className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/80 transition-colors cursor-pointer shrink-0"
-          title={isZh ? '取消指令' : 'Dismiss command'}
+          title="Dismiss command"
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -104,7 +104,7 @@ export function SlashCommandGuide({
       {presets.length > 0 && !args && (
         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mr-0.5">
-            {isZh ? '预设引导' : 'Presets'}:
+            Presets:
           </span>
           {presets.map((preset, idx) => (
             <button
