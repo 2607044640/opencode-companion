@@ -219,6 +219,7 @@ export default function App() {
     closeOtherTabs,
     closeTabsToRight,
     recentlyClosedTabIds,
+    reorderTabs,
     createNewSession,
     deleteSession,
     updateSession,
@@ -756,6 +757,7 @@ export default function App() {
               onToggleMap={() => setIsMapOpen((prev) => !prev)}
               onUpdateSessionTitle={(sessionId, newTitle) => updateSession(sessionId, { title: newTitle })}
               onShowInMap={handleAddSessionToMap}
+              onReorderTabs={reorderTabs}
             />
           )}
 

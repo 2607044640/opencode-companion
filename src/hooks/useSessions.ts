@@ -712,6 +712,10 @@ export function useSessions() {
     } catch {}
   }, []);
 
+  const reorderTabs = useCallback((newTabIds: string[]) => {
+    setOpenTabIds(newTabIds);
+  }, []);
+
   // Create new session
   const createNewSession = useCallback(
     async (params?: {
@@ -1075,6 +1079,7 @@ export function useSessions() {
     closeOtherTabs,
     closeTabsToRight,
     recentlyClosedTabIds,
+    reorderTabs,
     createNewSession,
     deleteSession,
     updateSession,

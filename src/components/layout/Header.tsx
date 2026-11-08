@@ -10,6 +10,7 @@ import { TabContextMenu } from './TabContextMenu'
 import { resolveSessionProject } from '../../utils/session-workspace'
 import { getStoredTabTitles } from '../../utils/tab-persistence'
 import { AntigravityRunningIndicator, SessionUnreadDot } from '../common/SessionStatusIndicator'
+import { reorderTabIds, calculateDropPosition, type DropPosition } from '../../utils/tab-reorder'
 
 interface HeaderProps {
   projects?: Project[]
@@ -28,6 +29,7 @@ interface HeaderProps {
   onToggleMap?: () => void
   onUpdateSessionTitle?: (sessionId: string, newTitle: string) => void
   onShowInMap?: (sessionId: string) => void
+  onReorderTabs?: (newTabIds: string[]) => void
 }
 
 export function Header({
@@ -47,6 +49,7 @@ export function Header({
   onToggleMap,
   onUpdateSessionTitle,
   onShowInMap,
+  onReorderTabs,
 }: HeaderProps) {
   const { lang, t } = useI18n()
   const isZh = lang.startsWith('zh')
@@ -62,6 +65,86 @@ export function Header({
   const [editingTitle, setEditingTitle] = useState('')
   const [copiedTabId, setCopiedTabId] = useState<string | null>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Drag and drop tab reordering state
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{
+    tabId: string
+    position: DropPosition
+  } | null>(null)
+
+  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    if (editingTabId) {
+      e.preventDefault()
+      return
+    }
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', tabId)
+    e.dataTransfer.setData('application/x-opencode-tab', tabId)
+    setDraggedTabId(tabId)
+  }
+
+  const handleDragOver = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!draggedTabId || draggedTabId === tabId) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const position = calculateDropPosition(e.clientX, rect)
+    if (!dropTarget || dropTarget.tabId !== tabId || dropTarget.position !== position) {
+      setDropTarget({ tabId, position })
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent, tabId: string) => {
+    const related = e.relatedTarget as Node | null
+    if (related && e.currentTarget.contains(related)) {
+      return
+    }
+    if (dropTarget?.tabId === tabId) {
+      setDropTarget(null)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (draggedTabId && draggedTabId !== tabId && onReorderTabs) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const position = calculateDropPosition(e.clientX, rect)
+      const next = reorderTabIds(openTabIds, draggedTabId, tabId, position)
+      onReorderTabs(next)
+    }
+    setDraggedTabId(null)
+    setDropTarget(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedTabId(null)
+    setDropTarget(null)
+  }
+
+  const handleEndSlotDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (draggedTabId && dropTarget?.tabId !== '__end__') {
+      setDropTarget({ tabId: '__end__', position: 'after' })
+    }
+  }
+
+  const handleEndSlotDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (draggedTabId && onReorderTabs && openTabIds.length > 0) {
+      const lastTabId = openTabIds[openTabIds.length - 1]
+      if (draggedTabId !== lastTabId) {
+        const next = reorderTabIds(openTabIds, draggedTabId, lastTabId, 'after')
+        onReorderTabs(next)
+      }
+    }
+    setDraggedTabId(null)
+    setDropTarget(null)
+  }
 
   useEffect(() => {
     return () => {
@@ -187,9 +270,26 @@ export function Header({
               ? 'max-w-[185px] shrink'
               : 'max-w-[240px] shrink'
 
+            const isBeingDragged = draggedTabId === tabId
+            const isTarget = dropTarget?.tabId === tabId
+            const dropPos = isTarget ? dropTarget.position : null
+
+            const dropIndicatorClasses =
+              dropPos === 'before'
+                ? 'relative before:absolute before:-left-[3px] before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-full before:bg-sky-400 before:shadow-[0_0_8px_rgba(56,189,248,0.9)] before:z-30'
+                : dropPos === 'after'
+                ? 'relative after:absolute after:-right-[3px] after:top-1.5 after:bottom-1.5 after:w-1 after:rounded-full after:bg-sky-400 after:shadow-[0_0_8px_rgba(56,189,248,0.9)] after:z-30'
+                : ''
+
             return (
               <div
                 key={tabId}
+                draggable={!isEditing}
+                onDragStart={(e) => handleDragStart(e, tabId)}
+                onDragOver={(e) => handleDragOver(e, tabId)}
+                onDragLeave={(e) => handleDragLeave(e, tabId)}
+                onDrop={(e) => handleDrop(e, tabId)}
+                onDragEnd={handleDragEnd}
                 onClick={() => {
                   if (isActive && !isDraft) {
                     setEditingTabId(tabId)
@@ -221,10 +321,16 @@ export function Header({
                     e.preventDefault()
                   }
                 }}
-                className={`group flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-t-md cursor-pointer border-t-2 transition-all min-w-[50px] w-auto ${tabWidthClass} ${
+                className={`group flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-t-md border-t-2 transition-all min-w-[50px] w-auto ${tabWidthClass} ${dropIndicatorClasses} ${
+                  isBeingDragged
+                    ? 'opacity-35 scale-[0.98] ring-1 ring-sky-500/40 cursor-grabbing'
+                    : isTarget
+                    ? 'bg-sky-950/40 text-sky-200'
+                    : ''
+                } ${
                   isActive
-                    ? 'bg-[#181824] text-[#f1f5f9] border-t-sky-400 font-medium border-x border-[#262638] shadow-sm'
-                    : 'bg-[#12121a]/80 text-zinc-400 border-t-transparent hover:bg-[#161622] hover:text-zinc-200 border-x border-[#1c1c2a]'
+                    ? 'bg-[#181824] text-[#f1f5f9] border-t-sky-400 font-medium border-x border-[#262638] shadow-sm cursor-grab active:cursor-grabbing'
+                    : 'bg-[#12121a]/80 text-zinc-400 border-t-transparent hover:bg-[#161622] hover:text-zinc-200 border-x border-[#1c1c2a] cursor-grab active:cursor-grabbing'
                 }`}
               >
                 {/* Project / Folder 2-letter icon badge (e.g. OB, AP, AI) - Swaps with Running Indicator (Image 2) or Unread Blue Dot */}
@@ -325,7 +431,13 @@ export function Header({
 
           <button
             onClick={onNewSession}
-            className="p-1.5 text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#1a1d22] rounded transition-colors shrink-0 ml-0.5"
+            onDragOver={handleEndSlotDragOver}
+            onDrop={handleEndSlotDrop}
+            className={`p-1.5 rounded transition-all shrink-0 ml-0.5 cursor-pointer ${
+              dropTarget?.tabId === '__end__'
+                ? 'text-sky-300 bg-sky-950/60 ring-1 ring-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.4)]'
+                : 'text-[#8b949e] hover:text-[#e6edf3] hover:bg-[#1a1d22]'
+            }`}
             title={t.header.newTab}
           >
             <Plus className="w-3.5 h-3.5" />
