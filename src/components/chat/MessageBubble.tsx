@@ -1182,7 +1182,7 @@ export function MessageBubble({
   const handleCopy = () => {
     navigator.clipboard.writeText(fullText)
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), 1000)
   }
 
   // Exact per-message agent attribution (resolving cross-validation feedback)
@@ -1199,6 +1199,11 @@ export function MessageBubble({
       durationStr = `${diff.toFixed(1)}s`
     }
   }
+
+  const assistantCreatedTime = message.info.time?.created
+  const assistantCompletedTime = message.info.time?.completed
+  const assistantTime = assistantCompletedTime || assistantCreatedTime
+  const formattedAssistantTime = formatUserMessageTime(assistantTime)
 
   const tokens = message.info.tokens
   const isAborted =
@@ -1227,6 +1232,7 @@ export function MessageBubble({
       : null
 
   const isTurnGenerating = runKnown && (isBusy || turn.isLive)
+  const showAssistantFooter = Boolean(fullText.trim() || (!isTurnGenerating && formattedAssistantTime))
 
   // OpenCode official SSOT alignment:
   // If an assistant message has no parts, no relay error, and is explicitly completed,
@@ -1350,19 +1356,6 @@ export function MessageBubble({
                   {tokens.reasoning > 0 ? ` (${formatTokens(tokens.reasoning)} r)` : ''}
                 </span>
               </span>
-            )}
-          </div>
-
-          {/* Right Action Controls: Copy */}
-          <div className="flex items-center gap-2">
-            {fullText && (
-              <button
-                onClick={handleCopy}
-                className="p-1 hover:text-zinc-200 rounded hover:bg-zinc-800 transition-colors"
-                title="Copy all text"
-              >
-                {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              </button>
             )}
           </div>
         </div>
@@ -1638,6 +1631,32 @@ export function MessageBubble({
             </div>
           )}
         </div>
+
+        {/* Assistant Message Footer: Time / Copy (Matches Figure 2 style at dialogue bottom) */}
+        {showAssistantFooter && (
+          <div className="flex items-center justify-end gap-2 mt-1.5 text-[11px] text-zinc-400 select-none pr-1">
+            {formattedAssistantTime && (
+              <span
+                className="text-[10px] text-zinc-500 hover:text-zinc-300 font-mono tracking-tight cursor-default transition-colors"
+                title={assistantTime ? formatAbsoluteUserTime(assistantTime) : undefined}
+              >
+                {formattedAssistantTime}
+              </span>
+            )}
+
+            {fullText && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="hover:text-zinc-200 transition-colors p-1 rounded hover:bg-zinc-800 text-zinc-400 cursor-pointer"
+                title={tr('复制回答', 'Copy response', 'Antwort kopieren')}
+                aria-label={tr('复制回答', 'Copy response', 'Antwort kopieren')}
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Lightbox Preview Modal (Image 3) */}

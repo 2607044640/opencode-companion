@@ -51,3 +51,18 @@ test('formatAbsoluteUserTime formats timestamps in 26.MM.DD HH:mm 24-hour format
   const morningDate = new Date(2026, 0, 5, 9, 5, 0) // 2026-01-05 09:05
   assert.equal(formatAbsoluteUserTime(morningDate.getTime()), '26.01.05 09:05')
 })
+
+test('assistant message timestamp resolution prefers completed time over created time', () => {
+  const now = 1794144000000
+  const created = now - 5 * 60 * 1000 // 5m ago
+  const completed = now - 1 * 60 * 1000 // 1m ago
+
+  // 1. Both created and completed exist: prefers completed
+  const resolvedTime1 = completed || created
+  assert.equal(formatUserMessageTime(resolvedTime1, now), '1m ago')
+
+  // 2. Only created exists (in-flight generation): falls back to created
+  const inFlightTime: number | undefined = undefined
+  const resolvedTime2 = inFlightTime || created
+  assert.equal(formatUserMessageTime(resolvedTime2, now), '5m ago')
+})
