@@ -659,7 +659,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   </div>
                   <input
                     type="checkbox"
-                    checked={prefs.autoCollapseResponse || false}
+                    checked={prefs.autoCollapseResponse ?? true}
                     onChange={(e) => updatePreferences({ autoCollapseResponse: e.target.checked })}
                     className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
                   />
@@ -690,6 +690,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                       <span>{tr('收缩全部', 'Collapse All', 'Alle einklappen')}</span>
                       <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">Ctrl+Shift+C</kbd>
                     </button>
+                  </div>
+                </div>
+
+                {/* Mouse Upper Side Button: Toggle Dialogue in Center of Screen */}
+                <div className="flex items-center justify-between py-2.5 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{tr('鼠标上侧键伸缩面前对话', 'Mouse Upper Side Button Toggle Dialogue', 'Obere Maustaste Dialog umschalten')}</div>
+                    <div className="text-[11px] text-zinc-500">{tr('按下鼠标上侧键（前进键）或 Ctrl+Shift+D，自动判断并展开/折叠屏幕最中间的对话块', 'Press mouse upper side button (Forward) or Ctrl+Shift+D to toggle the dialogue block in the center of your screen', 'Obere Maustaste oder Ctrl+Shift+D drücken, um den Dialog in der Bildschirmmitte ein-/auszuklappen')}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('opencode-toggle-center-dialogue'))}
+                      className="px-2.5 py-1 text-xs text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      title="Ctrl + Shift + D"
+                    >
+                      <span>{tr('测试切换', 'Test Toggle', 'Testen')}</span>
+                      <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">侧键 / Ctrl+Shift+D</kbd>
+                    </button>
+                    <input
+                      type="checkbox"
+                      checked={prefs.mouseSideButtonToggleDialogue ?? true}
+                      onChange={(e) => updatePreferences({ mouseSideButtonToggleDialogue: e.target.checked })}
+                      className="rounded border-zinc-700 bg-zinc-900 text-sky-500 focus:ring-sky-500/20 w-4 h-4 cursor-pointer"
+                    />
                   </div>
                 </div>
 

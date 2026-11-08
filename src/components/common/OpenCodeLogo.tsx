@@ -6,7 +6,7 @@ interface OpenCodeLogoProps {
 }
 
 export const OpenCodeLogo: React.FC<OpenCodeLogoProps> = ({
-  className = 'w-4 h-4 text-[#f1f5f9]',
+  className = 'w-4 h-4 text-sky-400',
   color,
 }) => {
   return (

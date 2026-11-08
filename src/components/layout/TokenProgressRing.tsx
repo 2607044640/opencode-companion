@@ -39,10 +39,10 @@ export function TokenProgressRing({
 
   const strokeColor =
     activeThreshold === 'red'
-      ? '#ef4444' // Red (>= 75%)
+      ? '#f43f5e' // Rose (>= 75%)
       : activeThreshold === 'yellow'
-      ? '#eab308' // Yellow (>= 50%)
-      : '#22c55e' // Green (< 50%)
+      ? '#f59e0b' // Amber (>= 50%)
+      : '#38bdf8' // Sky blue (< 50%) - Antigravity palette
 
   return (
     <div

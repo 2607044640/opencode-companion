@@ -86,7 +86,7 @@ export function evaluatePromptCollapsing(
     (autoCollapsePrompt && (charCount > promptCharThreshold || lineCount > promptLineThreshold))
 
   const defaultCollapsed =
-    autoCollapsePrompt && (charCount > promptCharThreshold || lineCount > promptLineThreshold)
+    autoCollapsePrompt && (charCount > 150 || lineCount > 3 || charCount > promptCharThreshold || lineCount > promptLineThreshold)
 
   return {
     lineCount,

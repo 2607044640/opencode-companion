@@ -53,6 +53,18 @@ There is **no** `UnifiedDiffView.tsx`. Hunk rendering is `src/components/diff/Di
   - Hover preview card shows formatted prompt: <= 200 chars shown in full; > 200 chars truncated with middle omitted, preserving front 150 characters + ` ... ` + tail 50 characters.
   - Host envelope stripping (`stripDispatchEnvelope`): strips `[CALLER=HOST ...]` metadata headers and unwraps `<user_intent>...</user_intent>` tags so the preview card presents pure human prompt text.
   - Dynamic geometry observer: `ResizeObserver` monitors both `container` and `container.firstElementChild` to instantly recalculate tick positions whenever prompt folding or message expansions alter `scrollHeight`.
+- **Dialogue Collapsing & Half-Line Cut Algorithm (`half-line-cut.ts` & `MessageBubble.tsx`)**:
+  - `useHalfLineClipper` / `calculateHalfLineCutHeight`: Measures visible line geometry using `TreeWalker` and strictly slices the bottom visible line at its horizontal midline (~50% glyph height) for unambiguous visual affordance. Default target lines: line 4 for user prompts (3.5 visible lines), line 5 for AI responses (4.5 visible lines).
+  - Default Collapsed Invariant: All collapsible dialogues (both user inputs and model responses) default to collapsed (`autoCollapsePrompt: true`, `autoCollapseResponse: true`). Short messages below the thresholds (`chars <= 150 && lines <= 3`) remain naturally expanded without truncation.
+  - Symmetrical Long Strip Buttons: Both human inputs and model responses render a right-side vertical strip button with hover expand/collapse indicator.
+  - Pure Text Response Decoupling: Model answers render within the collapsible clipper container whenever `turn.answerParts.length > 0`, independent of whether the turn triggered tool calls (`turn.hasWork`).
+- **Dialogue Collapse Cache (`dialogue-collapse-cache.ts`)**:
+  - In-memory Map + `sessionStorage` fallback store (`opencode_dialogue_collapse_cache`, max 1000 entries) that temporarily preserves manual user expand/collapse overrides across conversation tab switches (`Ctrl+Tab` / `Ctrl+Shift+Tab`) and component unmount/remount cycles.
+  - Un-toggled messages retain their default collapsed state; zero pollution to daemon database.
+- **Smart File Resolution & Link Preview (`file-matcher.ts` & `FileViewModal.tsx`)**:
+  - Multi-tier fuzzy and canonical file matcher that safely resolves file preview links across POSIX jail paths (`/home/developer/...`), Windows absolute paths (`C:\...`), relative workspace paths, and paths with trailing anchors/line numbers (`#L10-20`, `:15`). Blocks sensitive files (`.env`, `one-api.db`).
+- **Pasted Snippet Cards (`pasted-snippets.ts`, `PastedSnippetCard.tsx`, `PastedContentModal.tsx`)**:
+  - Identifies long pasted code/text blocks in user inputs and compacts them into Claude Web-style pill badges (`p1`, `p2`) with full-screen inspect modals, keeping prompt streams clean.
 
 ## Numbered Data Flow
 

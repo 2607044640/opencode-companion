@@ -556,4 +556,78 @@ Instructions from AGENTS.md
 
     assert.throws(() => collectRollbackActions(messages, 'msg_user', '/workspace/projects/AISpace'), /snapshot/i)
   })
+
+  test('collectRollbackActions skips failed edit tool call without snapshot instead of bricking revert (F7)', () => {
+    const okMsg = toolMsg('msg_ok', 'write', { path: 'src/ok.ts', content: '123' }, 2)
+    ;(okMsg.parts[0] as any).state.metadata = {
+      revertSnapshot: { version: 1, session: 'ses_1', call: 'call_ok' },
+    }
+    const failedEditMsg: Message = {
+      info: { id: 'msg_err', sessionID: 'ses_1', role: 'assistant', time: { created: 3 } },
+      parts: [
+        {
+          id: 'p_err',
+          sessionID: 'ses_1',
+          messageID: 'msg_err',
+          type: 'tool',
+          tool: 'edit',
+          state: {
+            status: 'error',
+            input: { filePath: 'src/ok.ts', oldString: 'missing', newString: '456' },
+            error: 'oldString not found in file',
+          },
+        },
+      ],
+    }
+    const actions = collectRollbackActions([userMsg('msg_user'), okMsg, failedEditMsg], 'msg_user')
+    assert.equal(actions.length, 1)
+    assert.equal(actions[0]?.call, 'call_ok')
+  })
+
+  test('code_only rollback records rolled-back call IDs so subsequent earlier rollback skips them', async () => {
+    const m1User: Message = {
+      info: { id: 'msg_u1', sessionID: 'ses_code_only_skip', role: 'user', time: { created: 1 } },
+      parts: [{ id: 'p_u1', sessionID: 'ses_code_only_skip', messageID: 'msg_u1', type: 'text', text: 'turn 1' }],
+    }
+    const m1Asst = toolMsg('msg_a1', 'edit', { path: 'src/a.ts', oldString: '1', newString: '2' }, 2)
+    m1Asst.info.sessionID = 'ses_code_only_skip'
+    ;(m1Asst.parts[0] as any).state.metadata = {
+      revertSnapshot: { version: 1, session: 'ses_code_only_skip', call: 'call_turn_1' },
+    }
+    const m2User: Message = {
+      info: { id: 'msg_u2', sessionID: 'ses_code_only_skip', role: 'user', time: { created: 3 } },
+      parts: [{ id: 'p_u2', sessionID: 'ses_code_only_skip', messageID: 'msg_u2', type: 'text', text: 'turn 2' }],
+    }
+    const m2Asst = toolMsg('msg_a2', 'edit', { path: 'src/a.ts', oldString: '2', newString: '3' }, 4)
+    m2Asst.info.sessionID = 'ses_code_only_skip'
+    ;(m2Asst.parts[0] as any).state.metadata = {
+      revertSnapshot: { version: 1, session: 'ses_code_only_skip', call: 'call_turn_2' },
+    }
+    const history = [m1User, m1Asst, m2User, m2Asst]
+    const rolledBatches: string[][] = []
+    const port: RevertDaemonPort = {
+      revertSession: async (id) => ({ id, title: 't', time: { created: 1, updated: 1 } } as Session),
+      unrevertSession: async (id) => ({ id, title: 't', time: { created: 1, updated: 1 } } as Session),
+      summarizeSession: async () => {},
+      rollbackFiles: async (acts) => {
+        rolledBatches.push(acts.map((a) => a.call))
+        return { ok: true }
+      },
+      reloadSession: async () => {},
+    }
+
+    const res2 = await executeRevertWithTimeout(
+      { sessionId: 'ses_code_only_skip', messageId: 'msg_u2', mode: 'code_only', messages: history },
+      port
+    )
+    assert.equal(res2.ok, true)
+    assert.deepEqual(rolledBatches[0], ['call_turn_2'])
+
+    const res1 = await executeRevertWithTimeout(
+      { sessionId: 'ses_code_only_skip', messageId: 'msg_u1', mode: 'both', messages: history },
+      port
+    )
+    assert.equal(res1.ok, true)
+    assert.deepEqual(rolledBatches[1], ['call_turn_1'])
+  })
 })

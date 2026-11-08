@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Sidebar } from './components/layout/Sidebar'
 import { Header } from './components/layout/Header'
 import { ChatTimeline } from './components/chat/ChatTimeline'
@@ -72,6 +72,8 @@ export default function App() {
 
   // Unread sessions state (blue indicator for human-initiated prompts upon AI completion)
   const [unreadSessionIds, setUnreadSessionIds] = useState<string[]>(() => getUnreadSessionIds())
+  // Active busy sessions tracking across the workspace
+  const [busySessionIds, setBusySessionIds] = useState<string[]>([])
 
   useEffect(() => {
     const handleUnreadUpdate = () => {
@@ -95,11 +97,17 @@ export default function App() {
     const onIdle = (data: { sessionID?: string }) => {
       if (data?.sessionID) {
         handleSessionCompletion(data.sessionID)
+        setBusySessionIds((prev) => prev.filter((id) => id !== data.sessionID))
       }
     }
     const onStatus = (data: { sessionID?: string; status?: { type?: string } }) => {
-      if (data?.sessionID && data?.status?.type === 'idle') {
-        handleSessionCompletion(data.sessionID)
+      if (!data?.sessionID) return
+      const id = data.sessionID
+      if (data.status?.type === 'busy' || data.status?.type === 'retry') {
+        setBusySessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
+      } else if (data.status?.type === 'idle') {
+        handleSessionCompletion(id)
+        setBusySessionIds((prev) => prev.filter((x) => x !== id))
       }
     }
     const unsubIdle = sseManager.onSessionIdle(onIdle)
@@ -177,6 +185,7 @@ export default function App() {
     isErrorTerminal,
     turnEnd,
     isSending,
+    isReconcilingIdle,
     sendPrompt,
     abort,
     retry,
@@ -187,8 +196,17 @@ export default function App() {
 
   const isBusy =
     isSending ||
+    isReconcilingIdle ||
     Boolean(autoRecoveryState) ||
     (runKnown && (sessionStatus.type === 'busy' || sessionStatus.type === 'retry'))
+
+  const effectiveBusySessionIds = useMemo(() => {
+    const set = new Set(busySessionIds)
+    if (activeSessionId && isBusy) {
+      set.add(activeSessionId)
+    }
+    return Array.from(set)
+  }, [busySessionIds, activeSessionId, isBusy])
 
   const {
     currentSideQuestion,
@@ -279,11 +297,11 @@ export default function App() {
           markHumanInitiated(newSession.id)
           migrateDraftSideQuestions(newSession.id)
           migrateDraftQueue(newSession.id)
-          await sendPrompt(text, options, newSession.id)
+          return await sendPrompt(text, options, newSession.id)
         } catch (err) {
           console.error('[App] Failed to create session or send prompt on first send:', err)
+          return false
         }
-        return
       }
 
       if (activeSessionId && isArchived(activeSessionId)) {
@@ -291,7 +309,7 @@ export default function App() {
       }
 
       markHumanInitiated(activeSessionId)
-      await sendPrompt(text, options)
+      return await sendPrompt(text, options)
     },
     [activeSessionId, projects, selectedProjectId, createNewSession, sendPrompt, isArchived, unarchiveSession]
   )
@@ -495,6 +513,7 @@ export default function App() {
 
   const handleSelectSessionWithHistory = useCallback(
     (id: string) => {
+      markSessionRead(id)
       if (!isNavigatingHistory.current) {
         historyStack.current.push(id)
         updateHistoryState()
@@ -873,6 +892,7 @@ export default function App() {
           projects={projects}
           initialSelectedProjectId={selectedProjectId}
           unreadSessionIds={unreadSessionIds}
+          busySessionIds={effectiveBusySessionIds}
         />
 
         <ScheduledTasksModal

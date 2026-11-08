@@ -325,6 +325,7 @@ export function Header({
           sessionTitle={contextMenu.title}
           x={contextMenu.x}
           y={contextMenu.y}
+          unreadSessionIds={unreadSessionIds}
           onClose={() => setContextMenu(null)}
           onCloseTab={onCloseTab}
           onCloseOtherTabs={onCloseOtherTabs || (() => {})}

@@ -20,14 +20,12 @@ import {
   MapPin,
   Copy,
   Check,
+  Bookmark,
   Plus,
   SlidersHorizontal,
   Archive,
   ArchiveRestore,
   GripVertical,
-  ShieldCheck,
-  Loader2,
-  AlertCircle,
   PanelTopClose,
   PanelTopOpen,
 } from 'lucide-react'
@@ -37,7 +35,7 @@ import type { SettingsTab } from '../settings/SettingsModal'
 import { TokenStatsWidget } from './TokenStatsWidget'
 import { RelayHubDropdown } from './RelayHubDropdown'
 import { ShortcutMenu } from './ShortcutMenu'
-import { DaemonStatusDot } from './DaemonStatusDot'
+import { useDaemonHeartbeat } from '../../utils/daemon-heartbeat'
 import { OpenCodeLogo } from '../common/OpenCodeLogo'
 import { matchCanonicalWorkspace } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
@@ -62,7 +60,7 @@ import {
   getVisibleSessions,
   calculateNextLimit,
 } from '../../utils/sidebar-helpers'
-import { isSessionUnread } from '../../utils/session-unread'
+import { isSessionUnread, markSessionUnread, markSessionRead } from '../../utils/session-unread'
 
 interface SidebarProps {
   isOpen?: boolean
@@ -156,6 +154,25 @@ export function Sidebar({
 }: SidebarProps) {
   const { lang } = useI18n()
   const isZh = lang === 'zh-CN'
+
+  // Diagnostic state monitoring for AI inspection (replacing removed visual status dots)
+  const { state: daemonState, attempt: daemonAttempt } = useDaemonHeartbeat({
+    onRestored: onDaemonRestored,
+    onLost: onDaemonLost,
+  })
+
+  useEffect(() => {
+    const diag = {
+      timestamp: new Date().toISOString(),
+      daemon: { state: daemonState, attempt: daemonAttempt },
+      session: { status: sessionStatus?.type || 'idle', runKnown },
+      loopback: '127.0.0.1 (hardened isolated loopback)',
+    }
+    try {
+      ;(window as any).__ocCompanionDiagnostics = diag
+    } catch {}
+    console.log('[Companion:Diagnostics]', JSON.stringify(diag))
+  }, [daemonState, daemonAttempt, sessionStatus, runKnown])
 
   // Pinned & Archived session IDs state
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => getPinnedSessionIds())
@@ -384,7 +401,7 @@ export function Sidebar({
         {/* Top: OpenCode Logo + Expand Sidebar Icon + Quick Actions + Shortcut Menu (···) */}
         <div className="flex flex-col items-center gap-1.5">
           <div className="p-1 text-zinc-200 select-none mb-0.5" title="OpenCode">
-            <OpenCodeLogo className="w-4 h-4 text-[#f1f5f9] hover:brightness-125 transition-all" />
+            <OpenCodeLogo className="w-4 h-4 text-sky-400 hover:brightness-125 transition-all" />
           </div>
 
           {/* Toggle Sidebar [|] */}
@@ -413,10 +430,16 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenSearch}
-            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+            className="relative p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
             title={isZh ? '全局搜索 (Ctrl+K)' : 'Search Sessions (Ctrl+K)'}
           >
             <Search className="w-4 h-4" />
+            {Boolean(unreadSessionIds && unreadSessionIds.length > 0) && (
+              <span
+                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-sky-400 ring-2 ring-[#0f0f15] shadow-[0_0_6px_rgba(56,189,248,0.8)] animate-pulse"
+                title={isZh ? `${unreadSessionIds?.length} 个未读会话` : `${unreadSessionIds?.length} unread session(s)`}
+              />
+            )}
           </button>
 
           {/* Toggle Top Bar (Ctrl+Shift+B) */}
@@ -477,61 +500,6 @@ export function Sidebar({
 
           <div className="w-6 border-t border-[#21242b] my-0.5" />
 
-          {/* Ambient Status Indicator */}
-          <div className="relative group/status flex items-center justify-center p-1.5 cursor-default">
-            {!runKnown ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
-            ) : sessionStatus?.type === 'busy' ? (
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
-              </span>
-            ) : sessionStatus?.type === 'retry' ? (
-              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
-            ) : (
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500/80" />
-              </span>
-            )}
-
-            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 whitespace-nowrap rounded-md bg-[#12141a]/95 backdrop-blur-md border border-[#2a2e38] px-2 py-1 text-[11px] font-medium text-zinc-200 shadow-xl opacity-0 translate-x-1 group-hover/status:opacity-100 group-hover/status:translate-x-0 transition-all duration-150">
-              {!runKnown
-                ? '确认中…'
-                : sessionStatus?.type === 'busy'
-                ? '生成中…'
-                : sessionStatus?.type === 'retry'
-                ? `重试中 (${sessionStatus.attempt || 1})`
-                : '空闲 · 后端就绪 (127.0.0.1)'}
-            </div>
-          </div>
-
-          {/* WSL Daemon Live Connection Status Dot */}
-          <div className="flex items-center justify-center p-0.5">
-            <DaemonStatusDot
-              onRestored={onDaemonRestored}
-              onLost={onDaemonLost}
-              isZh={isZh}
-              showLabelOnIssue={false}
-            />
-          </div>
-
-          {/* Loopback Security Indicator */}
-          <div
-            tabIndex={0}
-            aria-label="127.0.0.1 沙箱隔离"
-            title="127.0.0.1 沙箱隔离边界"
-            className="group/sec relative flex items-center justify-center p-1 opacity-70 hover:opacity-100 cursor-default transition-opacity"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
-            <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 flex items-center gap-1.5 whitespace-nowrap rounded bg-[#16181e] border border-[#272a31] px-2 py-1 font-mono text-[10px] text-zinc-400 opacity-0 shadow-lg transition-all duration-200 group-hover/sec:opacity-100">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
-              <span>127.0.0.1</span>
-            </div>
-          </div>
-
-          <div className="w-6 border-t border-[#21242b] my-0.5" />
-
           {/* Settings */}
           <button
             type="button"
@@ -553,7 +521,7 @@ export function Sidebar({
         {/* Left: OpenCode Logo, Sidebar Toggle, Back, Forward */}
         <div className="flex items-center gap-1">
           <div className="p-1 text-zinc-200 select-none mr-0.5" title="OpenCode">
-            <OpenCodeLogo className="w-4 h-4 text-[#f1f5f9] hover:brightness-125 transition-all" />
+            <OpenCodeLogo className="w-4 h-4 text-sky-400 hover:brightness-125 transition-all" />
           </div>
 
           {/* Toggle Sidebar [|] */}
@@ -834,8 +802,6 @@ export function Sidebar({
                             className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
                             title={isZh ? '新消息未读' : 'Unread'}
                           />
-                        ) : isActive ? (
-                          <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
                         ) : (
                           <span className="text-[10px] text-zinc-500 font-mono">{timeLabel}</span>
                         )}
@@ -998,19 +964,8 @@ export function Sidebar({
                                   : 'text-[#8b949e] hover:bg-[#15181e] hover:text-[#c9d1d9] border border-transparent'
                               }`}
                             >
-                              {/* Left: Active Indicator / Unread Indicator / Title */}
+                              {/* Title */}
                               <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                {isSessionUnread(session.id, unreadSessionIds || []) ? (
-                                  <span
-                                    className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
-                                    title={isZh ? '新消息未读' : 'Unread'}
-                                  />
-                                ) : isActive ? (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
-                                ) : (
-                                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                )}
-
                                 {isEditing ? (
                                   <input
                                     type="text"
@@ -1044,12 +999,18 @@ export function Sidebar({
                                 )}
                               </div>
 
-                              {/* Right: Timestamp & Action buttons (图3: 📌 is pinned on the right) */}
+                              {/* Right: Unread blue dot / Timestamp / Action buttons */}
                               <div className="flex items-center gap-1 shrink-0">
-                                {/* Time label when not hovering */}
-                                <span className={`text-[10px] text-zinc-500 font-mono ${isPinned ? 'hidden' : 'group-hover:hidden'}`}>
-                                  {timeLabel}
-                                </span>
+                                {isSessionUnread(session.id, unreadSessionIds || []) ? (
+                                  <span
+                                    className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
+                                    title={isZh ? '新消息未读' : 'Unread'}
+                                  />
+                                ) : (
+                                  <span className={`text-[10px] text-zinc-500 font-mono ${isPinned ? 'hidden' : 'group-hover:hidden'}`}>
+                                    {timeLabel}
+                                  </span>
+                                )}
 
                                 {/* Pin button on the right (📌) */}
                                 <button
@@ -1297,43 +1258,6 @@ export function Sidebar({
           </button>
 
           <div className="flex items-center gap-1.5">
-            {/* WSL Daemon Live Connection Status Dot */}
-            <DaemonStatusDot
-              onRestored={onDaemonRestored}
-              onLost={onDaemonLost}
-              isZh={isZh}
-              showLabelOnIssue={true}
-            />
-
-            {/* Ambient status dot */}
-            <div className="relative group/status flex items-center p-0.5 cursor-default">
-              {!runKnown ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
-              ) : sessionStatus?.type === 'busy' ? (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
-                </span>
-              ) : sessionStatus?.type === 'retry' ? (
-                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
-              ) : (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-25" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500/80" />
-                </span>
-              )}
-            </div>
-
-            {/* Loopback Security Indicator */}
-            <div
-              tabIndex={0}
-              aria-label="127.0.0.1 沙箱隔离"
-              title="127.0.0.1 沙箱隔离边界"
-              className="p-1 text-emerald-400/80 hover:text-emerald-300 transition-colors cursor-default"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-            </div>
-
             <a
               href="https://opencode.ai/docs"
               target="_blank"
@@ -1375,6 +1299,28 @@ export function Sidebar({
           >
             <Pin className="w-3.5 h-3.5 text-orange-400" />
             <span>{isSessionPinned(contextMenu.sessionId, pinnedIds) ? (isZh ? '取消置顶' : 'Unpin') : (isZh ? '置顶会话' : 'Pin Session')}</span>
+          </button>
+
+          {/* Mark Unread / Mark Read */}
+          <button
+            type="button"
+            onClick={() => {
+              const targetId = contextMenu.sessionId
+              if (isSessionUnread(targetId, unreadSessionIds || [])) {
+                markSessionRead(targetId)
+              } else {
+                markSessionUnread(targetId)
+              }
+              setContextMenu(null)
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-sky-400" />
+            <span>
+              {isSessionUnread(contextMenu.sessionId, unreadSessionIds || [])
+                ? (isZh ? '标为已读' : 'Mark as Read')
+                : (isZh ? '标为未读' : 'Mark Unread')}
+            </span>
           </button>
 
           {/* Toggle Archive in Context Menu */}

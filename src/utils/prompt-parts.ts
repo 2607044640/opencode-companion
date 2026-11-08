@@ -7,6 +7,10 @@ import type {
   TextPart,
   SessionModel,
 } from '../types/opencode'
+import {
+  isPastedAttachment,
+  serializePromptWithPastedSnippets,
+} from './pasted-snippets'
 
 /**
  * Builds canonical MessagePartInput[] payload for OpenCode backend.
@@ -21,7 +25,7 @@ export function buildPromptParts(
   if (typeof input === 'string') {
     if (attachments && attachments.length > 0) {
       for (const att of attachments) {
-        if (att.url) {
+        if (!isPastedAttachment(att) && att.url) {
           parts.push({
             type: 'file',
             mime: att.mime || 'image/png',
@@ -31,7 +35,8 @@ export function buildPromptParts(
         }
       }
     }
-    const trimmed = input.trim()
+    const serializedText = serializePromptWithPastedSnippets(input, attachments)
+    const trimmed = serializedText.trim()
     if (trimmed) {
       parts.push({ type: 'text', text: trimmed })
     } else if (parts.length === 0) {
@@ -44,7 +49,7 @@ export function buildPromptParts(
   const combined = [...input]
   if (attachments && attachments.length > 0) {
     for (const att of attachments) {
-      if (!att.url) continue
+      if (isPastedAttachment(att) || !att.url) continue
       const exists = combined.some(
         (p) => p.type === 'file' && (p as any).url === att.url
       )
@@ -85,6 +90,7 @@ export function buildOptimisticMessage(params: {
 
   if (params.attachments && params.attachments.length > 0) {
     params.attachments.forEach((att, idx) => {
+      if (isPastedAttachment(att) || !att.url) return
       optimisticParts.push({
         id: `prt_${Date.now()}_att_${idx}`,
         sessionID: params.sessionId,
@@ -98,7 +104,8 @@ export function buildOptimisticMessage(params: {
     })
   }
 
-  const trimmedText = params.text.trim()
+  const serializedText = serializePromptWithPastedSnippets(params.text, params.attachments)
+  const trimmedText = serializedText.trim()
   if (trimmedText) {
     optimisticParts.push({
       id: `prt_${Date.now()}_txt`,

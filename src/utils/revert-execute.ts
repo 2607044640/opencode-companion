@@ -1,6 +1,6 @@
 import type { Message, Session } from '../types/opencode'
 import type { RollbackAction } from './revert-classify'
-import { collectRollbackActions } from './revert-rollback'
+import { collectRollbackActions, markCallsRolledBack } from './revert-rollback'
 
 export const REVERT_TIMEOUT_MS = 30000
 
@@ -90,6 +90,10 @@ async function runRevertPipeline(
         console.error(errMsg)
         return { ok: false, error: errMsg }
       }
+      markCallsRolledBack(
+        sessionId,
+        actions.filter((a) => a.kind === 'snapshot').map((a) => a.call)
+      )
     }
     await port.reloadSession(sessionId)
     return { ok: true }

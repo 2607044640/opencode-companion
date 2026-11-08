@@ -285,7 +285,8 @@ const server = http.createServer((req, res) => {
     reqPath === '/api/routing-config' ||
     reqPath === '/api/skills' ||
     reqPath === '/api/model-profiles' ||
-    reqPath === '/api/open-external'
+    reqPath === '/api/open-external' ||
+    reqPath === '/api/file-content'
   ) {
     req.url = req.url || reqPath
     void handleHostApi(req, res).then((handled) => {

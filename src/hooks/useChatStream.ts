@@ -70,6 +70,7 @@ export function useChatStream(
   /** Why the latest turn ended. 'user' is Stop; 'error' pauses the queue; null is a clean finish. */
   const [turnEnd, setTurnEnd] = useState<'clean' | 'error' | 'user' | null>(null)
   const [isSending, setIsSending] = useState(false)
+  const [isReconcilingIdle, setIsReconcilingIdle] = useState(false)
 
   // Use a ref to access latest messages in SSE callbacks without stale closures
   const messagesRef = useRef<Message[]>([])
@@ -102,9 +103,26 @@ export function useChatStream(
   const todosRef = useRef<TodoItem[]>([])
   const sessionStatusRef = useRef<SessionStatusPayload>({ type: 'idle' })
   const runKnownRef = useRef(false)
+  const revertingRef = useRef(false)
+  const reconcilingIdleInFlightRef = useRef<string | null>(null)
+  const reconcilingOptionsRef = useRef<{
+    abortedByUser?: boolean
+    markCleanWhenWasBusy?: boolean
+    commitCheckpointOnCleanAssistant?: boolean
+    fallbackMessages?: Message[]
+    fallbackFuseKind?: string
+  }>({})
+  const lastCleanTurnMsgIdRef = useRef<string | null>(null)
   const sendPromptRef = useRef<
-    (text: string, options?: { agent?: string; model?: { providerID: string; modelID: string } }) => Promise<void>
-  >(async () => {})
+    (
+      text: string,
+      options?: {
+        agent?: string
+        model?: { providerID: string; modelID: string }
+        isAutoRetry?: boolean
+      }
+    ) => Promise<boolean>
+  >(async () => false)
 
   const clearAutoRecoveryTimer = useCallback(() => {
     if (autoRecoveryTimerRef.current) {
@@ -152,9 +170,9 @@ export function useChatStream(
    * Returns `true` if an automatic recovery action was scheduled or is in flight.
    */
   const maybeSendGoOn = useCallback(
-    (only?: 'silence', rawErrorInput?: unknown): boolean => {
+    (rawErrorInput?: unknown): boolean | 'terminal' => {
       if (goOnFlightRef.current) return true
-      if (userAbortedRef.current || repetitionArmedRef.current) return false
+      if (userAbortedRef.current || repetitionArmedRef.current || revertingRef.current) return false
 
       const activeId = currentSessionIdRef.current
       if (!activeId || activeId === '__draft__') return false
@@ -171,6 +189,9 @@ export function useChatStream(
 
       const lastMsg = currentMsgs[currentMsgs.length - 1]
       const rawErr = rawErrorInput ?? turn.lastAssistantMessage?.info.error
+      if (rawErr && isAbortError(rawErr)) {
+        return false
+      }
 
       // 1. Check repetition loop first
       if (turn.lastAssistantMessage && sanitizeMessageRepetition(turn.lastAssistantMessage).hasLoop) {
@@ -178,7 +199,7 @@ export function useChatStream(
         setAutoRecoveryState(null)
         setError(REPETITION_LOOP_ERROR_MESSAGE)
         noteTurnEnd('error')
-        return false
+        return 'terminal'
       }
 
       // 2. Check fatal non-retryable errors (context overflow, invalid API key, quota)
@@ -188,47 +209,7 @@ export function useChatStream(
         setAutoRecoveryState(null)
         setError(fatalText)
         noteTurnEnd('error')
-        return false
-      }
-
-      // 3. Silence watchdog path (while daemon still claims busy after 90s of zero SSE)
-      if (only === 'silence') {
-        const verdict = decideGoOn({
-          lastActivityAt: lastActivityAtRef.current,
-          now: Date.now(),
-          runKnown: runKnownRef.current,
-          daemonIdle: !isRunningStatus(sessionStatusRef.current),
-          userAborted: userAbortedRef.current,
-          sentThisTurn: usedAttempts,
-          messages: currentMsgs,
-          todos: todosRef.current,
-        })
-        if (verdict.act === 'send' && verdict.reason === 'silence') {
-          const nextAttempt = usedAttempts + 1
-          autoRecoveryCountRef.current = nextAttempt
-          goOnSentRef.current = nextAttempt
-          goOnFlightRef.current = true
-          setError(null)
-          setIsErrorTerminal(false)
-          setAutoRecoveryState({
-            attempt: nextAttempt,
-            max: MAX_AUTO_RECOVERY_ATTEMPTS,
-            mode: 'go_on',
-          })
-          const last = turn.lastAssistantMessage
-          void sendPromptRef
-            .current(GO_ON_TEXT, {
-              agent: last?.info.agent || turn.rootUserMessage?.info.agent,
-              model: last?.info.model
-                ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
-                : undefined,
-            })
-            .finally(() => {
-              goOnFlightRef.current = false
-            })
-          return true
-        }
-        return false
+        return 'terminal'
       }
 
       // If a prompt or "go on" was just dispatched within the last 2.5s and no error fired, wait
@@ -263,7 +244,7 @@ export function useChatStream(
         const isEmptyFailure =
           fuse.kind === 'empty_response' ||
           fuse.kind === 'system_abort' ||
-          Boolean(rawErr) ||
+          (Boolean(rawErr) && !isAbortError(rawErr)) ||
           (Boolean(turn.rootUserMessage) && !turn.lastAssistantMessage && !sessionBusyRef.current)
 
         if (!isEmptyFailure) return false
@@ -308,6 +289,7 @@ export function useChatStream(
             if (
               currentSessionIdRef.current !== activeId ||
               userAbortedRef.current ||
+              revertingRef.current ||
               sessionBusyRef.current ||
               isSendingRef.current
             ) {
@@ -318,11 +300,12 @@ export function useChatStream(
             if (freshTurn.turnHasAnyOutput) {
               // Content arrived in the meantime -> never delete; send go on instead
               const last = freshTurn.lastAssistantMessage
+              const targetModel = freshTurn.rootUserMessage?.info.model || last?.info.model
               void sendPromptRef
                 .current(GO_ON_TEXT, {
                   agent: last?.info.agent || freshTurn.rootUserMessage?.info.agent,
-                  model: last?.info.model
-                    ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
+                  model: targetModel
+                    ? { providerID: targetModel.providerID, modelID: targetModel.modelID }
                     : undefined,
                 })
                 .finally(() => {
@@ -345,7 +328,7 @@ export function useChatStream(
         setAutoRecoveryState(null)
         setError(errMsg)
         noteTurnEnd('error')
-        return false
+        return 'terminal'
       }
 
       // 5. Branch B: Turn already has output (>= 1 char or tool call) -> NEVER delete; auto-send 'go on'
@@ -377,20 +360,22 @@ export function useChatStream(
           mode: 'go_on',
         })
 
-        // Strip transient error from assistant messages in local state so red error UI never renders
-        const cleaned = messagesRef.current.map((m) =>
-          m.info.role === 'assistant' && m.info.error
-            ? { ...m, info: { ...m.info, error: undefined } }
-            : m
+        // Keep info.error in messagesRef so the 1500ms recheck (decideGoOn) still sees the relay error;
+        // only strip transient error from React UI state during backoff.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.info.role === 'assistant' && m.info.error
+              ? { ...m, info: { ...m.info, error: undefined } }
+              : m
+          )
         )
-        messagesRef.current = cleaned
-        setMessages(cleaned)
 
         autoRecoveryTimerRef.current = setTimeout(() => {
           autoRecoveryTimerRef.current = null
           if (
             currentSessionIdRef.current !== activeId ||
             userAbortedRef.current ||
+            revertingRef.current ||
             sessionBusyRef.current ||
             isSendingRef.current
           ) {
@@ -405,11 +390,38 @@ export function useChatStream(
           }
           const freshTurn = inspectCurrentTurnRecovery(messagesRef.current, GO_ON_TEXT)
           const last = freshTurn.lastAssistantMessage
+          const recheck = decideGoOn({
+            lastActivityAt: lastActivityAtRef.current,
+            now: Date.now(),
+            runKnown: true,
+            daemonIdle: !isRunningStatus(sessionStatusRef.current),
+            userAborted: userAbortedRef.current,
+            sentThisTurn: usedAttempts,
+            messages: messagesRef.current,
+            todos: todosRef.current,
+          })
+          const stillNeedsGoOn =
+            recheck.act === 'send' ||
+            (Boolean(rawErr) &&
+              !isAbortError(rawErr) &&
+              (!last || last.info.finish !== 'stop' || Boolean(last.info.error)))
+          if (!stillNeedsGoOn) {
+            goOnFlightRef.current = false
+            setAutoRecoveryState(null)
+            return
+          }
+          // Strip transient error from messagesRef right before dispatching 'go on'
+          messagesRef.current = messagesRef.current.map((m) =>
+            m.info.role === 'assistant' && m.info.error
+              ? { ...m, info: { ...m.info, error: undefined } }
+              : m
+          )
+          const targetModel = freshTurn.rootUserMessage?.info.model || last?.info.model
           void sendPromptRef
             .current(GO_ON_TEXT, {
               agent: last?.info.agent || freshTurn.rootUserMessage?.info.agent,
-              model: last?.info.model
-                ? { providerID: last.info.model.providerID, modelID: last.info.model.modelID }
+              model: targetModel
+                ? { providerID: targetModel.providerID, modelID: targetModel.modelID }
                 : undefined,
             })
             .finally(() => {
@@ -431,7 +443,7 @@ export function useChatStream(
         setAutoRecoveryState(null)
         setError(capMsg)
         noteTurnEnd('error')
-        return false
+        return 'terminal'
       }
 
       // Clean stop
@@ -441,6 +453,109 @@ export function useChatStream(
       return false
     },
     [noteTurnEnd]
+  )
+
+  const reconcileIdleHistory = useCallback(
+    (
+      activeId: string,
+      options?: {
+        abortedByUser?: boolean
+        markCleanWhenWasBusy?: boolean
+        commitCheckpointOnCleanAssistant?: boolean
+        fallbackMessages?: Message[]
+        fallbackFuseKind?: string
+      }
+    ) => {
+      // Merge options when both session.status(idle) and session.idle arrive back-to-back
+      const prevOpts = reconcilingOptionsRef.current
+      reconcilingOptionsRef.current = {
+        abortedByUser: Boolean(prevOpts.abortedByUser || options?.abortedByUser),
+        markCleanWhenWasBusy: Boolean(prevOpts.markCleanWhenWasBusy || options?.markCleanWhenWasBusy),
+        commitCheckpointOnCleanAssistant: Boolean(
+          prevOpts.commitCheckpointOnCleanAssistant || options?.commitCheckpointOnCleanAssistant
+        ),
+        fallbackMessages: options?.fallbackMessages || prevOpts.fallbackMessages,
+        fallbackFuseKind: options?.fallbackFuseKind || prevOpts.fallbackFuseKind,
+      }
+      if (reconcilingIdleInFlightRef.current === activeId) {
+        return
+      }
+      reconcilingIdleInFlightRef.current = activeId
+      setIsReconcilingIdle(true)
+
+      void api
+        .getMessages(activeId, { fresh: true })
+        .then((history) => {
+          const mergedOpts = reconcilingOptionsRef.current
+          if (currentSessionIdRef.current !== activeId) return
+          const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
+          messagesRef.current = reconciled
+          setMessages(reconciled)
+
+          if (
+            mergedOpts.abortedByUser ||
+            userAbortedRef.current ||
+            revertingRef.current ||
+            isSendingRef.current ||
+            sessionBusyRef.current
+          ) {
+            return
+          }
+          const recovering = maybeSendGoOn()
+          if (recovering === false) {
+            const latest = reconciled[reconciled.length - 1]
+            const turnMsgId = latest?.info.id || '__empty__'
+            if (mergedOpts.commitCheckpointOnCleanAssistant) {
+              const postFuse = classifyEmptyIdleFuse({ lastMessage: latest, userAborted: false })
+              if (postFuse.kind === 'none' && latest?.info.role === 'assistant' && !latest.info.error) {
+                if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
+                  lastCleanTurnMsgIdRef.current = turnMsgId
+                  void maybeCommitGitCheckpoint(activeId, reconciled)
+                  noteTurnEnd('clean')
+                }
+              }
+            } else if (mergedOpts.markCleanWhenWasBusy) {
+              if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
+                lastCleanTurnMsgIdRef.current = turnMsgId
+                noteTurnEnd('clean')
+              }
+            }
+          }
+        })
+        .catch((err) => {
+          const mergedOpts = reconcilingOptionsRef.current
+          console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
+          if (mergedOpts.abortedByUser || userAbortedRef.current || revertingRef.current) return
+          const recovering = maybeSendGoOn()
+          if (recovering === false) {
+            const fallbackMsgs = mergedOpts.fallbackMessages || messagesRef.current
+            const lastMsg = fallbackMsgs[fallbackMsgs.length - 1]
+            const turnMsgId = lastMsg?.info.id || '__empty__'
+            if (mergedOpts.commitCheckpointOnCleanAssistant) {
+              if (mergedOpts.fallbackFuseKind === 'none' && lastMsg?.info.role === 'assistant' && !lastMsg.info.error) {
+                if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
+                  lastCleanTurnMsgIdRef.current = turnMsgId
+                  void maybeCommitGitCheckpoint(activeId, fallbackMsgs)
+                  noteTurnEnd('clean')
+                }
+              }
+            } else if (mergedOpts.markCleanWhenWasBusy) {
+              if (lastCleanTurnMsgIdRef.current !== turnMsgId) {
+                lastCleanTurnMsgIdRef.current = turnMsgId
+                noteTurnEnd('clean')
+              }
+            }
+          }
+        })
+        .finally(() => {
+          if (reconcilingIdleInFlightRef.current === activeId) {
+            reconcilingIdleInFlightRef.current = null
+            reconcilingOptionsRef.current = {}
+            setIsReconcilingIdle(false)
+          }
+        })
+    },
+    [maybeSendGoOn, noteTurnEnd]
   )
 
   const stopRepetitionLoop = useCallback((messageId: string) => {
@@ -572,6 +687,10 @@ export function useChatStream(
       goOnSentRef.current = 0
       goOnFlightRef.current = false
       lastActivityAtRef.current = 0
+      reconcilingIdleInFlightRef.current = null
+      reconcilingOptionsRef.current = {}
+      lastCleanTurnMsgIdRef.current = null
+      setIsReconcilingIdle(false)
     }
 
     if (!sessionId || sessionId === '__draft__') {
@@ -842,28 +961,7 @@ export function useChatStream(
         if (userAbortedRef.current) {
           noteTurnEnd('user')
         }
-        // Authoritative background history reconciliation on status idle
-        void api
-          .getMessages(activeId, { fresh: true })
-          .then((history) => {
-            if (currentSessionIdRef.current !== activeId) return
-            const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
-            messagesRef.current = reconciled
-            setMessages(reconciled)
-            if (!userAbortedRef.current && !isSendingRef.current && !sessionBusyRef.current) {
-              const recovering = maybeSendGoOn()
-              if (!recovering && wasBusyOnStatus) {
-                noteTurnEnd('clean')
-              }
-            }
-          })
-          .catch((err) => {
-            console.warn('[useChatStream] History reconciliation on status idle failed:', err)
-            if (wasBusyOnStatus && !userAbortedRef.current) {
-              const recovering = maybeSendGoOn()
-              if (!recovering) noteTurnEnd('clean')
-            }
-          })
+        reconcileIdleHistory(activeId, { markCleanWhenWasBusy: wasBusyOnStatus })
       }
     })
 
@@ -876,7 +974,7 @@ export function useChatStream(
 
       // User-initiated or backend abort is not a relay failure
       if (userAbortedRef.current || isAbortError(data.error)) {
-        userAbortedRef.current = false
+        clearAutoRecoveryTimer()
         setError(null)
         setAutoRecoveryState(null)
         setIsErrorTerminal(false)
@@ -886,6 +984,7 @@ export function useChatStream(
 
       const errorMsg = extractRelayErrorMessage(data.error) || 'Session error occurred'
       if (isAbortError(errorMsg)) {
+        clearAutoRecoveryTimer()
         setError(null)
         setAutoRecoveryState(null)
         setIsErrorTerminal(false)
@@ -907,7 +1006,7 @@ export function useChatStream(
       messagesRef.current = stamped
       setMessages(stamped)
       queueMicrotask(() => {
-        maybeSendGoOn(undefined, relayError)
+        maybeSendGoOn(relayError)
       })
     })
 
@@ -920,7 +1019,6 @@ export function useChatStream(
       commitSessionStatus({ type: 'idle' })
 
       const abortedByUser = userAbortedRef.current
-      userAbortedRef.current = false
 
       if (abortedByUser) {
         clearAutoRecoveryTimer()
@@ -966,38 +1064,12 @@ export function useChatStream(
         return
       }
 
-      // Immediately check with current messages, and re-verify once fresh history arrives
-      const immediateRecovering = maybeSendGoOn()
-
-      // Authoritative background history reconciliation to merge any parts or errors that arrived on idle
-      void api
-        .getMessages(activeId, { fresh: true })
-        .then((history) => {
-          if (currentSessionIdRef.current !== activeId) return
-          const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
-          messagesRef.current = reconciled
-          setMessages(reconciled)
-
-          if (abortedByUser || userAbortedRef.current || isSendingRef.current || sessionBusyRef.current) {
-            return
-          }
-          const recoveringAfterReconcile = maybeSendGoOn()
-          if (!recoveringAfterReconcile && !immediateRecovering) {
-            const latest = reconciled[reconciled.length - 1]
-            const postFuse = classifyEmptyIdleFuse({ lastMessage: latest, userAborted: false })
-            if (postFuse.kind === 'none' && latest?.info.role === 'assistant' && !latest.info.error) {
-              void maybeCommitGitCheckpoint(activeId, reconciled)
-              noteTurnEnd('clean')
-            }
-          }
-        })
-        .catch((err) => {
-          console.warn('[useChatStream] Background history reconciliation on idle failed:', err)
-          if (!immediateRecovering && fuse.kind === 'none' && lastMsg?.info.role === 'assistant') {
-            void maybeCommitGitCheckpoint(activeId, currentMsgs)
-            noteTurnEnd('clean')
-          }
-        })
+      reconcileIdleHistory(activeId, {
+        abortedByUser,
+        commitCheckpointOnCleanAssistant: true,
+        fallbackMessages: currentMsgs,
+        fallbackFuseKind: fuse.kind,
+      })
     })
 
     // Subscribe to message.removed to synchronize deletions
@@ -1016,8 +1088,9 @@ export function useChatStream(
     })
 
     // Ninety seconds of nothing. A 3s pause is a tool or a thought, not a death.
-    // Confirm with the daemon before nudging: a missed idle event must not
-    // send "go on" into a turn that already finished.
+    // Confirm with the daemon before nudging: if the daemon is still busy/retrying
+    // (e.g. long reasoning pause on gpt-6-astra), refresh the activity clock and wait;
+    // only reconcile and recover when the daemon has actually transitioned to idle.
     const silenceTimer = window.setInterval(() => {
       const activeId = currentSessionIdRef.current || sessionId
       if (!activeId || activeId === '__draft__') return
@@ -1037,29 +1110,12 @@ export function useChatStream(
         if (!isRunningStatus(status)) {
           // Backend has transitioned to idle while silence timer was running.
           // Trigger authoritative history reconciliation to recover from missed SSE idle events.
-          void api
-            .getMessages(activeId, { fresh: true })
-            .then((history) => {
-              if (currentSessionIdRef.current !== activeId) return
-              const reconciled = reconcileHistoryWithOptimistic(history, messagesRef.current)
-              messagesRef.current = reconciled
-              setMessages(reconciled)
-              if (!userAbortedRef.current && !isSendingRef.current && !sessionBusyRef.current) {
-                const recovering = maybeSendGoOn()
-                if (!recovering) {
-                  noteTurnEnd('clean')
-                }
-              }
-            })
-            .catch(() => {
-              if (!userAbortedRef.current) {
-                const recovering = maybeSendGoOn()
-                if (!recovering) noteTurnEnd('clean')
-              }
-            })
+          reconcileIdleHistory(activeId, { markCleanWhenWasBusy: true })
           return
         }
-        maybeSendGoOn('silence')
+        // Daemon explicitly confirms the turn is still running (e.g. silent reasoning or step retry).
+        // Advance activity timestamp so we re-probe after the next silence window without injecting "go on".
+        lastActivityAtRef.current = Date.now()
       })
     }, 5_000)
 
@@ -1080,7 +1136,7 @@ export function useChatStream(
       unsubTodo()
       unsubRemoved()
     }
-  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop, noteActivity, maybeSendGoOn, clearAutoRecoveryTimer])
+  }, [sessionId, loadSessionData, noteTurnEnd, commitSessionStatus, stopRepetitionLoop, noteActivity, maybeSendGoOn, reconcileIdleHistory, clearAutoRecoveryTimer])
 
   const sendPrompt = useCallback(
     async (
@@ -1089,6 +1145,7 @@ export function useChatStream(
         agent?: string
         model?: { providerID: string; modelID: string }
         attachments?: PromptAttachment[]
+        isAutoRetry?: boolean
       },
       targetSessionId?: string
     ) => {
@@ -1096,7 +1153,7 @@ export function useChatStream(
       const hasText = Boolean(text.trim())
       const hasAttachments = Boolean(options?.attachments && options.attachments.length > 0)
       if (!effectiveSessionId || (!hasText && !hasAttachments)) {
-        return
+        return false
       }
 
       // Mark the active session ID ref immediately so incoming SSE events are accepted without race conditions
@@ -1120,7 +1177,7 @@ export function useChatStream(
       repetitionArmedRef.current = false
       lastSendTimestampRef.current = Date.now()
       noteActivity('send')
-      if (text.trim() !== GO_ON_TEXT) {
+      if (text.trim() !== GO_ON_TEXT && !options?.isAutoRetry) {
         clearAutoRecoveryTimer()
         autoRecoveryCountRef.current = 0
         goOnSentRef.current = 0
@@ -1141,11 +1198,13 @@ export function useChatStream(
           model: options?.model,
           attachments: options?.attachments,
         })
+        return true
       } catch (err) {
         console.error('Failed to send prompt:', err)
         setError(err instanceof Error ? err.message : String(err))
         commitSessionStatus({ type: 'idle' })
         noteTurnEnd('error')
+        return false
       } finally {
         isSendingRef.current = false
         setIsSending(false)
@@ -1226,30 +1285,70 @@ export function useChatStream(
     // so an active generator cannot re-upsert deleted turn messages into SQLite.
     await api.abortSession(sessionId).catch(() => {})
 
+    // 0b. Fetch authoritative backend history so we delete real persisted msg_... IDs
+    // even when retry() triggers before SSE replaced the local optimistic usr_... ID.
+    const assistantIdsToDelete = new Set<string>(
+      subsequentAssistantMsgs.map((m) => m.info.id).filter((id) => !id.startsWith('usr_'))
+    )
+    const userIdsToDelete = new Set<string>(
+      lastUserMsg.info.id.startsWith('usr_') ? [] : [lastUserMsg.info.id]
+    )
+    const allRemovedIds = new Set<string>([
+      lastUserMsg.info.id,
+      ...subsequentAssistantMsgs.map((m) => m.info.id),
+    ])
+
+    const freshHistory = await api.getMessages(sessionId, { fresh: true }).catch(() => null)
+    if (freshHistory && freshHistory.length > 0) {
+      let backendUserIdx = -1
+      for (let i = freshHistory.length - 1; i >= 0; i--) {
+        if (freshHistory[i].info.role === 'user') {
+          backendUserIdx = i
+          break
+        }
+      }
+      if (backendUserIdx !== -1) {
+        const backendUserMsg = freshHistory[backendUserIdx]
+        const matchesUser =
+          backendUserMsg.info.id === lastUserMsg.info.id ||
+          lastUserMsg.info.id.startsWith('usr_')
+        if (matchesUser) {
+          userIdsToDelete.add(backendUserMsg.info.id)
+          allRemovedIds.add(backendUserMsg.info.id)
+          for (const m of freshHistory.slice(backendUserIdx + 1)) {
+            if (m.info.role === 'assistant') {
+              assistantIdsToDelete.add(m.info.id)
+              allRemovedIds.add(m.info.id)
+            }
+          }
+        }
+      }
+    }
+
     // 1. Physically delete failed/empty assistant messages from backend SQLite
-    for (const aMsg of subsequentAssistantMsgs) {
+    for (const aId of assistantIdsToDelete) {
       try {
-        await api.deleteMessage(sessionId, aMsg.info.id)
+        await api.deleteMessage(sessionId, aId)
       } catch (err) {
-        console.warn(`[Retry] Failed to delete assistant message ${aMsg.info.id}:`, err)
+        console.warn(`[Retry] Failed to delete assistant message ${aId}:`, err)
       }
     }
 
     // 2. Also delete the old user message from backend SQLite to prevent duplicate user turns
-    try {
-      await api.deleteMessage(sessionId, lastUserMsg.info.id)
-    } catch (err) {
-      console.warn(`[Retry] Failed to delete user message ${lastUserMsg.info.id}:`, err)
+    for (const uId of userIdsToDelete) {
+      try {
+        await api.deleteMessage(sessionId, uId)
+      } catch (err) {
+        console.warn(`[Retry] Failed to delete user message ${uId}:`, err)
+      }
+    }
+
+    if (pendingOptimisticIdRef.current && allRemovedIds.has(pendingOptimisticIdRef.current)) {
+      pendingOptimisticIdRef.current = null
     }
 
     // 3. Immediately strip the failed assistant messages and old user message locally
-    setMessages((prev) =>
-      prev.filter((m) => {
-        if (m.info.id === lastUserMsg.info.id) return false
-        if (subsequentAssistantMsgs.some((a) => a.info.id === m.info.id)) return false
-        return true
-      })
-    )
+    setMessages((prev) => prev.filter((m) => !allRemovedIds.has(m.info.id)))
 
     // 4. Re-dispatch the prompt cleanly without residue
     const textParts = lastUserMsg.parts.filter((p) => p.type === 'text') as TextPart[]
@@ -1271,6 +1370,7 @@ export function useChatStream(
           }
         : undefined,
       attachments,
+      isAutoRetry: true,
     })
   }, [sessionId, sendPrompt, loadSessionData])
 
@@ -1292,11 +1392,16 @@ export function useChatStream(
         console.warn('[Revert:Hook] Cannot revert: No active session')
         return { ok: false, error: 'No active session' }
       }
+      clearAutoRecoveryTimer()
+      setAutoRecoveryState(null)
+      setIsErrorTerminal(false)
+      revertingRef.current = true
       setReverting(true)
 
       // If session is actively generating or retrying, abort it first so the daemon releases the session prompt lock
       if (sessionBusyRef.current || isRunningStatus(sessionStatusRef.current)) {
         console.log('[Revert:Hook] Active prompt/retry in flight during revert, aborting session first:', sessionId)
+        userAbortedRef.current = true
         try {
           await api.abortSession(sessionId)
         } catch (err) {
@@ -1340,10 +1445,11 @@ export function useChatStream(
         console.error('[Revert:Hook] Unexpected error in revertToMessage:', err)
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       } finally {
+        revertingRef.current = false
         setReverting(false)
       }
     },
-    [sessionId, loadSessionData, onSessionUpdate, sessionDir]
+    [sessionId, loadSessionData, onSessionUpdate, sessionDir, clearAutoRecoveryTimer, commitSessionStatus]
   )
 
   /**
@@ -1351,6 +1457,8 @@ export function useChatStream(
    */
   const unrevert = useCallback(async () => {
     if (!sessionId) return { ok: false, error: 'No active session' }
+    clearAutoRecoveryTimer()
+    revertingRef.current = true
     setReverting(true)
     try {
       const updatedSession = await withRevertTimeout(api.unrevertSession(sessionId))
@@ -1361,9 +1469,10 @@ export function useChatStream(
       console.error('Failed to unrevert session:', err)
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     } finally {
+      revertingRef.current = false
       setReverting(false)
     }
-  }, [sessionId, loadSessionData, onSessionUpdate])
+  }, [sessionId, loadSessionData, onSessionUpdate, clearAutoRecoveryTimer])
 
   return {
     messages,
@@ -1377,6 +1486,7 @@ export function useChatStream(
     turnEpoch,
     turnEnd,
     isSending,
+    isReconcilingIdle,
     sendPrompt,
     abort,
     retry,

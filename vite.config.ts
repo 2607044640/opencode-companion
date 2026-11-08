@@ -6,25 +6,24 @@ import path from 'node:path'
 import { handleHostApi } from './host-api.mjs'
 
 function hostWorkspaceApi(): Plugin {
+  const handler = (req: any, res: any, next: any) => {
+    const url = (req.url || '').split('?')[0]
+    if (!url.startsWith('/api/')) {
+      next()
+      return
+    }
+    void handleHostApi(req, res).then((handled: boolean) => {
+      if (!handled) next()
+    })
+  }
+
   return {
     name: 'host-workspace-api',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = (req.url || '').split('?')[0]
-        if (
-          url !== '/api/git-checkpoint' &&
-          url !== '/api/external-file-rollback' &&
-          url !== '/api/routing-config' &&
-          url !== '/api/skills' &&
-          url !== '/api/model-profiles'
-        ) {
-          next()
-          return
-        }
-        void handleHostApi(req, res).then((handled) => {
-          if (!handled) next()
-        })
-      })
+      server.middlewares.use(handler)
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handler)
     },
   }
 }

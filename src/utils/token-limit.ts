@@ -41,7 +41,26 @@ export const DEFAULT_MODEL_PROFILES: ModelProfilesData = {
     'grok-4-6': 'grok-4.6',
     'grok4.6': 'grok-4.6',
     'newapi/grok-4.6': 'grok-4.6',
+    'grok-4.7': 'grok-4.7',
+    'obsidian/grok-4.7': 'grok-4.7',
+    'grok-4-7': 'grok-4.7',
+    'grok4.7': 'grok-4.7',
+    'grok47': 'grok-4.7',
+    'newapi/grok-4.7': 'grok-4.7',
+    'gpt-6-astra': 'gpt-6-astra',
+    'obsidian/gpt-6-astra': 'gpt-6-astra',
+    'gpt6-astra': 'gpt-6-astra',
+    'gpt6astra': 'gpt-6-astra',
+    'newapi/gpt-6-astra': 'gpt-6-astra',
+    'gpt-6.1-sol': 'gpt-6.1-sol',
+    'obsidian/gpt-6.1-sol': 'gpt-6.1-sol',
+    'gpt-6-1-sol': 'gpt-6.1-sol',
+    'gpt6.1sol': 'gpt-6.1-sol',
+    'gpt61sol': 'gpt-6.1-sol',
+    'newapi/gpt-6.1-sol': 'gpt-6.1-sol',
     'obsidian/gemini-3.8-flash': 'gemini-3.8-flash',
+    'gemini-3-8-flash': 'gemini-3.8-flash',
+    'gemini3.8flash': 'gemini-3.8-flash',
     'obsidian/gemini-3.7-flash': 'gemini-3.7-flash',
     'gemini-3-7-flash': 'gemini-3.7-flash',
     'claude-3.5-sonnet': 'claude-3.5-sonnet',
@@ -50,11 +69,43 @@ export const DEFAULT_MODEL_PROFILES: ModelProfilesData = {
     'claude-3.7-sonnet': 'claude-3.7-sonnet',
     'claude-3-7-sonnet': 'claude-3.7-sonnet',
     'obsidian/claude-opus-5': 'claude-opus-5',
+    'claude-opus-5': 'claude-opus-5',
+    'obsidian/claude-opus-5.5': 'claude-opus-5.5',
+    'claude-opus-5.5': 'claude-opus-5.5',
+    'claude-opus-5-5': 'claude-opus-5.5',
+    'opus5.5': 'claude-opus-5.5',
     'obsidian/kimi-k3': 'kimi-k3',
     'obsidian/qwen3.8-max': 'qwen3.8-max',
     'unknown': 'unknown',
   },
   profiles: {
+    'gpt-6-astra': {
+      display_name: 'GPT-6 Astra',
+      family: 'gpt',
+      api_context_tokens: 1050000,
+      effective_context_tokens: 922000,
+      warn_tokens: 368800,
+      human_gate_tokens: 553200,
+      reset_tokens: 922000,
+    },
+    'gpt-6.1-sol': {
+      display_name: 'GPT-6.1 Sol',
+      family: 'gpt',
+      api_context_tokens: 1050000,
+      effective_context_tokens: 922000,
+      warn_tokens: 368800,
+      human_gate_tokens: 553200,
+      reset_tokens: 922000,
+    },
+    'grok-4.7': {
+      display_name: 'Grok 4.7',
+      family: 'grok',
+      api_context_tokens: 1000000,
+      effective_context_tokens: 800000,
+      warn_tokens: 400000,
+      human_gate_tokens: 600000,
+      reset_tokens: 800000,
+    },
     'grok-4.6': {
       display_name: 'Grok 4.6',
       family: 'grok',
@@ -63,6 +114,24 @@ export const DEFAULT_MODEL_PROFILES: ModelProfilesData = {
       warn_tokens: 200000,
       human_gate_tokens: 300000,
       reset_tokens: 500000,
+    },
+    'claude-opus-5': {
+      display_name: 'Claude Opus 5',
+      family: 'claude',
+      api_context_tokens: 1000000,
+      effective_context_tokens: 800000,
+      warn_tokens: 400000,
+      human_gate_tokens: 600000,
+      reset_tokens: 800000,
+    },
+    'claude-opus-5.5': {
+      display_name: 'Claude Opus 5.5',
+      family: 'claude',
+      api_context_tokens: 1000000,
+      effective_context_tokens: 800000,
+      warn_tokens: 400000,
+      human_gate_tokens: 600000,
+      reset_tokens: 800000,
     },
     'claude-3.5-sonnet': {
       display_name: 'Claude 3.5 Sonnet',
@@ -138,7 +207,8 @@ export function resolveCanonicalModelId(
   aliases?: Record<string, string>
 ): string {
   if (!rawId || typeof rawId !== 'string') return 'unknown'
-  const trimmed = rawId.trim()
+  // Strip optional trailing provider badge like "gpt-6-astra (obsidian)"
+  const trimmed = rawId.trim().replace(/\s*\([^)]*\)\s*$/, '').trim()
   if (!trimmed) return 'unknown'
 
   const mergedAliases = { ...DEFAULT_MODEL_PROFILES.aliases, ...aliases }
@@ -161,20 +231,35 @@ export function resolveCanonicalModelId(
       return mergedAliases[afterSlash]
     }
     if (afterSlash) {
-      // Check if afterSlash directly exists as a profile key
-      return afterSlash
+      return resolveCanonicalModelId(afterSlash, aliases)
     }
   }
 
-  // 4. Dot/dash normalization (e.g. 'gpt-6-1-sol' <-> 'gpt-6.1-sol' <-> 'gpt6.1sol')
-  const dashNormalized = lower.replace(/\./g, '-')
+  // 4. Dot/dash/space normalization (e.g. 'gpt-6-1-sol' <-> 'gpt-6.1-sol' <-> 'gpt6.1sol')
+  const dashNormalized = lower.replace(/[_. ]+/g, '-')
   if (mergedAliases[dashNormalized]) {
     return mergedAliases[dashNormalized]
   }
+  const collapsed = lower.replace(/[-_. ]+/g, '')
+  if (mergedAliases[collapsed]) {
+    return mergedAliases[collapsed]
+  }
 
   // 5. Check model families
+  if (lower.includes('gpt-6-astra') || lower.includes('gpt6-astra') || lower.includes('gpt6astra')) {
+    return 'gpt-6-astra'
+  }
+  if (lower.includes('gpt-6.1-sol') || lower.includes('gpt-6-1-sol') || lower.includes('gpt6.1sol') || lower.includes('gpt61sol')) {
+    return 'gpt-6.1-sol'
+  }
+  if (lower.includes('grok-4.7') || lower.includes('grok-4-7') || lower.includes('grok4.7')) {
+    return 'grok-4.7'
+  }
   if (lower.includes('grok-4.6') || lower.includes('grok-4-6') || lower.includes('grok4.6')) {
     return 'grok-4.6'
+  }
+  if (lower.includes('gemini-3.8') || lower.includes('gemini-3-8')) {
+    return 'gemini-3.8-flash'
   }
   if (lower.includes('gemini-3.7') || lower.includes('gemini-3-7')) {
     return 'gemini-3.7-flash'
@@ -187,6 +272,44 @@ export function resolveCanonicalModelId(
 }
 
 /**
+ * Resolves the full ModelProfile for a given model ID.
+ */
+export function getModelProfile(
+  modelId: string | undefined | null,
+  data?: ModelProfilesData | null
+): ModelProfile {
+  const canonicalId = resolveCanonicalModelId(modelId, data?.aliases)
+  const profiles = { ...DEFAULT_MODEL_PROFILES.profiles, ...(data?.profiles || {}) }
+  return profiles[canonicalId] || profiles['unknown'] || DEFAULT_MODEL_PROFILES.profiles!['unknown']
+}
+
+/**
+ * Resolves the active model ID from session metadata or recent message turns.
+ */
+export function resolveActiveSessionModelId(
+  sessionModelId?: string | null,
+  messages?: Array<{ info?: { modelID?: string; model?: { modelID?: string } } }> | null,
+  defaultModelId?: string | null
+): string {
+  if (sessionModelId && sessionModelId.trim()) {
+    return sessionModelId.trim()
+  }
+  if (Array.isArray(messages)) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const info = messages[i]?.info
+      const msgModel = info?.modelID || info?.model?.modelID
+      if (msgModel && msgModel.trim()) {
+        return msgModel.trim()
+      }
+    }
+  }
+  if (defaultModelId && defaultModelId.trim() && defaultModelId !== 'unknown') {
+    return defaultModelId.trim()
+  }
+  return 'gpt-6.1-sol'
+}
+
+/**
  * Retrieves the operational token context ceiling for a given model ID.
  * Returns effective_context_tokens or reset_tokens or api_context_tokens.
  */
@@ -194,10 +317,7 @@ export function getTokenLimit(
   modelId: string | undefined | null,
   data?: ModelProfilesData | null
 ): number {
-  const canonicalId = resolveCanonicalModelId(modelId, data?.aliases)
-  const profiles = { ...DEFAULT_MODEL_PROFILES.profiles, ...(data?.profiles || {}) }
-  const profile = profiles[canonicalId] || profiles['unknown']
-
+  const profile = getModelProfile(modelId, data)
   if (profile) {
     return (
       profile.effective_context_tokens ||
@@ -205,11 +325,6 @@ export function getTokenLimit(
       profile.api_context_tokens ||
       500000
     )
-  }
-
-  // Safe fallback: grok models default to 500k, others 200k
-  if (canonicalId.includes('grok')) {
-    return 500000
   }
   return 500000
 }

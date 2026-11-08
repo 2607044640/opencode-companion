@@ -52,13 +52,31 @@ describe('decideGoOn', () => {
     assert.deepEqual(verdict, { act: 'wait', reason: 'still_running' })
   })
 
-  it('nudges only after a long silence while the daemon still says busy', () => {
+  it('never nudges while the daemon still says busy, even after long reasoning silence (>90s)', () => {
     const verdict = decideGoOn(clock({
       daemonIdle: false,
-      now: GO_ON_SILENCE_MS,
+      now: GO_ON_SILENCE_MS * 2,
       messages: [assistant({})],
     }))
-    assert.deepEqual(verdict, { act: 'send', reason: 'silence' })
+    assert.deepEqual(verdict, { act: 'wait', reason: 'still_running' })
+  })
+
+  it('does not stack another go on when a go on user message is already at the tail awaiting response', () => {
+    const verdict = decideGoOn(clock({
+      daemonIdle: true,
+      messages: [
+        {
+          info: { id: 'u1', sessionID: 'ses_1', role: 'user', time: { created: 1 } },
+          parts: [{ id: 'up1', sessionID: 'ses_1', messageID: 'u1', type: 'text', text: 'do work' }],
+        },
+        assistant({ finish: 'tool-calls' }),
+        {
+          info: { id: 'u2', sessionID: 'ses_1', role: 'user', time: { created: 2 } },
+          parts: [{ id: 'up2', sessionID: 'ses_1', messageID: 'u2', type: 'text', text: 'go on' }],
+        },
+      ],
+    }))
+    assert.deepEqual(verdict, { act: 'wait', reason: 'still_running' })
   })
 
   it('nudges when the relay attached an error and the turn is idle', () => {
@@ -169,5 +187,23 @@ describe('decideGoOn', () => {
       todos: [openTodo],
     }))
     assert.deepEqual(verdict, { act: 'wait', reason: 'settled' })
+  })
+
+  it('does not loop sending go on when finish is stop without error even if turn had prior go on and empty tail assistant', () => {
+    const verdict = decideGoOn(clock({
+      messages: [
+        {
+          info: { id: 'u1', sessionID: 'ses_1', role: 'user', time: { created: 1 } },
+          parts: [{ id: 'up1', sessionID: 'ses_1', messageID: 'u1', type: 'text', text: 'start' }],
+        },
+        assistant({ finish: 'length' }),
+        {
+          info: { id: 'u2', sessionID: 'ses_1', role: 'user', time: { created: 2 } },
+          parts: [{ id: 'up2', sessionID: 'ses_1', messageID: 'u2', type: 'text', text: 'go on' }],
+        },
+        assistant({ finish: 'stop', parts: [] }),
+      ],
+    }))
+    assert.deepEqual(verdict, { act: 'wait', reason: 'model_finished' })
   })
 })

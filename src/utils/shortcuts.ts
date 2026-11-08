@@ -62,6 +62,7 @@ export interface ShortcutsMap {
   openModelRouter: ShortcutItem
   expandAllConversations: ShortcutItem
   collapseAllConversations: ShortcutItem
+  toggleCenterDialogue: ShortcutItem
   togglePinSession: ShortcutItem
 }
 
@@ -86,6 +87,14 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     shiftKey: true,
     description: '收缩所有对话 (Collapse All Dialogues)',
     label: 'Ctrl + Shift + C',
+    category: 'dialogue',
+  },
+  toggleCenterDialogue: {
+    key: 'd',
+    ctrlKey: true,
+    shiftKey: true,
+    description: '展开/收缩面前对话 (Toggle Dialogue in View / Mouse Upper Side Button)',
+    label: 'Ctrl + Shift + D',
     category: 'dialogue',
   },
   prevDialogue: {

@@ -138,6 +138,18 @@ export function markSessionRead(sessionId: string, storage?: Storage): string[] 
 }
 
 /**
+ * Toggles unread status (for manual user action like right-click Mark Unread / Mark Read).
+ */
+export function toggleSessionUnread(sessionId: string, storage?: Storage): string[] {
+  if (!sessionId) return getUnreadSessionIds(storage)
+  const current = getUnreadSessionIds(storage)
+  if (current.includes(sessionId)) {
+    return markSessionRead(sessionId, storage)
+  }
+  return markSessionUnread(sessionId, storage)
+}
+
+/**
  * Checks if a session has an unread marker.
  */
 export function isSessionUnread(sessionId: string, unreadIds: string[]): boolean {

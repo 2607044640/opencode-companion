@@ -61,22 +61,104 @@ export function mergeRevertDiffs(
   return Array.from(merged.values())
 }
 
+const rolledBackCallsBySession = new Map<string, Set<string>>()
+
+const STORAGE_PREFIX = 'opencode:code-only-rolled-back:'
+
+function loadPersistedSet(sessionId: string): Set<string> {
+  let set = rolledBackCallsBySession.get(sessionId)
+  if (set) return set
+  set = new Set<string>()
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const raw = sessionStorage.getItem(`${STORAGE_PREFIX}${sessionId}`)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (typeof item === 'string') set.add(item)
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  rolledBackCallsBySession.set(sessionId, set)
+  return set
+}
+
+function persistSet(sessionId: string, set: Set<string>): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      if (set.size === 0) {
+        sessionStorage.removeItem(`${STORAGE_PREFIX}${sessionId}`)
+      } else {
+        sessionStorage.setItem(`${STORAGE_PREFIX}${sessionId}`, JSON.stringify(Array.from(set)))
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function markCallsRolledBack(sessionId: string, calls: Iterable<string>): void {
+  if (!sessionId) return
+  const set = loadPersistedSet(sessionId)
+  for (const call of calls) {
+    if (call) set.add(call)
+  }
+  persistSet(sessionId, set)
+}
+
+export function getRolledBackCalls(sessionId?: string): ReadonlySet<string> {
+  if (!sessionId) return new Set<string>()
+  return loadPersistedSet(sessionId)
+}
+
+export function clearRolledBackCalls(sessionId: string): void {
+  if (!sessionId) return
+  rolledBackCallsBySession.delete(sessionId)
+  persistSet(sessionId, new Set<string>())
+}
+
 export function collectRollbackActions(
   messages: readonly Message[],
   targetMsgId: string,
-  _sessionDir?: string
+  _sessionDir?: string,
+  alreadyRolledBack?: ReadonlySet<string>
 ): RollbackAction[] {
   const targetIndex = messages.findIndex((m) => m.info.id === targetMsgId)
   if (targetIndex === -1) throw new Error('Revert target message is not loaded')
+  const sessionId = messages[targetIndex]?.info.sessionID || messages[0]?.info.sessionID
+  const skippedCalls = alreadyRolledBack ?? getRolledBackCalls(sessionId)
   const actions: RollbackAction[] = []
   for (const message of messages.slice(targetIndex)) {
     for (const rawPart of message.parts) {
       const part = rawPart as ToolPart
       if (part.type !== 'tool' || !['edit', 'write', 'apply_patch', 'patch', 'write_to_file', 'replace_file_content', 'create'].includes(String(part.tool))) continue
-      if (part.state?.status !== 'completed') throw new Error('Revert cannot proceed while a mutation is unfinished or failed; inspect its snapshot first')
+      const status = part.state?.status
+      if (status !== 'completed') {
+        const snapshot = part.state?.metadata?.revertSnapshot
+        if (snapshot && snapshot.version === 1 && snapshot.session === message.info.sessionID && typeof snapshot.call === 'string') {
+          if (!skippedCalls.has(snapshot.call)) {
+            actions.push({ kind: 'snapshot', session: snapshot.session, call: snapshot.call })
+          }
+          continue
+        }
+        // If an edit/write/patch failed before completing (e.g. oldString not found or blocked by hook),
+        // it was rejected without mutating the file. Only block when a tool is actively pending/running.
+        if (status === 'error') {
+          continue
+        }
+        throw new Error('Revert cannot proceed while a mutation is unfinished or failed; inspect its snapshot first')
+      }
       const snapshot = part.state?.metadata?.revertSnapshot
       if (!snapshot || snapshot.version !== 1 || snapshot.session !== message.info.sessionID || typeof snapshot.call !== 'string') {
         throw new Error('Complete pre-mutation snapshot unavailable. Historical tool text and Git HEAD cannot safely restore this change.')
+      }
+      if (skippedCalls.has(snapshot.call)) {
+        continue
       }
       actions.push({ kind: 'snapshot', session: snapshot.session, call: snapshot.call })
     }

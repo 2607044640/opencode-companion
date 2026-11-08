@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Copy, Check, RotateCcw, ArrowRightToLine, Layers, MapPin, Edit3, Pin } from 'lucide-react'
+import { X, Copy, Check, RotateCcw, ArrowRightToLine, Layers, MapPin, Edit3, Pin, Bookmark } from 'lucide-react'
 import { useI18n } from '../../utils/i18n'
 import { togglePinSessionId, isSessionPinned, getPinnedSessionIds } from '../../utils/pinning'
+import { isSessionUnread, markSessionUnread, markSessionRead } from '../../utils/session-unread'
 
 interface TabContextMenuProps {
   tabId: string
   sessionTitle: string
   x: number
   y: number
+  unreadSessionIds?: string[]
   onClose: () => void
   onCloseTab: (sessionId: string) => void
   onCloseOtherTabs: (sessionId: string) => void
@@ -23,6 +25,7 @@ export function TabContextMenu({
   sessionTitle,
   x,
   y,
+  unreadSessionIds,
   onClose,
   onCloseTab,
   onCloseOtherTabs,
@@ -192,6 +195,27 @@ export function TabContextMenu({
           </span>
         </span>
         <span className="text-[10px] font-mono text-zinc-500">Ctrl+Shift+P</span>
+      </button>
+
+      {/* Mark Unread / Mark Read */}
+      <button
+        type="button"
+        onClick={() => {
+          if (isSessionUnread(tabId, unreadSessionIds || [])) {
+            markSessionRead(tabId)
+          } else {
+            markSessionUnread(tabId)
+          }
+          onClose()
+        }}
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-sky-300 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+      >
+        <Bookmark className="w-3.5 h-3.5 text-sky-400" />
+        <span>
+          {isSessionUnread(tabId, unreadSessionIds || [])
+            ? (isZh ? '标为已读' : 'Mark as Read')
+            : (isZh ? '标为未读' : 'Mark Unread')}
+        </span>
       </button>
 
       {/* Rename */}

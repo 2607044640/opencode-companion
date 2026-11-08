@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
@@ -31,15 +31,25 @@ import { emptyAssistantChrome } from '../../utils/session-run-state'
 import { usePreferences } from '../../utils/preferences'
 import { useI18n, tr } from '../../utils/i18n'
 import { evaluatePromptCollapsing } from './quick-jump'
+import { useHalfLineClipper } from '../../utils/half-line-cut'
+import {
+  getDialogueExpandedState,
+  setDialogueExpandedState,
+} from '../../utils/dialogue-collapse-cache'
 import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
 import { ImageLightboxModal, ImageThumbnailRow, type LightboxImage } from './ImageLightboxModal'
+import { PastedSnippetCard } from './PastedSnippetCard'
+import { PastedContentModal } from './PastedContentModal'
+import { parsePastedSnippetsFromText, type ParsedPastedSnippet } from '../../utils/pasted-snippets'
 import { cleanRawPath } from '../../utils/path-resolver'
+import { findBestMatchingFileInGroups, normalizeFilePath } from '../../utils/file-matcher'
 
 interface MessageBubbleProps {
   message: Message
   allMessageIds?: string[]
   onRetry?: () => void
   isZenMode?: boolean
+  sessionDirectory?: string
   onRevertToMessage?: (messageId: string) => void
   isRevertPoint?: boolean
   isReverted?: boolean
@@ -168,23 +178,156 @@ function extractFileTarget(href?: string, text?: string): string | null {
   const candidate = (href || '').trim()
   if (candidate && !candidate.startsWith('http://') && !candidate.startsWith('https://')) {
     const clean = candidate.replace(/^file:\/\/\/?/, '')
-    if (/\.(md|ts|tsx|js|jsx|json|cs|gd|py|rs|go|txt|yaml|yml|toml|css|html|sh|c|h|cpp|hpp|sql|env)$/i.test(clean)) {
+    const cleanNoAnchor = clean
+      .replace(/#L\d+(?:-\d+)?$/i, '')
+      .replace(/:\d+(?::\d+)?$/, '')
+      .replace(/\(\d+(?:,\s*\d+)?\)$/, '')
+    if (/\.(md|ts|tsx|js|jsx|json|cs|gd|py|rs|go|txt|yaml|yml|toml|css|html|sh|c|h|cpp|hpp|sql|env)$/i.test(cleanNoAnchor)) {
       return clean
     }
-    if (/[/\\][a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+$/i.test(clean)) {
+    if (/[/\\][a-zA-Z0-9_\-.]+\.[a-zA-Z0-9]+$/i.test(cleanNoAnchor)) {
       return clean
     }
   }
   if (text && (!candidate || !candidate.startsWith('http'))) {
     const cleanText = text.trim().replace(/^[`'"]+|[`'"]+$/g, '')
-    if (/\.(md|ts|tsx|js|jsx|json|cs|gd|py|rs|go|txt|yaml|yml|toml|css|html|sh|c|h|cpp|hpp|sql|env)$/i.test(cleanText)) {
+    const cleanTextNoAnchor = cleanText
+      .replace(/#L\d+(?:-\d+)?$/i, '')
+      .replace(/:\d+(?::\d+)?$/, '')
+      .replace(/\(\d+(?:,\s*\d+)?\)$/, '')
+    if (/\.(md|ts|tsx|js|jsx|json|cs|gd|py|rs|go|txt|yaml|yml|toml|css|html|sh|c|h|cpp|hpp|sql|env)$/i.test(cleanTextNoAnchor)) {
       return cleanText
     }
   }
   return null
 }
 
-function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (target: string) => void) {
+function extractTextFromChildren(children: any): string {
+  if (typeof children === 'string') return children
+  if (typeof children === 'number') return String(children)
+  if (!children) return ''
+  if (Array.isArray(children)) {
+    return children.map(extractTextFromChildren).join('')
+  }
+  if (children.props && children.props.children) {
+    return extractTextFromChildren(children.props.children)
+  }
+  return ''
+}
+
+interface MarkdownCodeBlockProps {
+  children?: React.ReactNode
+  isZenMode?: boolean
+  node?: any
+  [key: string]: any
+}
+
+function MarkdownCodeBlock({ children, isZenMode, node, ...props }: MarkdownCodeBlockProps) {
+  const [copied, setCopied] = useState(false)
+  const preRef = useRef<HTMLPreElement>(null)
+
+  const handleCopy = useCallback(async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    let text = ''
+    if (preRef.current) {
+      text = preRef.current.innerText || preRef.current.textContent || ''
+    } else {
+      text = extractTextFromChildren(children)
+    }
+
+    if (!text) return
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch (err) {
+      console.warn('Failed to copy code block content', err)
+    }
+  }, [children])
+
+  // Detect code language if specified
+  let language = ''
+  if (children && typeof children === 'object' && 'props' in (children as any)) {
+    const codeClassName = (children as any).props?.className || ''
+    const match = /language-([a-zA-Z0-9_\-]+)/.exec(codeClassName)
+    if (match) {
+      language = match[1]
+    }
+  }
+
+  return (
+    <div className="group/code-block relative my-2.5 rounded-xl bg-[#161622] border border-[#242436] overflow-hidden shadow-sm">
+      {/* Top right floating Copy button: automatically appears on hover or remains visible when copied */}
+      <div
+        className={`absolute top-2 right-2 z-10 flex items-center gap-1.5 transition-all duration-150 ${
+          copied
+            ? 'opacity-100 pointer-events-auto'
+            : 'opacity-0 group-hover/code-block:opacity-100 focus-within:opacity-100 pointer-events-none group-hover/code-block:pointer-events-auto focus-within:pointer-events-auto'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-md font-sans text-xs transition-all duration-150 backdrop-blur-md cursor-pointer select-none shadow-sm ${
+            copied
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+              : 'bg-zinc-800/85 hover:bg-zinc-700/95 text-zinc-300 hover:text-white border border-zinc-700/70 hover:border-zinc-500/80'
+          }`}
+          title={copied ? tr('已复制', 'Copied', 'Kopiert') : tr('复制代码/文本', 'Copy code/text', 'Code/Text kopieren')}
+          aria-label={copied ? 'Copied' : 'Copy code'}
+        >
+          {copied ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="text-[11px] font-medium text-emerald-300">
+                {tr('已复制', 'Copied', 'Kopiert')}
+              </span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5 text-zinc-400 group-hover/code-block:text-zinc-200 shrink-0" />
+              <span className="text-[11px] font-medium text-zinc-300">
+                {tr('复制', 'Copy', 'Kopieren')}
+              </span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {language && (
+        <div className="absolute top-2.5 left-3 pointer-events-none select-none text-[10px] font-mono font-medium text-zinc-500 uppercase tracking-wider">
+          {language}
+        </div>
+      )}
+
+      <pre
+        ref={preRef}
+        className={`overflow-x-auto font-mono text-zinc-300 ${
+          language ? 'pt-7 ' : ''
+        }${isZenMode ? 'p-4 text-xs sm:text-sm leading-relaxed' : 'p-3 text-xs'}`}
+        {...props}
+      >
+        {children}
+      </pre>
+    </div>
+  )
+}
+
+export function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (target: string) => void) {
   return {
     table: ({ children, ...props }: any) => (
       <div className="my-3.5 overflow-x-auto rounded-lg border border-[#272b33] bg-[#111317] shadow-sm">
@@ -261,23 +404,43 @@ function createMarkdownComponents(isZenMode?: boolean, onOpenFile?: (target: str
         {children}
       </blockquote>
     ),
-    pre: ({ ...props }: any) => (
-      <div className="relative my-2 rounded-xl bg-[#161622] border border-[#242436] overflow-hidden">
-        <pre
-          className={`overflow-x-auto font-mono text-zinc-300 ${
-            isZenMode ? 'p-4 text-xs sm:text-sm leading-relaxed' : 'p-3 text-xs'
-          }`}
-          {...props}
-        />
-      </div>
+    pre: ({ children, node, ...props }: any) => (
+      <MarkdownCodeBlock isZenMode={isZenMode} node={node} {...props}>
+        {children}
+      </MarkdownCodeBlock>
     ),
     code: ({ className, children, ...props }: any) => {
       const isInline = !className
+      const textContent = typeof children === 'string' ? children.trim() : ''
+      const isFile = isInline && Boolean(onOpenFile) && Boolean(extractFileTarget(undefined, textContent))
+
       return isInline ? (
         <code
+          onClick={
+            isFile && onOpenFile
+              ? (e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onOpenFile(textContent)
+                }
+              : undefined
+          }
           className={`bg-zinc-800/80 text-zinc-200 border border-zinc-700/60 px-1.5 py-0.5 rounded-md font-mono font-medium ${
+            isFile
+              ? 'cursor-pointer hover:bg-zinc-700/80 hover:text-cyan-300 hover:border-cyan-600/50 transition-colors'
+              : ''
+          } ${
             isZenMode ? 'text-xs sm:text-[13px]' : 'text-[11px] sm:text-xs'
           }`}
+          title={
+            isFile
+              ? tr(
+                  '点击在浮窗中查看文件',
+                  'Click to view file in floating window',
+                  'Klicken, um Datei im Fenster anzuzeigen'
+                )
+              : undefined
+          }
           {...props}
         >
           {children}
@@ -451,35 +614,63 @@ function UserMessageBubble({
 }: UserMessageBubbleProps) {
   const { t, tr } = useI18n()
   const [copied, setCopied] = useState(false)
+  const [activePastedSnippet, setActivePastedSnippet] = useState<ParsedPastedSnippet | null>(null)
+
+  const { snippets: pastedSnippets, cleanText: displayText } = useMemo(
+    () => parsePastedSnippetsFromText(fullText),
+    [fullText]
+  )
 
   const { isCollapsible, defaultCollapsed } = useMemo(
     () =>
-      evaluatePromptCollapsing(fullText, {
+      evaluatePromptCollapsing(displayText, {
         autoCollapsePrompt,
         promptCharThreshold,
         promptLineThreshold,
       }),
-    [fullText, autoCollapsePrompt, promptCharThreshold, promptLineThreshold]
+    [displayText, autoCollapsePrompt, promptCharThreshold, promptLineThreshold]
   )
 
-  const [isExpanded, setIsExpanded] = useState(!defaultCollapsed)
+  const [isExpanded, setIsExpanded] = useState(() => {
+    return getDialogueExpandedState(message.info.id, undefined, !defaultCollapsed)
+  })
+
+  const userClipper = useHalfLineClipper({
+    targetLineIndex: 4,
+    fallbackHeight: isZenMode ? 91 : 84,
+    isCollapsed: isCollapsible && !isExpanded,
+  })
 
   useEffect(() => {
     const handleExpandAll = () => {
       setIsExpanded(true)
+      setDialogueExpandedState(message.info.id, true)
     }
     const handleCollapseAll = () => {
       if (isCollapsible) {
         setIsExpanded(false)
+        setDialogueExpandedState(message.info.id, false)
+      }
+    }
+    const handleToggle = (e: Event) => {
+      const custom = e as CustomEvent<{ messageId?: string }>
+      if (custom.detail?.messageId === message.info.id && isCollapsible) {
+        setIsExpanded((prev) => {
+          const next = !prev
+          setDialogueExpandedState(message.info.id, next)
+          return next
+        })
       }
     }
     window.addEventListener('opencode-expand-all-dialogues', handleExpandAll)
     window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    window.addEventListener('opencode-toggle-dialogue', handleToggle)
     return () => {
       window.removeEventListener('opencode-expand-all-dialogues', handleExpandAll)
       window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+      window.removeEventListener('opencode-toggle-dialogue', handleToggle)
     }
-  }, [isCollapsible])
+  }, [isCollapsible, message.info.id])
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -516,6 +707,8 @@ function UserMessageBubble({
       data-prompt-preview={promptPreviewText}
       data-created-time={createdTime || ''}
       data-message-id={message.info.id}
+      data-collapsible={isCollapsible ? 'true' : 'false'}
+      data-expanded={isExpanded ? 'true' : 'false'}
       id={`msg_${message.info.id}`}
       className="w-full my-3 flex flex-col items-end"
     >
@@ -543,37 +736,65 @@ function UserMessageBubble({
           )
         })()}
 
+        {/* Pasted Text Snippet Cards (p1, p2 - Claude Web style) */}
+        {pastedSnippets.length > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
+            {pastedSnippets.map((snippet) => (
+              <PastedSnippetCard
+                key={snippet.id}
+                pastedId={snippet.pastedId}
+                content={snippet.content}
+                compact
+                onClick={() => setActivePastedSnippet(snippet)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Prompt Text with Auto-Collapse & Right-Side Adaptive Long Button */}
-        {fullText && (
+        {displayText && (
           <div className="flex items-stretch gap-2 w-full">
             <div className="flex-1 min-w-0 relative">
               <div
+                ref={userClipper.containerRef}
+                style={{
+                  maxHeight:
+                    isCollapsible && !isExpanded
+                      ? `${userClipper.effectiveHeight}px`
+                      : undefined,
+                }}
+                onClick={
+                  isCollapsible && !isExpanded
+                    ? () => {
+                        setIsExpanded(true)
+                        setDialogueExpandedState(message.info.id, true)
+                      }
+                    : undefined
+                }
                 className={`whitespace-pre-wrap leading-relaxed text-zinc-100 transition-all ${
-                  isCollapsible && !isExpanded ? 'max-h-24 overflow-hidden' : ''
+                  isCollapsible && !isExpanded ? 'overflow-hidden cursor-pointer' : ''
                 }`}
+                title={
+                  isCollapsible && !isExpanded
+                    ? tr('点击展开完整提示词', 'Click to expand full prompt', 'Klicken, um vollständigen Prompt anzuzeigen')
+                    : undefined
+                }
               >
-                {fullText}
+                {displayText}
               </div>
-
-              {/* Bottom gradient fade mask when collapsed */}
-              {isCollapsible && !isExpanded && (
-                <div
-                  onClick={() => setIsExpanded(true)}
-                  className={`absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t ${
-                    isZenMode
-                      ? 'from-[#101016] via-[#101016]/90'
-                      : 'from-[#13131a] via-[#13131a]/90'
-                  } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
-                  title={tr('点击展开完整提示词', 'Click to expand full prompt', 'Klicken, um vollständigen Prompt anzuzeigen')}
-                />
-              )}
             </div>
 
             {/* Right Side Vertical Strip Button for Human Inputs (User Messages) */}
             {isCollapsible && (
               <button
                 type="button"
-                onClick={() => setIsExpanded(!isExpanded)}
+                onClick={() => {
+                  setIsExpanded((prev) => {
+                    const next = !prev
+                    setDialogueExpandedState(message.info.id, next)
+                    return next
+                  })
+                }}
                 className="group/side-btn flex items-center justify-center w-3 hover:w-3.5 shrink-0 self-stretch rounded-full py-1 cursor-pointer select-none focus:outline-none transition-all"
                 title={isExpanded ? tr('点击收起提示词', 'Click to collapse prompt', 'Prompt einklappen') : tr('点击展开完整提示词', 'Click to expand full prompt', 'Prompt ausklappen')}
                 aria-label={isExpanded ? tr('收起提示词', 'Collapse prompt') : tr('展开提示词', 'Expand prompt')}
@@ -669,6 +890,16 @@ function UserMessageBubble({
           initialIndex={lightboxIndex}
         />
       )}
+
+      {/* Pasted Snippet Viewer Modal (Image 3 FileViewModal style) */}
+      {activePastedSnippet && (
+        <PastedContentModal
+          isOpen={true}
+          pastedId={activePastedSnippet.pastedId}
+          content={activePastedSnippet.content}
+          onClose={() => setActivePastedSnippet(null)}
+        />
+      )}
     </div>
   )
 }
@@ -678,6 +909,7 @@ export function MessageBubble({
   allMessageIds,
   onRetry: _onRetry,
   isZenMode,
+  sessionDirectory,
   onRevertToMessage,
   isRevertPoint,
   isReverted,
@@ -690,7 +922,10 @@ export function MessageBubble({
   const { t, tr } = useI18n()
   const { openTurn: openDiffTurn } = useDiffDrawer()
   const [copied, setCopied] = useState(false)
-  const [isReportExpanded, setIsReportExpanded] = useState(!prefs.autoCollapseResponse)
+  const autoCollapseResponse = prefs.autoCollapseResponse ?? true
+  const [isReportExpanded, setIsReportExpanded] = useState(() => {
+    return getDialogueExpandedState(message.info.id, allMessageIds, !autoCollapseResponse)
+  })
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -714,62 +949,71 @@ export function MessageBubble({
   const answerCharCount = answerFullText.length
   const answerLineCount = answerFullText ? answerFullText.split('\n').length : 0
   const isAnswerCollapsible =
-    (answerCharCount > 360 || answerLineCount > 6) && !turn.isLive
+    (answerCharCount > 200 ||
+      answerLineCount > 4 ||
+      answerCharCount > prefs.promptCharThreshold ||
+      answerLineCount > prefs.promptLineThreshold) &&
+    !turn.isLive
+
+  const assistantClipper = useHalfLineClipper({
+    targetLineIndex: isZenMode ? 6 : 5,
+    fallbackHeight: isZenMode ? 144 : 124,
+    isCollapsed: isAnswerCollapsible && !isReportExpanded,
+  })
 
   useEffect(() => {
     const handleExpandAll = () => {
       setIsReportExpanded(true)
+      setDialogueExpandedState(message.info.id, true, allMessageIds)
     }
     const handleCollapseAll = () => {
       if (isAnswerCollapsible) {
         setIsReportExpanded(false)
+        setDialogueExpandedState(message.info.id, false, allMessageIds)
+      }
+    }
+    const handleToggle = (e: Event) => {
+      const custom = e as CustomEvent<{ messageId?: string; allMessageIds?: string[] }>
+      const targetId = custom.detail?.messageId
+      const targetAll = custom.detail?.allMessageIds
+      const isTarget =
+        targetId === message.info.id ||
+        (targetAll && targetAll.includes(message.info.id)) ||
+        (allMessageIds && targetId && allMessageIds.includes(targetId))
+      if (isTarget && isAnswerCollapsible) {
+        setIsReportExpanded((prev) => {
+          const next = !prev
+          setDialogueExpandedState(message.info.id, next, allMessageIds)
+          return next
+        })
       }
     }
     window.addEventListener('opencode-expand-all-dialogues', handleExpandAll)
     window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    window.addEventListener('opencode-toggle-dialogue', handleToggle)
     return () => {
       window.removeEventListener('opencode-expand-all-dialogues', handleExpandAll)
       window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+      window.removeEventListener('opencode-toggle-dialogue', handleToggle)
     }
-  }, [isAnswerCollapsible])
+  }, [isAnswerCollapsible, message.info.id, allMessageIds])
 
   const [activeFileModalItem, setActiveFileModalItem] = useState<ExploreItem | null>(null)
 
   const handleOpenFileModal = useCallback((targetPath: string) => {
-    const clean = cleanRawPath(targetPath)
-    const fileName = clean.split(/[/\\]/).filter(Boolean).pop() || clean
+    // 1. Smart multi-source match against current turn groups (explore, edit, command)
+    const match = findBestMatchingFileInGroups(targetPath, turn.groups)
 
-    // 1. Search in turn.groups for matching ExploreItem or edit
-    let matchingOutput: string | undefined
-    let matchingFullPath: string | undefined
-    for (const group of turn.groups) {
-      if (group.kind === 'explore') {
-        const found = group.items.find(
-          (it) =>
-            it.pathOrQuery.toLowerCase().includes(fileName.toLowerCase()) ||
-            (it.fullPath && it.fullPath.toLowerCase().includes(fileName.toLowerCase()))
-        )
-        if (found) {
-          matchingOutput = found.output
-          matchingFullPath = found.fullPath
-          break
-        }
-      } else if (group.kind === 'edit') {
-        if (group.item.filePath.toLowerCase().includes(fileName.toLowerCase())) {
-          matchingFullPath = group.item.filePath
-          break
-        }
-      }
-    }
+    const resolvedPath = match.fullPath || normalizeFilePath(targetPath) || cleanRawPath(targetPath)
 
     const item: ExploreItem = {
-      partId: `md_file_${Date.now()}`,
+      partId: `file_modal_${Date.now()}`,
       tool: 'read',
-      pathOrQuery: clean,
-      fullPath: matchingFullPath || clean,
+      pathOrQuery: targetPath,
+      fullPath: resolvedPath,
       kind: 'file',
       status: 'completed',
-      output: matchingOutput,
+      output: match.content,
     }
 
     setActiveFileModalItem(item)
@@ -878,6 +1122,8 @@ export function MessageBubble({
     <div
       data-message-role="assistant"
       data-message-id={message.info.id}
+      data-collapsible={isAnswerCollapsible ? 'true' : 'false'}
+      data-expanded={isReportExpanded ? 'true' : 'false'}
       id={`msg_${message.info.id}`}
       className={`w-full my-4 ${isZenMode ? 'my-6' : ''}`}
     >
@@ -1003,95 +1249,104 @@ export function MessageBubble({
 
         {/* Message Parts Pipeline */}
         <div className={`space-y-3 leading-relaxed transition-all ${isZenMode ? 'text-[15px] text-zinc-100' : 'text-sm text-zinc-200'}`}>
-          {turn.hasWork ? (
-            <>
-              {/* Top Antigravity-Style Collapsible Tool Calling & Thinking Bar */}
-              <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} runKnown={runKnown} />
+          {/* Top Antigravity-Style Collapsible Tool Calling & Thinking Bar */}
+          {turn.hasWork && (
+            <WorkedSummaryCard turn={turn} messageId={message.info.id} isBusy={isBusy} runKnown={runKnown} />
+          )}
 
-              {/* Assistant Attached Images (Square Thumbnails in a Row) */}
-              {turn.fileParts.length > 0 && (
-                <ImageThumbnailRow
-                  images={turn.fileParts}
-                  onOpenLightbox={(idx) => handleOpenLightbox(turn.fileParts, idx)}
-                />
-              )}
+          {/* Assistant Attached Images (Square Thumbnails in a Row) */}
+          {turn.fileParts.length > 0 && (
+            <ImageThumbnailRow
+              images={turn.fileParts}
+              onOpenLightbox={(idx) => handleOpenLightbox(turn.fileParts, idx)}
+            />
+          )}
 
-              {/* Main Response Markdown Surface with Right-Side Adaptive Button */}
-              {turn.answerParts.length > 0 && (
-                <div className="mt-2.5 flex items-stretch gap-2 w-full">
-                  {/* Response Markdown Content */}
-                  <div className="flex-1 min-w-0 relative">
-                    <div
-                      className={`space-y-3 transition-all ${
-                        isAnswerCollapsible && !isReportExpanded
-                          ? isZenMode
-                            ? 'max-h-36 overflow-hidden'
-                            : 'max-h-32 overflow-hidden'
-                          : ''
-                      }`}
-                    >
-                      {turn.answerParts.map((part) => {
-                        const text = part.text
-                        if (!text.trim()) return null
+          {/* Main Response Markdown Surface with Right-Side Adaptive Button */}
+          {turn.answerParts.length > 0 ? (
+            <div className="mt-2.5 flex items-stretch gap-2 w-full">
+              {/* Response Markdown Content */}
+              <div className="flex-1 min-w-0 relative">
+                <div
+                  ref={assistantClipper.containerRef}
+                  style={{
+                    maxHeight:
+                      isAnswerCollapsible && !isReportExpanded
+                        ? `${assistantClipper.effectiveHeight}px`
+                        : undefined,
+                  }}
+                  onClick={
+                    isAnswerCollapsible && !isReportExpanded
+                      ? () => {
+                          setIsReportExpanded(true)
+                          setDialogueExpandedState(message.info.id, true, allMessageIds)
+                        }
+                      : undefined
+                  }
+                  className={`space-y-3 transition-all ${
+                    isAnswerCollapsible && !isReportExpanded
+                      ? 'overflow-hidden cursor-pointer'
+                      : ''
+                  }`}
+                  title={
+                    isAnswerCollapsible && !isReportExpanded
+                      ? tr('点击展开完整回答', 'Click to expand full response', 'Klicken, um vollständige Antwort anzuzeigen')
+                      : undefined
+                  }
+                >
+                  {turn.answerParts.map((part) => {
+                    const text = part.text
+                    if (!text.trim()) return null
 
-                        return (
-                          <div
-                            key={part.id}
-                            className={`prose prose-invert max-w-none transition-all ${
-                              isZenMode
-                                ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-zinc-100'
-                                : 'text-sm text-zinc-200'
-                            }`}
-                          >
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              rehypePlugins={[rehypeHighlight]}
-                              components={markdownComponents}
-                            >
-                              {text}
-                            </ReactMarkdown>
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* Bottom gradient fade mask when collapsed - clicking expands */}
-                    {isAnswerCollapsible && !isReportExpanded && (
+                    return (
                       <div
-                        onClick={() => setIsReportExpanded(true)}
-                        className={`absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t ${
+                        key={part.id}
+                        className={`prose prose-invert max-w-none transition-all ${
                           isZenMode
-                            ? 'from-[#101016] via-[#101016]/90'
-                            : 'from-[#13131a] via-[#13131a]/90'
-                        } to-transparent cursor-pointer flex items-end justify-center pb-0.5`}
-                        title={tr('点击展开完整回答', 'Click to expand full response', 'Klicken, um vollständige Antwort anzuzeigen')}
-                      />
+                            ? 'text-[15px] sm:text-base leading-relaxed text-zinc-100 prose-p:leading-relaxed prose-pre:my-3 prose-headings:text-zinc-100'
+                            : 'text-sm text-zinc-200'
+                        }`}
+                      >
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                          components={markdownComponents}
+                        >
+                          {text}
+                        </ReactMarkdown>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Right Side Vertical Strip Button for AI Responses */}
+              {isAnswerCollapsible && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReportExpanded((prev) => {
+                      const next = !prev
+                      setDialogueExpandedState(message.info.id, next, allMessageIds)
+                      return next
+                    })
+                  }}
+                  className="group/side-btn flex items-center justify-center w-3 hover:w-3.5 shrink-0 self-stretch rounded-full py-1 cursor-pointer select-none focus:outline-none transition-all"
+                  title={isReportExpanded ? tr('点击收起回答', 'Click to collapse response', 'Antwort einklappen') : tr('点击展开完整回答', 'Click to expand full response', 'Vollständige Antwort anzeigen')}
+                  aria-label={isReportExpanded ? tr('收起回答', 'Collapse response') : tr('展开完整回答', 'Expand response')}
+                >
+                  <div className="w-1.5 group-hover/side-btn:w-2.5 h-full rounded-full bg-zinc-800/60 group-hover/side-btn:bg-zinc-700/90 border border-zinc-700/40 group-hover/side-btn:border-zinc-500/70 transition-all duration-150 flex items-center justify-center shadow-sm">
+                    {isReportExpanded ? (
+                      <ChevronUp className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
+                    ) : (
+                      <ChevronDown className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
                     )}
                   </div>
-
-                  {/* Right Side Vertical Strip Button for AI Responses */}
-                  {isAnswerCollapsible && (
-                    <button
-                      type="button"
-                      onClick={() => setIsReportExpanded(!isReportExpanded)}
-                      className="group/side-btn flex items-center justify-center w-3 hover:w-3.5 shrink-0 self-stretch rounded-full py-1 cursor-pointer select-none focus:outline-none transition-all"
-                      title={isReportExpanded ? tr('点击收起回答', 'Click to collapse response', 'Antwort einklappen') : tr('点击展开完整回答', 'Click to expand full response', 'Vollständige Antwort anzeigen')}
-                      aria-label={isReportExpanded ? tr('收起回答', 'Collapse response') : tr('展开完整回答', 'Expand response')}
-                    >
-                      <div className="w-1.5 group-hover/side-btn:w-2.5 h-full rounded-full bg-zinc-800/60 group-hover/side-btn:bg-zinc-700/90 border border-zinc-700/40 group-hover/side-btn:border-zinc-500/70 transition-all duration-150 flex items-center justify-center shadow-sm">
-                        {isReportExpanded ? (
-                          <ChevronUp className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
-                        ) : (
-                          <ChevronDown className="w-2.5 h-2.5 text-zinc-500 group-hover/side-btn:text-zinc-200 transition-colors" />
-                        )}
-                      </div>
-                    </button>
-                  )}
-                </div>
+                </button>
               )}
-            </>
-          ) : (
-            // Fallback for turns without any tools or reasoning
+            </div>
+          ) : !turn.hasWork && (
+            // Fallback for turns without any tools or reasoning and no text yet (e.g. initial empty/loading/thinking states)
             <>
             {message.parts.length === 0 && !errorMessage && (
               emptyChrome === 'confirming' || emptyChrome === 'loading' ? (
@@ -1279,6 +1534,7 @@ export function MessageBubble({
       {activeFileModalItem && (
         <FileViewModal
           item={activeFileModalItem}
+          directory={sessionDirectory}
           onClose={() => setActiveFileModalItem(null)}
         />
       )}

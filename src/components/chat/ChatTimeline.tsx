@@ -16,6 +16,7 @@ import { isPendingSession } from '../../utils/session-workspace'
 import { computeClientSideDiffs, mergeRevertDiffs } from '../../utils/client-side-diffs'
 import { isAbortError } from '../../services/api'
 import { useI18n } from '../../utils/i18n'
+import { findCenterDialogueElement } from '../../utils/center-dialogue-finder'
 import type { RevertMode, PromptAttachment, AutoRecoveryState } from '../../hooks/useChatStream'
 
 interface GeneratingBubbleProps {
@@ -151,14 +152,21 @@ export function ChatTimeline({
   const { isZh } = useI18n()
 
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 1600)
+  }, [])
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const showToast = (msg: string) => {
-      setToastMessage(msg)
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => setToastMessage(null), 1600)
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     }
+  }, [])
+
+  useEffect(() => {
     const onExpand = () =>
       showToast(isZh ? '已展开所有对话 (Ctrl+Shift+O)' : 'Expanded all dialogues (Ctrl+Shift+O)')
     const onCollapse = () =>
@@ -169,9 +177,104 @@ export function ChatTimeline({
     return () => {
       window.removeEventListener('opencode-expand-all-dialogues', onExpand)
       window.removeEventListener('opencode-collapse-all-dialogues', onCollapse)
-      if (timer) clearTimeout(timer)
     }
-  }, [isZh])
+  }, [isZh, showToast])
+
+  // Mouse upper side button & shortcut: toggle dialogue block at screen center
+  useEffect(() => {
+    let lastTriggerTime = 0
+
+    const triggerToggleCenter = () => {
+      if (hasActiveOverlay()) return
+      if (!containerRef.current) return
+
+      const match = findCenterDialogueElement(containerRef.current)
+      if (!match) return
+
+      if (match.isCollapsible) {
+        window.dispatchEvent(
+          new CustomEvent('opencode-toggle-dialogue', {
+            detail: { messageId: match.messageId },
+          })
+        )
+        const willExpand = !match.isExpanded
+        showToast(
+          willExpand
+            ? (isZh ? '已展开面前对话' : 'Expanded dialogue')
+            : (isZh ? '已收缩面前对话' : 'Collapsed dialogue')
+        )
+
+        // Visual pulse indicator on the toggled dialogue block
+        match.element.classList.remove('highlight-pulse')
+        void match.element.offsetWidth
+        match.element.classList.add('highlight-pulse')
+        setTimeout(() => {
+          match.element?.classList.remove('highlight-pulse')
+        }, 1200)
+      } else {
+        showToast(isZh ? '面前对话无需折叠' : 'Dialogue is already compact')
+      }
+    }
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.button === 4 || e.button === 3) {
+        // Prevent default browser history navigation
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Button 4: upper side button (Forward)
+      if (e.button === 4) {
+        e.preventDefault()
+        e.stopPropagation()
+
+        if (prefs.mouseSideButtonToggleDialogue ?? true) {
+          const now = Date.now()
+          if (now - lastTriggerTime < 150) return
+          lastTriggerTime = now
+          triggerToggleCenter()
+        }
+      } else if (e.button === 3) {
+        // Button 3: lower side button (Back) - prevent accidental browser history back
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 4 || e.button === 3) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleAuxClick = (e: MouseEvent) => {
+      if (e.button === 4 || e.button === 3) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleShortcutToggle = () => {
+      triggerToggleCenter()
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true })
+    window.addEventListener('mousedown', handleMouseDown, { capture: true })
+    window.addEventListener('mouseup', handleMouseUp, { capture: true })
+    window.addEventListener('auxclick', handleAuxClick, { capture: true })
+    window.addEventListener('opencode-toggle-center-dialogue', handleShortcutToggle)
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+      window.removeEventListener('mousedown', handleMouseDown, { capture: true })
+      window.removeEventListener('mouseup', handleMouseUp, { capture: true })
+      window.removeEventListener('auxclick', handleAuxClick, { capture: true })
+      window.removeEventListener('opencode-toggle-center-dialogue', handleShortcutToggle)
+    }
+  }, [isZh, prefs.mouseSideButtonToggleDialogue, showToast])
 
   const [isConfirmUndoOpen, setIsConfirmUndoOpen] = useState(false)
   const [confirmTargetMessageId, setConfirmTargetMessageId] = useState<string | null>(null)
@@ -661,6 +764,7 @@ export function ChatTimeline({
 
       <div
         ref={containerRef}
+        data-chat-timeline-container="true"
         onScroll={handleScroll}
         className={`relative flex-1 overflow-y-auto no-scrollbar transition-colors duration-300 px-4 sm:px-6 lg:px-8 py-4 ${
           isZenMode ? 'bg-[#090a0c] sm:py-8' : ''
@@ -752,6 +856,7 @@ export function ChatTimeline({
                   key={item.message.info.id}
                   message={item.message}
                   isZenMode={isZenMode}
+                  sessionDirectory={activeSession?.directory}
                   onRevertToMessage={handleInitiateRevert}
                   isBusy={running}
                   runKnown={runKnown}
@@ -772,6 +877,7 @@ export function ChatTimeline({
                 message={item.compositeMessage}
                 allMessageIds={item.allMessageIds}
                 isZenMode={isZenMode}
+                sessionDirectory={activeSession?.directory}
                 onRevertToMessage={handleInitiateRevert}
                 isBusy={running}
                 runKnown={runKnown}

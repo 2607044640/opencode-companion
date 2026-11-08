@@ -13,7 +13,13 @@ export {
   type RollbackAction,
 } from './revert-classify'
 
-export { collectRollbackActions, mergeRevertDiffs } from './revert-rollback'
+export {
+  clearRolledBackCalls,
+  collectRollbackActions,
+  getRolledBackCalls,
+  markCallsRolledBack,
+  mergeRevertDiffs,
+} from './revert-rollback'
 
 export {
   REVERT_TIMEOUT_MS,

@@ -2,6 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   resolveCanonicalModelId,
+  resolveActiveSessionModelId,
   getTokenLimit,
   getTokenThreshold,
   formatTokenLimit,
@@ -16,11 +17,22 @@ describe('Token Limit & Model Profile Resolution', () => {
     assert.equal(resolveCanonicalModelId('claude-3.5-sonnet'), 'claude-3.5-sonnet')
     assert.equal(resolveCanonicalModelId('claude-3-5-sonnet'), 'claude-3.5-sonnet')
     assert.equal(resolveCanonicalModelId('obsidian/gemini-3.7-flash'), 'gemini-3.7-flash')
+    assert.equal(resolveCanonicalModelId('obsidian/gpt-6-astra'), 'gpt-6-astra')
+    assert.equal(resolveCanonicalModelId('gpt-6-astra (obsidian)'), 'gpt-6-astra')
+    assert.equal(resolveCanonicalModelId('obsidian/gpt-6.1-sol'), 'gpt-6.1-sol')
+    assert.equal(resolveCanonicalModelId('gpt-6.1-sol (obsidian)'), 'gpt-6.1-sol')
     assert.equal(resolveCanonicalModelId(null), 'unknown')
     assert.equal(resolveCanonicalModelId(''), 'unknown')
   })
 
-  test('getTokenLimit retrieves effective context ceiling', () => {
+  test('getTokenLimit retrieves effective context ceiling including GPT-6 Astra and GPT-6.1 Sol (922k)', () => {
+    // GPT-6 Astra and GPT-6.1 Sol: 922k effective input window (1.05M total API window)
+    assert.equal(getTokenLimit('gpt-6-astra'), 922000)
+    assert.equal(getTokenLimit('obsidian/gpt-6-astra'), 922000)
+    assert.equal(getTokenLimit('gpt-6-astra (obsidian)'), 922000)
+    assert.equal(getTokenLimit('gpt-6.1-sol'), 922000)
+    assert.equal(getTokenLimit('obsidian/gpt-6.1-sol'), 922000)
+
     // Grok 4.6
     assert.equal(getTokenLimit('grok-4.6'), 500000)
 
@@ -29,6 +41,18 @@ describe('Token Limit & Model Profile Resolution', () => {
 
     // Gemini 3.7 Flash is 800k
     assert.equal(getTokenLimit('gemini-3.7-flash'), 800000)
+  })
+
+  test('resolveActiveSessionModelId prefers session model, then newest message modelID, then default', () => {
+    assert.equal(
+      resolveActiveSessionModelId('obsidian/gpt-6-astra', [{ info: { modelID: 'gpt-6.1-sol' } }], 'gpt-6.1-sol'),
+      'obsidian/gpt-6-astra'
+    )
+    assert.equal(
+      resolveActiveSessionModelId(undefined, [{ info: { modelID: 'gpt-6.1-sol' } }, { info: { modelID: 'gpt-6-astra' } }], 'gpt-6.1-sol'),
+      'gpt-6-astra'
+    )
+    assert.equal(resolveActiveSessionModelId(undefined, [], 'gpt-6-astra'), 'gpt-6-astra')
   })
 
   test('getTokenThreshold enforces strict color rules: >=75% Red, >=50% Yellow, other Green', () => {

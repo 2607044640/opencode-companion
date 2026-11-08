@@ -36,9 +36,10 @@ describe('shortcuts matching and registration', () => {
     }
 
     const dialogueKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'dialogue')
-    assert.equal(dialogueKeys.length, 9)
+    assert.equal(dialogueKeys.length, 10)
     assert.ok(dialogueKeys.includes('expandAllConversations'))
     assert.ok(dialogueKeys.includes('collapseAllConversations'))
+    assert.ok(dialogueKeys.includes('toggleCenterDialogue'))
     for (const k of dialogueKeys) {
       assert.equal(DEFAULT_SHORTCUTS[k].category, 'dialogue')
     }
@@ -205,6 +206,19 @@ describe('shortcuts matching and registration', () => {
     } as KeyboardEvent
     assert.equal(matchesShortcut(ctrlShiftC, DEFAULT_SHORTCUTS.collapseAllConversations), true)
     assert.equal(matchesShortcut(ctrlShiftC, DEFAULT_SHORTCUTS.expandAllConversations), false)
+  })
+
+  it('matches Ctrl + Shift + D for toggleCenterDialogue', () => {
+    const ctrlShiftD = {
+      key: 'd',
+      code: 'KeyD',
+      ctrlKey: true,
+      shiftKey: true,
+      altKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(ctrlShiftD, DEFAULT_SHORTCUTS.toggleCenterDialogue), true)
+    assert.equal(matchesShortcut(ctrlShiftD, DEFAULT_SHORTCUTS.expandAllConversations), false)
   })
 
   it('matches Ctrl + Shift + P for togglePinSession', () => {

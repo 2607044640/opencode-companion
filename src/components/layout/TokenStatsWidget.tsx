@@ -9,6 +9,7 @@ import {
   getTokenColorClasses,
   formatTokenLimit,
   calculateOpenCodeContextUsage,
+  resolveActiveSessionModelId,
   type ModelProfilesData,
 } from '../../utils/token-limit'
 
@@ -39,6 +40,13 @@ export function TokenStatsWidget({
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Resolve current active model ID and context ceiling
+  const currentModelId = resolveActiveSessionModelId(
+    activeSession?.model?.id,
+    messages,
+    modelProfiles?.default_model_id
+  )
+
   useEffect(() => {
     let isMounted = true
     const fetchProfiles = async () => {
@@ -54,10 +62,8 @@ export function TokenStatsWidget({
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [currentModelId, isOpen])
 
-  // Resolve current active model ID and context ceiling
-  const currentModelId = activeSession?.model?.id || 'gpt-6.1-sol'
   const tokenLimit = getTokenLimit(currentModelId, modelProfiles)
 
   // Active window calculations
@@ -159,7 +165,7 @@ export function TokenStatsWidget({
         >
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-zinc-800/80">
             <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
-              <Coins className="w-3.5 h-3.5 text-amber-400" />
+              <Coins className="w-3.5 h-3.5 text-zinc-400" />
               {isZh ? 'Token（窗口 / 历史账单）' : t.header.tokenBreakdownTitle}
             </span>
             <span className="text-[10px] font-mono text-sky-300/90 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded">
@@ -175,7 +181,7 @@ export function TokenStatsWidget({
                 <span>{t.header.tokenActiveContext}</span>
               </span>
               <span
-                className={`font-mono font-bold ${tokenColors.badgeText} ${tokenColors.badgeBg} border ${tokenColors.badgeBorder} px-1.5 py-0.5 rounded text-[10px]`}
+                className="font-mono font-medium text-zinc-300 bg-zinc-800/80 border border-zinc-700/60 px-1.5 py-0.5 rounded text-[10px]"
               >
                 {formatTokens(officialTokens)} / {formatTokenLimit(tokenLimit)} ({contextPercent}%)
               </span>
@@ -207,20 +213,20 @@ export function TokenStatsWidget({
                   </div>
                 )}
                 {opencodeContext.reasoning > 0 && (
-                  <div className="flex items-center justify-between text-purple-400/90">
-                    <span>{isZh ? '思考推理' : 'Reasoning'}</span>
+                  <div className="flex items-center justify-between text-zinc-300">
+                    <span className="text-zinc-400">{isZh ? '思考推理' : 'Reasoning'}</span>
                     <span className="font-semibold">{opencodeContext.reasoning.toLocaleString()}</span>
                   </div>
                 )}
                 {opencodeContext.cacheRead > 0 && (
-                  <div className="flex items-center justify-between text-emerald-400/90">
-                    <span>{t.header.tokenCacheRead}</span>
+                  <div className="flex items-center justify-between text-zinc-300">
+                    <span className="text-zinc-400">{t.header.tokenCacheRead}</span>
                     <span className="font-semibold">{opencodeContext.cacheRead.toLocaleString()}</span>
                   </div>
                 )}
                 {opencodeContext.cacheWrite > 0 && (
-                  <div className="flex items-center justify-between text-sky-400/90">
-                    <span>{t.header.tokenCacheWrite}</span>
+                  <div className="flex items-center justify-between text-zinc-300">
+                    <span className="text-zinc-400">{t.header.tokenCacheWrite}</span>
                     <span className="font-semibold">{opencodeContext.cacheWrite.toLocaleString()}</span>
                   </div>
                 )}
@@ -254,23 +260,23 @@ export function TokenStatsWidget({
                   <span className="text-zinc-200 font-semibold">{formatTokens(tokens.output)}</span>
                 </div>
                 {(tokens.reasoning || 0) > 0 && (
-                  <div className="flex items-center justify-between text-purple-400/90">
-                    <span className="flex items-center gap-1">
-                      <Sparkles className="w-2.5 h-2.5" />
+                  <div className="flex items-center justify-between text-zinc-300">
+                    <span className="flex items-center gap-1 text-zinc-400">
+                      <Sparkles className="w-2.5 h-2.5 text-sky-400/80" />
                       {t.header.tokensReasoning}
                     </span>
                     <span className="font-semibold">{formatTokens(tokens.reasoning)}</span>
                   </div>
                 )}
                 {(tokens.cache?.read || 0) > 0 && (
-                  <div className="flex items-center justify-between text-emerald-400/90">
-                    <span>{t.header.tokenCacheRead}</span>
+                  <div className="flex items-center justify-between text-zinc-300">
+                    <span className="text-zinc-400">{t.header.tokenCacheRead}</span>
                     <span className="font-semibold">{formatTokens(tokens.cache?.read)}</span>
                   </div>
                 )}
                 {(tokens.cache?.write || 0) > 0 && (
-                  <div className="flex items-center justify-between text-sky-400/90">
-                    <span>{t.header.tokenCacheWrite}</span>
+                  <div className="flex items-center justify-between text-zinc-300">
+                    <span className="text-zinc-400">{t.header.tokenCacheWrite}</span>
                     <span className="font-semibold">{formatTokens(tokens.cache?.write)}</span>
                   </div>
                 )}

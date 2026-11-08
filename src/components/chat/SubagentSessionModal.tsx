@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import type { Message, TextPart, ReasoningPart, ToolPart } from '../../types/opencode'
 import { api } from '../../services/api'
+import { createMarkdownComponents } from './MessageBubble'
 
 export interface SubagentStep {
   id: string
@@ -223,6 +224,7 @@ export function SubagentSessionModal({
   const [copiedTranscript, setCopiedTranscript] = useState(false)
   const [copiedSessionId, setCopiedSessionId] = useState(false)
   const [copiedStepId, setCopiedStepId] = useState<string | null>(null)
+  const markdownComponents = useMemo(() => createMarkdownComponents(), [])
 
   // Fetch subagent session messages
   const fetchMessages = useCallback(async () => {
@@ -667,7 +669,11 @@ export function SubagentSessionModal({
                         </button>
                       </div>
                       <div className="bg-[#07080a] border border-[#1e222b] rounded-md p-3.5 text-zinc-100 select-text prose prose-invert max-w-none text-xs leading-relaxed">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                          components={markdownComponents}
+                        >
                           {step.content || ''}
                         </ReactMarkdown>
                       </div>

@@ -110,8 +110,12 @@ test('corrupt snapshot bytes cannot restore', () => {
   assert.equal(fs.readFileSync(a, 'utf8'), 'three')
 })
 
-test('actual jail hook captures a cross-directory patch before mutation and attaches only references', { skip: process.platform === 'win32' }, async () => {
-  const { default: RevertSnapshot } = await import('/home/developer/projects/AICore/opencode-jail/plugins/revert-snapshot.js')
+test('actual jail hook captures a cross-directory patch before mutation and attaches only references', async () => {
+  const pluginPath =
+    process.platform === 'win32'
+      ? 'file:///C:/AICore/opencode-jail/plugins/revert-snapshot.js'
+      : '/home/developer/projects/AICore/opencode-jail/plugins/revert-snapshot.js'
+  const { default: RevertSnapshot } = await import(pluginPath)
   const f = fixture()
   const a = path.join(f.work, 'a.txt'), b = path.join(f.desktop, 'b.txt')
   fs.writeFileSync(a, 'header\nmiddle\nfooter\n')

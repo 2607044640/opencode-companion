@@ -5,6 +5,7 @@ import {
   hasTurnContent,
   inspectCurrentTurnRecovery,
   isFatalNonRetryableError,
+  isGoOnUserMessage,
   MAX_AUTO_RECOVERY_ATTEMPTS,
 } from './empty-idle-fuse'
 import { sanitizeMessageRepetition } from '../utils/repetition-fuse'
@@ -125,7 +126,10 @@ export function decideGoOn(clock: GoOnClock): GoOnVerdict {
   if (clock.userAborted) return { act: 'wait', reason: 'user_abort' }
   if (!clock.runKnown) return { act: 'wait', reason: 'status_unknown' }
 
-  const assistant = lastAssistant(clock.messages)
+  const turnInspection = inspectCurrentTurnRecovery(clock.messages, GO_ON_TEXT)
+  const assistant = turnInspection.rootUserMessage
+    ? turnInspection.lastAssistantMessage
+    : lastAssistant(clock.messages)
   if (!assistant) return { act: 'wait', reason: 'no_assistant' }
   if (isWaitingOnUser(assistant)) return { act: 'wait', reason: 'user_question' }
 
@@ -136,7 +140,6 @@ export function decideGoOn(clock: GoOnClock): GoOnVerdict {
     return { act: 'wait', reason: 'repetition_loop' }
   }
 
-  const turnInspection = inspectCurrentTurnRecovery(clock.messages, GO_ON_TEXT)
   if (!turnInspection.turnHasAnyOutput && !hasTurnContent(assistant)) {
     // 0 characters / 0 tools generated so far -> empty-turn auto-retry owns this, not go-on
     return { act: 'wait', reason: 'empty_turn' }
@@ -148,15 +151,18 @@ export function decideGoOn(clock: GoOnClock): GoOnVerdict {
   if (quietFor < 0) return { act: 'wait', reason: 'clock_skew' }
 
   if (!clock.daemonIdle) {
-    if (quietFor >= GO_ON_SILENCE_MS) return { act: 'send', reason: 'silence' }
+    // Never inject "go on" while the daemon explicitly reports busy/retry
+    // (e.g. long reasoning pause on gpt-6-astra or internal step retry).
+    return { act: 'wait', reason: 'still_running' }
+  }
+
+  const tail = clock.messages[clock.messages.length - 1]
+  if (tail && isGoOnUserMessage(tail, GO_ON_TEXT) && !assistant.info.error) {
+    // A "go on" user message is already at the tail awaiting its assistant turn
     return { act: 'wait', reason: 'still_running' }
   }
 
   if (finishMeansStop(assistant.info.finish) && !assistant.info.error) {
-    if (!hasTurnContent(assistant) && turnInspection.goOnCount > 0) {
-      // A previous step had output, then a go-on step returned an empty shell
-      return { act: 'send', reason: 'relay_error' }
-    }
     return { act: 'wait', reason: 'model_finished' }
   }
   if (hasRelayError(assistant)) return { act: 'send', reason: 'relay_error' }

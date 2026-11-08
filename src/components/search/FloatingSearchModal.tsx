@@ -14,11 +14,13 @@ import {
   Sparkles,
   Archive,
   Hash,
+  Pin,
 } from 'lucide-react'
 import type { Session, Project } from '../../types/opencode'
 import { matchCanonicalWorkspace, api } from '../../services/api'
 import { useI18n, type TranslationDictionary } from '../../utils/i18n'
 import { getArchivedSessionIds, isSessionArchived } from '../../utils/archiving'
+import { getPinnedSessionIds, isSessionPinned } from '../../utils/pinning'
 import type { SearchMode } from './search-types'
 import { messageCache, extractSearchableDocs, loadIndexedDocs } from './message-cache'
 import {
@@ -51,6 +53,39 @@ export interface FloatingSearchModalProps {
   readonly projects: readonly Project[]
   readonly initialSelectedProjectId?: string | null
   readonly unreadSessionIds?: readonly string[]
+  readonly busySessionIds?: readonly string[]
+}
+
+/**
+ * Antigravity-style in-progress running animation (Figure 2: 2x2 animated dot matrix)
+ */
+export function AntigravityRunningIndicator({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center justify-center shrink-0 text-sky-400 ${className}`}
+      title="正在进行中…"
+      aria-label="In progress"
+    >
+      <span className="grid grid-cols-2 gap-[2px] w-2.5 h-2.5 items-center justify-center">
+        <span
+          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
+          style={{ animationDuration: '0.8s', animationDelay: '0ms' }}
+        />
+        <span
+          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
+          style={{ animationDuration: '0.8s', animationDelay: '200ms' }}
+        />
+        <span
+          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
+          style={{ animationDuration: '0.8s', animationDelay: '600ms' }}
+        />
+        <span
+          className="w-1 h-1 rounded-full bg-sky-400 animate-pulse"
+          style={{ animationDuration: '0.8s', animationDelay: '400ms' }}
+        />
+      </span>
+    </span>
+  )
 }
 
 function formatSessionTime(timestamp?: number, t?: TranslationDictionary): string {
@@ -136,18 +171,25 @@ function FloatingSearchContent({
   projects,
   initialSelectedProjectId,
   unreadSessionIds,
+  busySessionIds,
 }: FloatingSearchModalProps) {
   const { t, lang } = useI18n()
   const isZh = lang === 'zh-CN'
   const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => getPinnedSessionIds())
 
   useEffect(() => {
     const handleArchivedUpdate = () => setArchivedIds(getArchivedSessionIds())
+    const handlePinnedUpdate = () => setPinnedIds(getPinnedSessionIds())
     window.addEventListener('storage', handleArchivedUpdate)
+    window.addEventListener('storage', handlePinnedUpdate)
     window.addEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+    window.addEventListener('opencode_pinned_sessions_updated', handlePinnedUpdate)
     return () => {
       window.removeEventListener('storage', handleArchivedUpdate)
+      window.removeEventListener('storage', handlePinnedUpdate)
       window.removeEventListener('opencode_archived_sessions_updated', handleArchivedUpdate)
+      window.removeEventListener('opencode_pinned_sessions_updated', handlePinnedUpdate)
     }
   }, [])
 
@@ -889,16 +931,6 @@ function FloatingSearchContent({
                       </span>
                     )}
 
-                    {Boolean(unreadSessionIds?.includes(session.id)) && (
-                      <span
-                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-950/70 text-blue-300 border border-blue-600/50 shrink-0 flex items-center gap-1"
-                        title={isZh ? '新消息未读' : 'Unread'}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                        <span>{isZh ? '未读' : 'Unread'}</span>
-                      </span>
-                    )}
-
                     <div className="min-w-0 flex-1 flex flex-col justify-center">
                       <div className="flex items-center gap-2">
                         <span
@@ -953,6 +985,26 @@ function FloatingSearchContent({
                         ).toLocaleString()} tok
                       </span>
                     ) : null}
+
+                    {/* In-progress animated icon (Figure 1 & Figure 2) */}
+                    {Boolean(busySessionIds?.includes(session.id)) && (
+                      <AntigravityRunningIndicator />
+                    )}
+
+                    {/* Pinned icon (Figure 4: 📌) */}
+                    {isSessionPinned(session.id, pinnedIds) && (
+                      <span title={isZh ? '已置顶' : 'Pinned'} className="shrink-0 flex items-center">
+                        <Pin className="w-3 h-3 text-zinc-400 rotate-45" />
+                      </span>
+                    )}
+
+                    {/* Unread blue dot (Figure 4: ●) */}
+                    {Boolean(unreadSessionIds?.includes(session.id)) && (
+                      <span
+                        className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
+                        title={isZh ? '新消息未读' : 'Unread'}
+                      />
+                    )}
 
                     <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
                       <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
@@ -1072,6 +1124,23 @@ function FloatingSearchContent({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {Boolean(busySessionIds?.includes(hit.sessionId)) && (
+                        <AntigravityRunningIndicator />
+                      )}
+
+                      {isSessionPinned(hit.sessionId, pinnedIds) && (
+                        <span title={isZh ? '已置顶' : 'Pinned'} className="shrink-0 flex items-center">
+                          <Pin className="w-3 h-3 text-zinc-400 rotate-45" />
+                        </span>
+                      )}
+
+                      {Boolean(unreadSessionIds?.includes(hit.sessionId)) && (
+                        <span
+                          className="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)] ring-1 ring-sky-400/50 shrink-0 animate-pulse"
+                          title={isZh ? '新消息未读' : 'Unread'}
+                        />
+                      )}
+
                       <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
                         <Clock className="w-3 h-3 text-zinc-500 shrink-0" />
                         <span>{timeDisplay}</span>

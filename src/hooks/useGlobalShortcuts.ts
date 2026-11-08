@@ -265,6 +265,19 @@ export function useGlobalShortcuts({
         return
       }
 
+      const isCtrlShiftD =
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        ((e.key && e.key.toLowerCase() === 'd') || e.code === 'KeyD' || e.keyCode === 68)
+
+      if (isCtrlShiftD || (shortcuts.toggleCenterDialogue && matchesShortcut(e, shortcuts.toggleCenterDialogue))) {
+        e.preventDefault()
+        e.stopPropagation()
+        window.dispatchEvent(new CustomEvent('opencode-toggle-center-dialogue'))
+        return
+      }
+
       // Block browser native Print dialog (Ctrl+P / Ctrl+Shift+P) & Toggle Pin for Ctrl+Shift+P
       const isCtrlP =
         (e.ctrlKey || e.metaKey) &&

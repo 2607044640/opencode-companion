@@ -24,7 +24,7 @@ export interface UsePromptQueueParams {
   runKnown: boolean
   sessionStatusType: string
   turnEnd: 'clean' | 'error' | 'user' | null
-  onSendPrompt: (text: string, options?: QueuedPromptOptions) => Promise<void>
+  onSendPrompt: (text: string, options?: QueuedPromptOptions) => Promise<boolean | void>
   onAbort: (opts?: { preempt?: boolean }) => Promise<void>
 }
 
@@ -175,7 +175,21 @@ export function usePromptQueue({
         if (gracefulAbort) {
           await onAbort({ preempt: true })
         }
-        await onSendPromptRef.current(target.text, target.options)
+        const sent = await onSendPromptRef.current(target.text, target.options)
+        if (sent === false) {
+          throw new Error('sendPrompt returned false')
+        }
+      } catch (err) {
+        console.warn('[usePromptQueue] Dispatch failed, restoring item to front of queue:', err)
+        setQueueBySession((prev) => {
+          const existing = prev[queueSessionKey] || []
+          if (existing.some((item) => item.id === target.id)) return prev
+          return {
+            ...prev,
+            [queueSessionKey]: [{ ...target, status: 'queued' }, ...existing],
+          }
+        })
+        setPausedBySession((prev) => ({ ...prev, [queueSessionKey]: true }))
       } finally {
         isDispatchingRef.current = false
         setIsDispatching(false)
@@ -191,7 +205,13 @@ export function usePromptQueue({
     const targetId = pendingBoundaryId
 
     const onEvent = (payload: any) => {
-      if (isParagraphBoundaryEvent(payload?.type, payload?.properties)) {
+      const props = payload?.properties
+      const evtSessionId =
+        props?.sessionID || props?.part?.sessionID || props?.info?.sessionID || payload?.sessionID
+      if (activeSessionId && evtSessionId && evtSessionId !== activeSessionId) {
+        return
+      }
+      if (isParagraphBoundaryEvent(payload?.type, props)) {
         setPendingBoundaryId(null)
         void dispatchQueueItem(targetId, true)
       }
@@ -201,7 +221,7 @@ export function usePromptQueue({
     return () => {
       unsub()
     }
-  }, [pendingBoundaryId, dispatchQueueItem])
+  }, [pendingBoundaryId, activeSessionId, dispatchQueueItem])
 
   const sendQueuedNow = useCallback(
     (id: string) => {

@@ -27,6 +27,24 @@ Live sidebar width is `w-64 sm:w-[260px]` on `Sidebar.tsx` (`<aside>`). There is
 - `Ctrl+K` is session/message search. `Ctrl+F` is find-in-current-timeline. Do not merge them.
 - Zen (`F11`, Esc to leave) hides sidebar + header and flips `isZenMode`. Do not treat native browser fullscreen as a substitute without also flipping that flag. (Why chosen over fullscreen-only: layout chrome would remain.)
 - **Left-side Dialogue Navigation Rail (`TimelineQuickJump`)**: Antigravity-style conversation navigation rail docked to the left of the chat timeline. Light-colored circular dots represent each user dialogue turn. Viewport thumb scales dynamically with dialogue depth (`computeViewportThumb`). Hovering a dot reveals a dark floating preview card with turn number, timestamp, and human prompt (length <= 200 displayed fully; length > 200 sliced to front 150 + " ... " + tail 50; `stripDispatchEnvelope` strips host dispatch headers). `ResizeObserver` monitors both the container and its content child (`firstElementChild`) to synchronize tick geometry upon folding/collapsing.
+- **Center Dialogue Toggle via Mouse Side Button (`center-dialogue-finder.ts`)**:
+  - Mouse upper side button (button 4 / forward) dynamically detects the dialogue candidate closest to the vertical center line of the visible container viewport.
+  - Automatically dispatches `opencode-toggle-dialogue` to expand or collapse that specific dialogue with a subtle highlight pulse animation, prioritizing collapsible dialogue candidates.
+  - Mouse lower side button (button 3 / back) is intercepted to prevent accidental browser history back navigation.
+- **Dialogue & Pin Shortcuts (`useGlobalShortcuts.ts`)**:
+  - `Ctrl+Shift+P`: Pin / unpin current conversation, replacing default browser print dialog.
+  - `Ctrl+Shift+O`: Expand all dialogues in the current conversation.
+  - `Ctrl+Shift+C`: Collapse all dialogues in the current conversation.
+- **Companion Diagnostics & Log Position (`Sidebar.tsx`)**:
+  - Visual status dots (ambient session dot, WSL daemon connection dot, loopback shield) are permanently removed from the user interface to preserve a minimalist Antigravity desktop aesthetic.
+  - Diagnostic telemetry is logged to the browser console with prefix `[Companion:Diagnostics]` and attached to `window.__ocCompanionDiagnostics` for AI/agent inspection.
+  - Diagnostics schema: `{ timestamp, daemon: { state, attempt }, session: { status, runKnown }, loopback: '127.0.0.1 (hardened isolated loopback)' }`.
+- **Unread Blue Dot & In-Progress Running Indicator (`FloatingSearchModal.tsx`, `Sidebar.tsx`, `TabContextMenu.tsx`)**:
+  - Blue Dot strictly represents UNREAD sessions (`session-unread.ts`). No fake blue dots on active/opened sessions.
+  - Right-click context menu (in sidebar sessions and top header tabs) features `Mark Unread` / `Mark as Read` (`toggleSessionUnread`), allowing manual marking.
+  - In `FloatingSearchModal` (Ctrl+K), unread sessions render a clean solid blue dot `●` beside the pinned icon `📌` and timestamp, matching Antigravity layout.
+  - Collapsed left sidebar rail renders a subtle pulse blue dot on the search/sessions button when any unread sessions exist.
+  - Antigravity-style in-progress running indicator (`AntigravityRunningIndicator`): a 2x2 animated dot matrix that pulses with staggered clockwise chase cycles beside the timestamp when a session is actively generating/busy.
 
 ## Numbered Data Flow
 

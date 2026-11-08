@@ -5,6 +5,7 @@ import {
   saveUnreadSessionIds,
   markSessionUnread,
   markSessionRead,
+  toggleSessionUnread,
   isSessionUnread,
   markHumanInitiated,
   isHumanInitiated,
@@ -71,6 +72,17 @@ describe('Session Unread Utilities (session-unread.ts)', () => {
       assert.deepEqual(remaining, ['session-2'])
       assert.equal(isSessionUnread('session-1', remaining), false)
       assert.equal(isSessionUnread('session-2', remaining), true)
+    })
+
+    it('toggles unread status with toggleSessionUnread', () => {
+      const storage = createMockStorage()
+      const afterUnread = toggleSessionUnread('session-t', storage)
+      assert.deepEqual(afterUnread, ['session-t'])
+      assert.equal(isSessionUnread('session-t', afterUnread), true)
+
+      const afterRead = toggleSessionUnread('session-t', storage)
+      assert.deepEqual(afterRead, [])
+      assert.equal(isSessionUnread('session-t', afterRead), false)
     })
   })
 

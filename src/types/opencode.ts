@@ -332,6 +332,12 @@ export interface PromptAttachment {
   name?: string
   mime: string
   url: string
+  /** Optional attachment kind: 'image' (default) or 'pasted' for numbered pasted text cards (p1, p2...) */
+  kind?: 'image' | 'pasted'
+  /** Short reference ID such as 'p1', 'p2' */
+  pastedId?: string
+  /** Full text content when kind === 'pasted' */
+  content?: string
 }
 
 export interface SendPromptOptions {

@@ -13,6 +13,10 @@ import { HierarchicalToolList } from './HierarchicalToolList'
 import { DelayedTooltip } from '../common/DelayedTooltip'
 import { useDiffDrawer, editItemsToTurnFiles } from '../diff/DiffDrawerContext'
 import { useI18n, tr } from '../../utils/i18n'
+import {
+  getWorkedCardExpandedState,
+  setWorkedCardExpandedState,
+} from '../../utils/dialogue-collapse-cache'
 
 interface WorkedSummaryCardProps {
   turn: WorkedTurn
@@ -44,20 +48,29 @@ export function WorkedSummaryCard({
     turn.groups.every((g) => g.kind === 'thought')
 
   // Collapsed by default once turn is completed, auto-expanded when live
-  const [expanded, setExpanded] = useState(isEffectivelyLive)
+  const [expanded, setExpanded] = useState(() => {
+    return getWorkedCardExpandedState(messageId, isEffectivelyLive)
+  })
   const userInteractedRef = useRef(false)
 
   useEffect(() => {
     const handleCollapseAll = () => {
       if (!isEffectivelyLive) {
         setExpanded(false)
+        setWorkedCardExpandedState(messageId, false)
       }
     }
+    const handleExpandAll = () => {
+      setExpanded(true)
+      setWorkedCardExpandedState(messageId, true)
+    }
     window.addEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+    window.addEventListener('opencode-expand-all-dialogues', handleExpandAll)
     return () => {
       window.removeEventListener('opencode-collapse-all-dialogues', handleCollapseAll)
+      window.removeEventListener('opencode-expand-all-dialogues', handleExpandAll)
     }
-  }, [isEffectivelyLive])
+  }, [isEffectivelyLive, messageId])
 
   // Single source-of-truth live clock
   const [now, setNow] = useState(() => Date.now())
@@ -97,7 +110,11 @@ export function WorkedSummaryCard({
 
   const handleToggle = () => {
     userInteractedRef.current = true
-    setExpanded(!expanded)
+    setExpanded((prev) => {
+      const next = !prev
+      setWorkedCardExpandedState(messageId, next)
+      return next
+    })
   }
 
   return (

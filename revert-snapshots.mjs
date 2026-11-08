@@ -4,10 +4,13 @@ import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-const STORE = fileURLToPath(new URL('./.agent-work/revert-snapshots/', import.meta.url))
+const STORE =
+  process.platform === 'win32' && fs.existsSync('C:\\ObsidianNote\\.opencode')
+    ? 'C:\\ObsidianNote\\.opencode\\revert-snapshots'
+    : fileURLToPath(new URL('./.agent-work/revert-snapshots/', import.meta.url))
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex')
 const inside = (file, root) => file === root || file.startsWith(root + path.sep)
-const protectedPath = /(?:^|[\\/])(?:\.env[^\\/]*|\.git|\.ssh|\.aws|\.azure|APIGatewayData|one-api\.db)(?:[\\/]|$)|(?:secret|credential|password|private[_-]?key)|\.(?:pem|key|p12|pfx)$/i
+const protectedPath = /(?:^|[\\/])(?:\.env[^\\/]*|\.git|\.ssh|\.aws|\.azure|APIGatewayData|one-api\.db|api_secrets\.json|gateway[\\/]logs)(?:[\\/]|$)|(?:secret|credential|password|passwd|private[_-]?key)|\.(?:pem|key|p12|pfx|crt|cer)$/i
 
 // Snapshot bytes never enter tool output or the conversation; only opaque references do.
 export function createSnapshotStore({ root = STORE, resolvePath = (file) => path.resolve(file), allowedRoots = [], safeDelete } = {}) {

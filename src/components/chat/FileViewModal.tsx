@@ -16,6 +16,7 @@ import { useI18n } from '../../utils/i18n'
 
 export interface FileViewModalProps {
   item: ExploreItem | null
+  directory?: string
   onClose: () => void
 }
 
@@ -187,7 +188,7 @@ export function parseExploreFileContent(item: ExploreItem): ParsedFileContent {
   }
 }
 
-export function FileViewModal({ item, onClose }: FileViewModalProps) {
+export function FileViewModal({ item, directory, onClose }: FileViewModalProps) {
   const { tr, isZh } = useI18n()
   const [copiedContent, setCopiedContent] = useState(false)
   const [copiedPath, setCopiedPath] = useState(false)
@@ -212,7 +213,8 @@ export function FileViewModal({ item, onClose }: FileViewModalProps) {
     let cancelled = false
     setIsFetching(true)
 
-    fetch(`/api/file-content?path=${encodeURIComponent(targetPath)}`)
+    const dirParam = directory ? `&directory=${encodeURIComponent(directory)}` : ''
+    fetch(`/api/file-content?path=${encodeURIComponent(targetPath)}${dirParam}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return

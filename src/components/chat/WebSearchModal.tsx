@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { createMarkdownComponents } from './MessageBubble'
 import {
   Globe,
   Search,
@@ -251,6 +252,7 @@ export function WebSearchModal({
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
+                  components={createMarkdownComponents()}
                 >
                   {cleanOutput}
                 </ReactMarkdown>

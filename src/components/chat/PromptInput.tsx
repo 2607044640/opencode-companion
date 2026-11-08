@@ -28,6 +28,14 @@ import { useI18n } from '../../utils/i18n'
 import { ManageModelsModal } from '../models/ManageModelsModal'
 import { categorizeDroppedFiles, formatFileMentions, hasFilePayload } from './drag-drop'
 import { ImageLightboxModal, type LightboxImage } from './ImageLightboxModal'
+import { PastedSnippetCard } from './PastedSnippetCard'
+import { PastedContentModal } from './PastedContentModal'
+import {
+  shouldConvertToPastedSnippet,
+  createPastedAttachment,
+  isPastedAttachment,
+  isImageAttachment,
+} from '../../utils/pasted-snippets'
 import { QueuedMessagesList } from './QueuedMessagesList'
 import { shouldEnqueueSubmission, type QueuedMessage, type QueuedPromptOptions } from '../../utils/message-queue'
 import { applySlashCommand, detectSlashTrigger } from './slash-trigger'
@@ -133,8 +141,12 @@ export function PromptInput({
   const [modelSearchQuery, setModelSearchQuery] = useState('')
   const [isManageModelsOpen, setIsManageModelsOpen] = useState(false)
 
-  // Multimodal image attachments (M4) & Drag-and-Drop
+  // Multimodal image attachments (M4), Pasted Snippets (p1, p2) & Drag-and-Drop
   const [attachments, setAttachments] = useState<PromptAttachment[]>([])
+  const [activePastedModal, setActivePastedModal] = useState<{
+    attachmentId: string
+    editMode: boolean
+  } | null>(null)
   const [lightboxImages, setLightboxImages] = useState<LightboxImage[]>([])
   const [lightboxIndex, setLightboxIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -637,21 +649,28 @@ export function PromptInput({
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items
-    if (!items) return
-
-    let hasImage = false
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      if (item.type.startsWith('image/')) {
-        hasImage = true
-        const file = item.getAsFile()
-        if (file) {
-          processImageFile(file)
+    if (items) {
+      let hasImage = false
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        if (item.type.startsWith('image/')) {
+          hasImage = true
+          const file = item.getAsFile()
+          if (file) {
+            processImageFile(file)
+          }
         }
       }
+      if (hasImage) {
+        e.preventDefault()
+        return
+      }
     }
-    if (hasImage) {
+
+    const pastedText = e.clipboardData?.getData('text/plain') || ''
+    if (shouldConvertToPastedSnippet(pastedText)) {
       e.preventDefault()
+      setAttachments((prev) => [...prev, createPastedAttachment(pastedText, prev)])
     }
   }
 
@@ -1040,38 +1059,72 @@ export function PromptInput({
           onHoverIndex={setPopoverSelectedIndex}
         />
 
-        {/* Thumbnail Preview Bar for Uploaded / Pasted Images (M4) */}
+        {/* Thumbnail & Pasted Card Preview Bar (M4 + Claude Pasted Snippets p1, p2) */}
         {attachments.length > 0 && (
-          <div className="flex items-center gap-2 px-3 pt-2.5 pb-1 overflow-x-auto no-scrollbar border-b border-zinc-800/60">
-            {attachments.map((att, idx) => (
-              <div
-                key={att.id}
-                className="relative group shrink-0 w-16 h-16 rounded-xl border border-[#2e333d] bg-[#1a1d24] overflow-hidden shadow-sm hover:border-purple-500/80 transition-all cursor-pointer"
-                onClick={() => {
-                  setLightboxImages(attachments.map((a) => ({ id: a.id, url: a.url, filename: a.name })))
-                  setLightboxIndex(idx)
-                  setIsLightboxOpen(true)
-                }}
-              >
-                <img
-                  src={att.url}
-                  alt={att.name || 'image'}
-                  className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
-                  title={att.name || '点击查看大图'}
-                />
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setAttachments((prev) => prev.filter((a) => a.id !== att.id))
+          <div className="flex items-center gap-2.5 px-3 pt-3 pb-1.5 overflow-x-auto no-scrollbar border-b border-zinc-800/60">
+            {attachments.map((att) => {
+              if (isPastedAttachment(att)) {
+                return (
+                  <PastedSnippetCard
+                    key={att.id || att.pastedId}
+                    pastedId={att.pastedId || att.name || 'p1'}
+                    content={att.content || ''}
+                    onClick={() =>
+                      setActivePastedModal({
+                        attachmentId: att.id || att.pastedId || 'p1',
+                        editMode: false,
+                      })
+                    }
+                    onEdit={() =>
+                      setActivePastedModal({
+                        attachmentId: att.id || att.pastedId || 'p1',
+                        editMode: true,
+                      })
+                    }
+                    onRemove={() =>
+                      setAttachments((prev) =>
+                        prev.filter((a) => (a.id || a.pastedId) !== (att.id || att.pastedId))
+                      )
+                    }
+                  />
+                )
+              }
+
+              return (
+                <div
+                  key={att.id}
+                  className="relative group shrink-0 w-16 h-16 rounded-xl border border-[#2e333d] bg-[#1a1d24] overflow-hidden shadow-sm hover:border-purple-500/80 transition-all cursor-pointer"
+                  onClick={() => {
+                    const imgAtts = attachments.filter(isImageAttachment)
+                    const imgIdx = Math.max(
+                      0,
+                      imgAtts.findIndex((a) => a.id === att.id)
+                    )
+                    setLightboxImages(imgAtts.map((a) => ({ id: a.id, url: a.url, filename: a.name })))
+                    setLightboxIndex(imgIdx)
+                    setIsLightboxOpen(true)
                   }}
-                  className="absolute top-1 right-1 p-0.5 rounded-full bg-black/80 hover:bg-rose-600 text-white transition-colors cursor-pointer"
-                  title="Remove image"
                 >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
+                  <img
+                    src={att.url}
+                    alt={att.name || 'image'}
+                    className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
+                    title={att.name || '点击查看大图'}
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setAttachments((prev) => prev.filter((a) => a.id !== att.id))
+                    }}
+                    className="absolute top-1 right-1 p-0.5 rounded-full bg-black/80 hover:bg-rose-600 text-white transition-colors cursor-pointer"
+                    title="Remove image"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -1389,6 +1442,41 @@ export function PromptInput({
           initialIndex={lightboxIndex}
         />
       )}
+
+      {/* Floating Pasted Content Modal (Image 3 FileViewModal style) */}
+      {(() => {
+        if (!activePastedModal) return null
+        const targetAtt = attachments.find(
+          (a) => (a.id || a.pastedId) === activePastedModal.attachmentId
+        )
+        if (!targetAtt) return null
+        const pid = targetAtt.pastedId || targetAtt.name || 'p1'
+        return (
+          <PastedContentModal
+            isOpen={true}
+            pastedId={pid}
+            content={targetAtt.content || ''}
+            initialEditMode={activePastedModal.editMode}
+            onClose={() => setActivePastedModal(null)}
+            onSaveContent={(newContent) => {
+              setAttachments((prev) =>
+                prev.map((a) =>
+                  (a.id || a.pastedId) === activePastedModal.attachmentId
+                    ? { ...a, content: newContent }
+                    : a
+                )
+              )
+            }}
+            onInlineToInput={() => {
+              const snippetText = targetAtt.content || ''
+              setText((prev) => (prev.trim() ? `${prev}\n${snippetText}` : snippetText))
+              setAttachments((prev) =>
+                prev.filter((a) => (a.id || a.pastedId) !== activePastedModal.attachmentId)
+              )
+            }}
+          />
+        )
+      })()}
     </div>
   )
 }

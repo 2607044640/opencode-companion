@@ -24,6 +24,7 @@ export interface UserPreferences {
   language: LanguagePreference
   showModelSelector: boolean
   showTimelineQuickJump: boolean
+  mouseSideButtonToggleDialogue?: boolean
   modelVisibility?: Record<string, boolean>
   providerVisibility?: Record<string, boolean>
 
@@ -92,7 +93,7 @@ export const THEME_PRESETS: Record<string, { label: string; colors: ThemeColors 
 export const DEFAULT_PREFERENCES: UserPreferences = {
   showReasoning: true,
   autoCollapsePrompt: true,
-  autoCollapseResponse: false,
+  autoCollapseResponse: true,
   collapseToolBatch: true,
   collapseSidebarOnStartup: false,
   autoGitCheckpoint: true,
@@ -102,6 +103,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   language: 'zh-CN',
   showModelSelector: true,
   showTimelineQuickJump: true,
+  mouseSideButtonToggleDialogue: true,
   modelVisibility: {},
   providerVisibility: {},
   verboseAgentChat: true,
@@ -125,6 +127,9 @@ export function getPreferences(): UserPreferences {
       let prefs: UserPreferences = { ...DEFAULT_PREFERENCES }
       if (raw) {
         prefs = { ...prefs, ...JSON.parse(raw) }
+      }
+      if (prefs.autoCollapseResponse === undefined) {
+        prefs.autoCollapseResponse = true
       }
       // Explicit user request: auto-enable this setting on first boot if not yet initialized
       if (!localStorage.getItem(SIDEBAR_PREF_INITIALIZED_KEY)) {

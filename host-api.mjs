@@ -7,7 +7,18 @@ import { createSnapshotStore } from './revert-snapshots.mjs'
 
 const PROJECTS_ROOT = process.env.PROJECTS_ROOT || '/workspace/projects/'
 const PROJECTS_JAIL_ROOT = '/home/developer/projects'
-const WINDOWS_WORKSPACE_BASES = ['C:/', 'C:/Godot', 'C:/ObsidianPublish']
+const WINDOWS_WORKSPACE_BASES = ['C:/', 'C:/Godot', 'C:/ObsidianPublish', 'D:/']
+const DISALLOWED_WINDOWS_SYSTEM_DIRS = new Set([
+  'windows',
+  'program files',
+  'program files (x86)',
+  'programdata',
+  'users',
+  'system volume information',
+  '$recycle.bin',
+  'recovery',
+  'perflogs',
+])
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rs|go|md|css|html|vue|svelte|json)$/i
 const SENSITIVE_BASENAME = /(?:^|\/)(?:\.env(?:\..*)?|one-api\.db|api_secrets\.json)$/i
 const SENSITIVE_EXT = /\.(?:key|pem|p12|pfx|crt|cer)$/i
@@ -80,11 +91,20 @@ function discoverWorkspaceRoots({
     } catch {
       continue
     }
+    const normalizedBase = base.replace(/\\/g, '/')
     for (const name of entries) {
+      if (DISALLOWED_WINDOWS_SYSTEM_DIRS.has(String(name).toLowerCase())) continue
+      const winPath = path.posix.join(normalizedBase, name)
       roots.push({
         jail: `${PROJECTS_JAIL_ROOT}/${name}`,
-        win: path.posix.join(base.replace(/\\/g, '/'), name),
+        win: winPath,
       })
+      if (normalizedBase.toLowerCase() !== 'c:/') {
+        roots.push({
+          jail: `${PROJECTS_JAIL_ROOT}/AISpace/${name}`,
+          win: winPath,
+        })
+      }
     }
   }
   return roots
@@ -98,7 +118,7 @@ export function resolveRollbackDiskPath(rawPath, options = {}) {
   if (!rawPath || typeof rawPath !== 'string') return null
   const posix = normalizeRollbackPath(rawPath)
   if (!posix || posix.includes('..') || isSensitiveGitPath(posix)) return null
-  const roots = discoverWorkspaceRoots(options)
+  const roots = [...discoverWorkspaceRoots(options)].sort((a, b) => b.jail.length - a.jail.length)
   const directoryExists = options.directoryExists || fs.existsSync
 
   for (const { jail, win } of roots) {
@@ -119,6 +139,18 @@ export function resolveRollbackDiskPath(rawPath, options = {}) {
       return (posix.toLowerCase() === root || posix.toLowerCase().startsWith(`${root}/`)) && directoryExists(win)
     })
     if (workspace) return path.resolve(posix)
+  }
+
+  const mntMatch = /^\/mnt\/([a-zA-Z])\/(.+)$/.exec(posix)
+  if (mntMatch) {
+    const drive = mntMatch[1].toUpperCase()
+    const rest = mntMatch[2]
+    const winCandidate = `${drive}:/${rest}`
+    const workspace = roots.find(({ win }) => {
+      const root = normalizeRollbackPath(win).toLowerCase()
+      return (winCandidate.toLowerCase() === root || winCandidate.toLowerCase().startsWith(`${root}/`)) && directoryExists(win)
+    })
+    if (workspace) return path.resolve(winCandidate)
   }
 
   const resolvedPosix = path.posix.resolve(posix)
@@ -276,6 +308,25 @@ function runGitCheckpoint(directory, title, summary) {
   return { ok: true, committed: true, files: paths, message }
 }
 
+export function runGitRevert(directory, mode = 'revert') {
+  const jailDir = resolveHostDirectory(directory)
+  const diskPath = resolveRollbackDiskPath(jailDir || directory)
+  const cwd = diskPath || jailDir
+  if (!cwd) {
+    return { ok: false, status: 400, error: 'directory is not an allowed project path' }
+  }
+  if (!fs.existsSync(cwd)) {
+    return { ok: false, status: 404, error: 'directory does not exist' }
+  }
+  try {
+    const args = mode === 'reset' ? ['reset', 'HEAD~1', '--soft'] : ['revert', 'HEAD', '--no-edit']
+    const out = git(cwd, args)
+    return { ok: true, output: out }
+  } catch (err) {
+    return { ok: false, status: 500, error: gitErrorMessage(err) }
+  }
+}
+
 function runExternalRollback(actions) {
   // Browser-supplied file contents and inferred deletes are never authoritative.
   if (!Array.isArray(actions) || !actions.length || actions.some((action) => action?.kind !== 'snapshot' || typeof action.session !== 'string' || typeof action.call !== 'string')) {
@@ -284,8 +335,34 @@ function runExternalRollback(actions) {
   if (new Set(actions.map((action) => action.session)).size !== 1) return { ok: false, error: 'Mixed snapshot sessions are not allowed' }
   const roots = discoverWorkspaceRoots()
   const desktop = process.platform === 'win32' && process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'Desktop') : '/mnt/desktop'
+  const extraWinRoots = []
+  for (const { win } of roots) {
+    extraWinRoots.push(win)
+    try {
+      const entries = fs.readdirSync(win, { withFileTypes: true })
+      for (const ent of entries) {
+        if (ent.isSymbolicLink() || ent.isDirectory()) {
+          const full = path.join(win, ent.name)
+          try {
+            const real = fs.realpathSync(full)
+            if (real && real !== full) {
+              extraWinRoots.push(full)
+              extraWinRoots.push(real)
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+  }
   const store = createSnapshotStore({
-    allowedRoots: [...roots.map(({ win }) => win), PROJECTS_ROOT, ...(process.platform === 'win32' ? [] : ['AISpace', 'ObsidianNote', 'ObsidianDev', 'APISpace', 'AICore'].map((name) => `${PROJECTS_JAIL_ROOT}/${name}`)), desktop],
+    allowedRoots: [
+      ...extraWinRoots,
+      PROJECTS_ROOT,
+      ...(process.platform === 'win32'
+        ? []
+        : ['AISpace', 'ObsidianNote', 'ObsidianDev', 'APISpace', 'AICore'].map((name) => `${PROJECTS_JAIL_ROOT}/${name}`)),
+      desktop,
+    ],
     resolvePath: (raw) => {
       if (raw.startsWith('/mnt/desktop/')) return path.resolve(desktop, raw.slice('/mnt/desktop/'.length))
       if (process.platform !== 'win32' && raw.startsWith(PROJECTS_JAIL_ROOT + '/')) return path.resolve(raw)
@@ -340,11 +417,28 @@ export function resolveModelProfiles(customPath = null) {
     if (data.models && typeof data.models === 'object') {
       profiles = {}
       aliases = {}
+      if (!customPath) {
+        for (const bp of MODEL_PROFILE_PATHS) {
+          if (bp !== targetPath && bp.endsWith('model_profiles.json') && fs.existsSync(bp)) {
+            try {
+              const baseData = JSON.parse(fs.readFileSync(bp, 'utf8'))
+              if (baseData && typeof baseData.profiles === 'object') {
+                Object.assign(profiles, baseData.profiles)
+              }
+              if (baseData && typeof baseData.aliases === 'object') {
+                Object.assign(aliases, baseData.aliases)
+              }
+              break
+            } catch {}
+          }
+        }
+      }
       for (const [mid, mdata] of Object.entries(data.models)) {
         if (mdata && mdata.context) {
           profiles[mid] = {
-            display_name: mdata.display_name || mid,
-            family: mdata.family || 'unknown',
+            ...(profiles[mid] || {}),
+            display_name: mdata.display_name || profiles[mid]?.display_name || mid,
+            family: mdata.family || profiles[mid]?.family || 'unknown',
             ...mdata.context,
           }
         }
@@ -352,6 +446,17 @@ export function resolveModelProfiles(customPath = null) {
           for (const alias of mdata.aliases) {
             aliases[alias] = mid
           }
+        }
+      }
+      if (!profiles.unknown) {
+        profiles.unknown = {
+          display_name: 'Unknown / unlisted model',
+          family: 'unknown',
+          api_context_tokens: 200000,
+          effective_context_tokens: 180000,
+          warn_tokens: 120000,
+          human_gate_tokens: 160000,
+          reset_tokens: 180000,
         }
       }
       defaultModelId = (data.roles?.default_model || 'unknown').split('/').pop() || 'unknown'
@@ -481,15 +586,91 @@ export function resolveRoutingConfig(customPath = null) {
   }
 }
 
-export function readFileFromWorkspace(rawPath) {
+export function getCanonicalFileKey(pathOrName) {
+  if (!pathOrName) return ''
+  const base = path.posix.basename(pathOrName).split(/[?#]/)[0]
+  const lastDot = base.lastIndexOf('.')
+  const ext = lastDot > 0 ? base.slice(lastDot).toLowerCase() : ''
+  const nameWithoutExt = ext ? base.slice(0, -ext.length) : base
+  const tokens = nameWithoutExt
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter((tok) => tok.length > 0)
+  if (tokens.length === 0) return base.toLowerCase()
+  return `${tokens.join('_')}${ext}`
+}
+
+function findMatchingFilesInDir(rootDir, targetName, maxDepth = 4, maxMatches = 10) {
+  const matches = []
+  const targetLower = targetName.toLowerCase()
+  const targetKey = getCanonicalFileKey(targetName)
+  const IGNORE_DIRS = new Set([
+    'node_modules', '.git', '.godot', 'bin', 'obj', 'dist', 'build',
+    '.temp', 'temp', '.cache', 'coverage', '.system_generated'
+  ])
+
+  function scan(currentDir, depth) {
+    if (depth > maxDepth || matches.length >= maxMatches) return
+    let entries = []
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const nameLower = entry.name.toLowerCase()
+        if (!IGNORE_DIRS.has(nameLower) && !entry.name.startsWith('.')) {
+          scan(path.posix.join(currentDir, entry.name), depth + 1)
+        }
+      } else if (entry.isFile()) {
+        const entryLower = entry.name.toLowerCase()
+        if (entryLower === targetLower || (targetKey && getCanonicalFileKey(entry.name) === targetKey)) {
+          matches.push(path.posix.join(currentDir, entry.name))
+        }
+      }
+    }
+  }
+
+  try {
+    if (fs.existsSync(rootDir) && fs.statSync(rootDir).isDirectory()) {
+      scan(rootDir.replace(/\\/g, '/'), 1)
+    }
+  } catch {}
+
+  return matches
+}
+
+export function readFileFromWorkspace(rawPath, options = {}) {
   if (!rawPath || typeof rawPath !== 'string') {
     return { ok: false, error: 'invalid path' }
   }
   let p = rawPath.trim()
-  if (p.startsWith('file:///')) p = p.slice(7)
+  p = p.replace(/^[`'"]+|[`'"]+$/g, '').trim()
+  if (p.startsWith('file:///')) p = p.slice(8)
   else if (p.startsWith('file://')) p = p.slice(7)
-  p = p.replace(/#L\d+(?:-\d+)?$/i, '').replace(/:\d+(?::\d+)?$/, '')
+  p = p.replace(/^[`'"]+|[`'"]+$/g, '').trim()
+  p = p.replace(/#L\d+(?:-[A-Za-z0-9]+)?$/i, '')
+  p = p.replace(/#L\d+(?:-\d+)?$/i, '').replace(/:\d+(?::\d+)?$/, '').replace(/\(\d+(?:,\s*\d+)?\)$/, '')
+  p = p.replace(/\?[^#]*$/, '')
+  try {
+    if (p.includes('%')) {
+      p = decodeURIComponent(p)
+    }
+  } catch {}
+  p = p.replace(/^[`'"]+|[`'"]+$/g, '').trim()
   if (/^\/[a-zA-Z]:[/\\\\]/.test(p)) p = p.slice(1)
+  if (!p) return { ok: false, error: 'invalid path' }
+
+  // Map Godot res:// resource scheme
+  if (p.startsWith('res://')) {
+    p = `C:/Godot/AISpace/${p.slice(6)}`
+  }
+
+  // Refuse sensitive files immediately
+  if (isSensitiveGitPath(p)) {
+    return { ok: false, error: 'Access denied: sensitive file path' }
+  }
 
   const jailMappings = [
     { jail: '/home/developer/projects/APISpace', win: 'C:/APISpace' },
@@ -510,33 +691,212 @@ export function readFileFromWorkspace(rawPath) {
     }
   }
 
-  const candidates = []
-  if (/^[a-zA-Z]:[/\\]/.test(p)) {
-    candidates.push(p.replace(/\\/g, '/'))
-  } else {
-    const cleanRel = p.replace(/^[/\\]+/, '')
-    const workspaceBases = ['C:/Godot/AISpace', 'C:/APISpace', 'C:/AICore', 'C:/ObsidianNote', 'C:/ObsidianDev']
-    for (const base of workspaceBases) {
-      candidates.push(`${base}/${cleanRel}`)
+  // Handle /mnt/c/... or /mnt/d/...
+  const mntMatch = p.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
+  if (mntMatch) {
+    p = `${mntMatch[1].toUpperCase()}:/${mntMatch[2]}`
+  }
+
+  // Handle direct workspace name prefix without drive letter (e.g. "AISpace/...", "ObsidianNote/...")
+  const wsPrefixMatch = p.match(/^(?:projects\/)?(apispace|aicore|aispace|obsidiannote|obsidiandev)\/(.*)$/i)
+  if (wsPrefixMatch) {
+    const wsName = wsPrefixMatch[1].toLowerCase()
+    const rel = wsPrefixMatch[2]
+    let base = 'C:/APISpace'
+    if (wsName === 'aicore') base = 'C:/AICore'
+    else if (wsName === 'aispace') base = 'C:/Godot/AISpace'
+    else if (wsName === 'obsidiannote') base = 'C:/ObsidianNote'
+    else if (wsName === 'obsidiandev') base = 'C:/ObsidianDev'
+    p = `${base}/${rel}`
+  }
+
+  // Normalize directory context from options if provided
+  let activeDir = null
+  if (options && typeof options.directory === 'string' && options.directory.trim()) {
+    let d = options.directory.trim()
+    for (const m of jailMappings) {
+      if (d.startsWith(m.jail)) {
+        d = d.replace(m.jail, m.win)
+        break
+      }
+    }
+    const dMnt = d.match(/^\/mnt\/([a-zA-Z])\/(.*)$/)
+    if (dMnt) {
+      d = `${dMnt[1].toUpperCase()}:/${dMnt[2]}`
+    }
+    if (/^[a-zA-Z]:[/\\\\]/.test(d)) {
+      activeDir = d.replace(/\\/g, '/')
     }
   }
 
-  for (const candidate of candidates) {
+  const workspaceBases = []
+  if (activeDir) workspaceBases.push(activeDir)
+  const defaultBases = [
+    'C:/Godot/AISpace',
+    'C:/APISpace',
+    'C:/APISpace/opencode-companion',
+    'C:/AICore',
+    'C:/ObsidianNote',
+    'C:/ObsidianDev',
+  ]
+  for (const b of defaultBases) {
+    if (!workspaceBases.includes(b)) workspaceBases.push(b)
+  }
+
+  function tryReadFile(filePath) {
     try {
-      if (isSensitiveGitPath(candidate)) continue
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        const content = fs.readFileSync(candidate, 'utf8')
-        const fileName = path.basename(candidate)
+      if (isSensitiveGitPath(filePath)) return null
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const stats = fs.statSync(filePath)
+        if (stats.size > 5_000_000) {
+          return { ok: false, error: 'File too large (>5MB)' }
+        }
+        const content = fs.readFileSync(filePath, 'utf8')
         return {
           ok: true,
-          filePath: candidate.replace(/\//g, '\\'),
-          fileName,
+          filePath: filePath.replace(/\//g, '\\'),
+          fileName: path.basename(filePath),
           content,
           lineCount: content.split('\n').length,
           byteSize: Buffer.byteLength(content, 'utf8'),
         }
       }
     } catch {}
+    return null
+  }
+
+  // Stage 1: Exact / Absolute candidates
+  if (/^[a-zA-Z]:[/\\\\]/.test(p)) {
+    const normP = p.replace(/\\/g, '/')
+    const direct = tryReadFile(normP)
+    if (direct) return direct
+
+    // Check same folder for canonical name match (e.g. spaces vs underscores)
+    const dir = path.posix.dirname(normP)
+    const base = path.posix.basename(normP)
+    const targetKey = getCanonicalFileKey(base)
+    if (targetKey && fs.existsSync(dir)) {
+      try {
+        const files = fs.readdirSync(dir)
+        for (const f of files) {
+          if (getCanonicalFileKey(f) === targetKey) {
+            const matched = tryReadFile(path.posix.join(dir, f))
+            if (matched) return matched
+          }
+        }
+      } catch {}
+    }
+  }
+
+  const cleanRel = p.replace(/^[/\\\\]+/, '').replace(/\\/g, '/')
+  const targetKey = getCanonicalFileKey(cleanRel)
+
+  // Stage 2: Direct resolution against workspace bases
+  for (const base of workspaceBases) {
+    const candidate = path.posix.join(base, cleanRel)
+    const direct = tryReadFile(candidate)
+    if (direct) return direct
+
+    // Check in base directory for canonical key match if cleanRel has no subfolders
+    if (!cleanRel.includes('/') && targetKey && fs.existsSync(base)) {
+      try {
+        const files = fs.readdirSync(base)
+        for (const f of files) {
+          if (getCanonicalFileKey(f) === targetKey) {
+            const matched = tryReadFile(path.posix.join(base, f))
+            if (matched) return matched
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Stage 3: Subdirectory suffix matching (if cleanRel had subdirectories, e.g. "TodoData/Backpack_Meta_D.md")
+  if (cleanRel.includes('/')) {
+    for (const base of workspaceBases) {
+      const baseName = path.posix.basename(base)
+      if (cleanRel.toLowerCase().startsWith(baseName.toLowerCase() + '/')) {
+        const subRel = cleanRel.slice(baseName.length + 1)
+        const direct = tryReadFile(path.posix.join(base, subRel))
+        if (direct) return direct
+      }
+    }
+  }
+
+  // Stage 4: Smart Disambiguated Search (for bare filename or partial path)
+  // Contract: Find the file across relevant workspaces without ever finding the wrong file.
+  const targetName = path.posix.basename(cleanRel)
+  const targetSuffix = cleanRel.toLowerCase()
+
+  // 4a. If activeDir is provided, search inside activeDir first
+  if (activeDir && fs.existsSync(activeDir)) {
+    const localMatches = findMatchingFilesInDir(activeDir, targetName, 5).filter(
+      (m) => m.toLowerCase().endsWith(targetSuffix) && !isSensitiveGitPath(m)
+    )
+    if (localMatches.length === 1) {
+      const direct = tryReadFile(localMatches[0])
+      if (direct) return direct
+    } else if (localMatches.length > 1) {
+      const exactCase = localMatches.filter((m) => m.endsWith(cleanRel))
+      if (exactCase.length === 1) {
+        const direct = tryReadFile(exactCase[0])
+        if (direct) return direct
+      }
+    }
+  }
+
+  // 4b. Order bases by domain relevance
+  const sortedBases = [...workspaceBases].sort((a, b) => {
+    const aLow = a.toLowerCase()
+    const bLow = b.toLowerCase()
+    const ext = path.posix.extname(targetName).toLowerCase()
+
+    if (['.cs', '.gd', '.tscn', '.tres'].includes(ext)) {
+      if (aLow.includes('aispace')) return -1
+      if (bLow.includes('aispace')) return 1
+    }
+    if (['.ts', '.tsx', '.vue', '.html', '.css'].includes(ext)) {
+      if (aLow.includes('apispace')) return -1
+      if (bLow.includes('apispace')) return 1
+    }
+    if (targetName.toLowerCase() === 'skill.md' || aLow.includes('aicore')) {
+      if (aLow.includes('aicore')) return -1
+      if (bLow.includes('aicore')) return 1
+    }
+    if (ext === '.md') {
+      if (aLow.includes('obsidiannote')) return -1
+      if (bLow.includes('obsidiannote')) return 1
+    }
+    return 0
+  })
+
+  const allMatches = []
+  for (const base of sortedBases) {
+    if (!fs.existsSync(base)) continue
+    const found = findMatchingFilesInDir(base, targetName, 4).filter(
+      (m) => m.toLowerCase().endsWith(targetSuffix) && !isSensitiveGitPath(m)
+    )
+    for (const f of found) {
+      if (!allMatches.includes(f)) allMatches.push(f)
+    }
+  }
+
+  if (allMatches.length === 1) {
+    const direct = tryReadFile(allMatches[0])
+    if (direct) return direct
+  } else if (allMatches.length > 1) {
+    if (activeDir) {
+      const activeMatch = allMatches.filter((m) => m.startsWith(activeDir))
+      if (activeMatch.length === 1) {
+        const direct = tryReadFile(activeMatch[0])
+        if (direct) return direct
+      }
+    }
+    return {
+      ok: false,
+      error: `Ambiguous file: found ${allMatches.length} candidates for ${rawPath}`,
+      candidates: allMatches.map((m) => m.replace(/\//g, '\\')),
+    }
   }
 
   return { ok: false, error: `File not found: ${rawPath}` }
@@ -549,6 +909,7 @@ export async function handleHostApi(req, res) {
   const query = new URLSearchParams(queryAt >= 0 ? rawUrl.slice(queryAt + 1) : '')
   if (
     url !== '/api/git-checkpoint' &&
+    url !== '/api/git-revert' &&
     url !== '/api/external-file-rollback' &&
     url !== '/api/routing-config' &&
     url !== '/api/skills' &&
@@ -574,7 +935,8 @@ export async function handleHostApi(req, res) {
       sendJson(res, 400, { ok: false, error: 'path query parameter is required' })
       return true
     }
-    const result = readFileFromWorkspace(targetPath)
+    const directory = query.get('directory') || ''
+    const result = readFileFromWorkspace(targetPath, { directory })
     sendJson(res, result.ok ? 200 : 404, result)
     return true
   }
@@ -631,6 +993,11 @@ export async function handleHostApi(req, res) {
     const body = raw ? JSON.parse(raw) : {}
     if (url === '/api/git-checkpoint') {
       sendJson(res, 200, runGitCheckpoint(body.directory, body.title, body.summary))
+      return true
+    }
+    if (url === '/api/git-revert') {
+      const result = runGitRevert(body.directory, body.mode)
+      sendJson(res, result.ok ? 200 : result.status || 400, result)
       return true
     }
     if (url === '/api/open-external') {

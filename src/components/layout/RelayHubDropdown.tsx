@@ -293,7 +293,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           title="中转站额度与账单监视器 (Relay Hub)"
           aria-expanded={isOpen}
         >
-          <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <Coins className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span className="font-medium truncate max-w-[140px]">
             {summary.hasProviders ? summary.totalFormatted : '中转额度'}
           </span>
@@ -367,7 +367,7 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
           {!summary.hasProviders ? (
             <div className="py-5 text-center space-y-3">
               <div className="w-10 h-10 mx-auto rounded-full bg-[#1a1e27] border border-[#292e39] flex items-center justify-center text-zinc-400">
-                <Coins className="w-5 h-5 text-amber-400/80" />
+                <Coins className="w-5 h-5 text-zinc-400" />
               </div>
               <div className="space-y-1">
                 <div className="text-xs font-medium text-zinc-200">暂未配置中转站</div>

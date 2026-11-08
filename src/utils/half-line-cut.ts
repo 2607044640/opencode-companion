@@ -43,13 +43,19 @@ export function calculateHalfLineCutHeight(
   // Collect line rects using TreeWalker over all visible text nodes
   const lineMap: Map<number, { top: number; bottom: number; height: number }> = new Map()
 
-  const doc = container.ownerDocument || document
-  const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+  const doc = container.ownerDocument || (typeof document !== 'undefined' ? document : null)
+  if (!doc || typeof doc.createTreeWalker !== 'function') return null
+
+  const SHOW_TEXT = typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4
+  const FILTER_ACCEPT = typeof NodeFilter !== 'undefined' ? NodeFilter.FILTER_ACCEPT : 1
+  const FILTER_REJECT = typeof NodeFilter !== 'undefined' ? NodeFilter.FILTER_REJECT : 2
+
+  const walker = doc.createTreeWalker(container, SHOW_TEXT, {
     acceptNode(node) {
       if (!node.textContent || !node.textContent.trim()) {
-        return NodeFilter.FILTER_REJECT
+        return FILTER_REJECT
       }
-      return NodeFilter.FILTER_ACCEPT
+      return FILTER_ACCEPT
     },
   })
 
