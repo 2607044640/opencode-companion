@@ -7,6 +7,8 @@ import {
   recordRelaySnapshot,
   formatDelta,
   computeTotalSpent,
+  resetRelayAccumulatedSpent,
+  sanitizeRelayHistory,
   filterHistoryByRange,
   MAX_RELAY_HISTORY_ITEMS,
   type RelayBalanceSnapshot,
@@ -152,5 +154,139 @@ describe('relay-history utility', () => {
     assert.equal(getRelayHistory(mockStorage as any).length, 1)
     clearRelayHistory(mockStorage as any)
     assert.equal(getRelayHistory(mockStorage as any).length, 0)
+  })
+
+  it('sanitizes abnormal balance spikes and recalculates deltas without 100M cliff', () => {
+    // Simulates the exact bug from the user screenshot:
+    // Snapshot 1: normal balance $16.98
+    // Snapshot 2: upstream glitch returns 100 million
+    // Snapshot 3: fixed balance $16.77
+    const dirtyHistory: RelayBalanceSnapshot[] = [
+      {
+        id: 's_normal_1',
+        timestamp: 1000,
+        totalBalanceUsd: 16.98,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 16.98,
+        delta: 0,
+        trigger: 'manual_click',
+        providers: {
+          p1: { id: 'p1', name: 'RelayA', balance: 16.98, currency: 'USD' },
+        },
+      },
+      {
+        id: 's_glitch',
+        timestamp: 2000,
+        totalBalanceUsd: 100000000,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 100000000,
+        delta: 99999983.02,
+        trigger: 'manual_click',
+        providers: {
+          p1: { id: 'p1', name: 'RelayA', balance: 100000000, currency: 'USD' },
+        },
+      },
+      {
+        id: 's_normal_2',
+        timestamp: 3000,
+        totalBalanceUsd: 16.77,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 16.77,
+        delta: -99999983.23, // The fake $100M cliff deduction!
+        trigger: 'manual_click',
+        providers: {
+          p1: { id: 'p1', name: 'RelayA', balance: 16.77, currency: 'USD' },
+        },
+      },
+    ]
+
+    const { sanitized, changed } = sanitizeRelayHistory(dirtyHistory)
+    assert.equal(changed, true)
+    // s_glitch should be completely eliminated
+    assert.equal(sanitized.length, 2)
+    assert.equal(sanitized[0].id, 's_normal_1')
+    assert.equal(sanitized[1].id, 's_normal_2')
+    // Delta between 16.98 and 16.77 should be cleanly recalculated to -0.21!
+    assert.equal(sanitized[1].delta, -0.21)
+
+    // Total spent should be exactly $0.21, never 100 million!
+    const spent = computeTotalSpent(sanitized)
+    assert.equal(spent, 0.21)
+  })
+
+  it('getRelayHistory automatically heals and persists corrupted localStorage data', () => {
+    // Put corrupted 100M data directly in storage
+    const corrupted = [
+      {
+        id: 'bad',
+        timestamp: 1000,
+        totalBalanceUsd: 100000000,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 100000000,
+        delta: 0,
+        trigger: 'manual_click',
+        providers: {},
+      },
+      {
+        id: 'good',
+        timestamp: 2000,
+        totalBalanceUsd: 15.5,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 15.5,
+        delta: -99999984.5,
+        trigger: 'manual_click',
+        providers: {},
+      },
+    ]
+    mockStorage.setItem('opencode_relay_balance_history', JSON.stringify(corrupted))
+
+    // Reading history should automatically heal it
+    const healed = getRelayHistory(mockStorage as any)
+    assert.equal(healed.length, 1)
+    assert.equal(healed[0].id, 'good')
+    assert.equal(healed[0].delta, 0)
+    assert.equal(computeTotalSpent(healed), 0)
+
+    // Storage should now contain the healed version
+    const persisted = JSON.parse(mockStorage.getItem('opencode_relay_balance_history') || '[]')
+    assert.equal(persisted.length, 1)
+    assert.equal(persisted[0].id, 'good')
+  })
+
+  it('resetRelayAccumulatedSpent zeroes out deltas while preserving balance points', () => {
+    const list: RelayBalanceSnapshot[] = [
+      {
+        id: 's_1',
+        timestamp: 1000,
+        totalBalanceUsd: 20,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 20,
+        delta: 0,
+        trigger: 'manual_click',
+        providers: {},
+      },
+      {
+        id: 's_2',
+        timestamp: 2000,
+        totalBalanceUsd: 15,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 15,
+        delta: -5,
+        trigger: 'manual_click',
+        providers: {},
+      },
+    ]
+    saveRelayHistory(list, mockStorage as any)
+
+    assert.equal(computeTotalSpent(getRelayHistory(mockStorage as any)), 5)
+
+    const resetResult = resetRelayAccumulatedSpent(mockStorage as any)
+    assert.equal(resetResult.length, 2)
+    assert.equal(resetResult[0].delta, 0)
+    assert.equal(resetResult[1].delta, 0)
+    assert.equal(resetResult[1].totalNormalizedUsd, 15) // Balance curve preserved
+
+    // Now total spent is 0
+    assert.equal(computeTotalSpent(getRelayHistory(mockStorage as any)), 0)
   })
 })

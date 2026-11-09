@@ -14,11 +14,13 @@ import {
   Coins,
   Clock,
   DollarSign,
+  RotateCcw,
 } from 'lucide-react'
 import {
   getRelayHistory,
   clearRelayHistory,
   computeTotalSpent,
+  resetRelayAccumulatedSpent,
   filterHistoryByRange,
   formatDelta,
   type RelayBalanceSnapshot,
@@ -125,6 +127,19 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
   }, [providers, history])
 
   const totalSpent = useMemo(() => computeTotalSpent(filteredHistory), [filteredHistory])
+
+  const handleResetSpent = () => {
+    if (
+      confirm(
+        isZh
+          ? '确定要清零当前区间累计扣费吗？\n(这会将历史记录中的扣费差额归零，但保留所有采样点的余额走势曲线)'
+          : 'Reset accumulated spent counter to $0.00? (Keeps balance history curves intact)'
+      )
+    ) {
+      const updated = resetRelayAccumulatedSpent()
+      setHistory(updated)
+    }
+  }
 
   const latestSnapshot = filteredHistory.length > 0 ? filteredHistory[filteredHistory.length - 1] : null
   const latestDelta = latestSnapshot?.delta ?? 0
@@ -342,12 +357,19 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
             <button
               type="button"
               onClick={() => {
-                if (confirm(isZh ? '确定要清空中转站消费走势历史记录吗？' : 'Clear all balance history snapshots?')) {
+                if (
+                  confirm(
+                    isZh
+                      ? '确定要清空中转站消费走势历史记录与累计扣费吗？'
+                      : 'Clear all balance history snapshots and accumulated spent?'
+                  )
+                ) {
                   clearRelayHistory()
+                  setHistory([])
                 }
               }}
               className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-[#1a1418] rounded-lg transition-colors cursor-pointer"
-              title={isZh ? '清空历史走势记录' : 'Clear History'}
+              title={isZh ? '清空全部历史走势与累计扣费' : 'Clear All History & Spent'}
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -394,13 +416,33 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
           </div>
 
           {/* Card 3: Tracked Period Spent */}
-          <div className="p-3 rounded-xl bg-[#141720] border border-[#242936] shadow-inner">
+          <div className="p-3 rounded-xl bg-[#141720] border border-[#242936] shadow-inner relative group">
             <div className="flex items-center justify-between text-zinc-400 text-xs">
               <span>{isZh ? '区间累计扣费' : 'Total Spent'}</span>
-              <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleResetSpent}
+                  className="p-1 text-zinc-500 hover:text-amber-400 hover:bg-zinc-800/60 rounded transition-all cursor-pointer opacity-70 group-hover:opacity-100"
+                  title={isZh ? '清零/重置累计扣费 (保留走势曲线)' : 'Reset Spent Counter (Keeps curves)'}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+                <TrendingDown className="w-3.5 h-3.5 text-rose-400" />
+              </div>
             </div>
-            <div className="text-lg font-bold font-mono text-rose-300 mt-1">
-              -${totalSpent.toFixed(totalSpent < 0.01 && totalSpent > 0 ? 4 : 2)}
+            <div className="text-lg font-bold font-mono text-rose-300 mt-1 flex items-baseline justify-between">
+              <span>-${totalSpent.toFixed(totalSpent < 0.01 && totalSpent > 0 ? 4 : 2)}</span>
+              {totalSpent > 0 && (
+                <button
+                  type="button"
+                  onClick={handleResetSpent}
+                  className="text-[11px] font-sans font-normal text-zinc-500 hover:text-amber-400 hover:underline cursor-pointer opacity-80 group-hover:opacity-100 transition-opacity"
+                  title={isZh ? '点击清零累计扣费' : 'Reset accumulated spent'}
+                >
+                  {isZh ? '清零' : 'Reset'}
+                </button>
+              )}
             </div>
             <div className="text-[11px] text-zinc-400 mt-0.5">
               {filteredHistory.length} {isZh ? '次采样统计' : 'samples tracked'}

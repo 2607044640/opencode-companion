@@ -22,6 +22,91 @@ export interface RelayBalanceSnapshot {
 export const RELAY_HISTORY_STORAGE_KEY = 'opencode_relay_balance_history'
 export const MAX_RELAY_HISTORY_ITEMS = 500
 export const DEFAULT_CNY_RATE = 7.2
+export const MAX_PLAUSIBLE_BALANCE_USD = 10_000
+export const MAX_PLAUSIBLE_DELTA_USD = 500
+
+/**
+ * Sanitizes relay balance history by dropping sentinel/abnormal balance spikes
+ * (e.g. upstream 100M glitches) and recalculating continuous deltas.
+ */
+export function sanitizeRelayHistory(history: RelayBalanceSnapshot[]): {
+  sanitized: RelayBalanceSnapshot[]
+  changed: boolean
+} {
+  let changed = false
+  const valid: RelayBalanceSnapshot[] = []
+
+  for (const item of history) {
+    if (
+      typeof item.totalNormalizedUsd !== 'number' ||
+      !Number.isFinite(item.totalNormalizedUsd) ||
+      item.totalNormalizedUsd < 0 ||
+      item.totalNormalizedUsd > MAX_PLAUSIBLE_BALANCE_USD
+    ) {
+      changed = true
+      continue
+    }
+
+    let providerAbnormal = false
+    if (item.providers && typeof item.providers === 'object') {
+      for (const prov of Object.values(item.providers)) {
+        if (
+          typeof prov.balance === 'number' &&
+          (prov.balance > MAX_PLAUSIBLE_BALANCE_USD || prov.balance < 0)
+        ) {
+          providerAbnormal = true
+          break
+        }
+      }
+    }
+    if (providerAbnormal) {
+      changed = true
+      continue
+    }
+
+    valid.push(item)
+  }
+
+  const hadPruning = valid.length !== history.length
+
+  for (let i = 0; i < valid.length; i++) {
+    const cur = valid[i]
+
+    if (i === 0) {
+      if (cur.delta !== 0) {
+        changed = true
+        valid[i] = { ...cur, delta: 0 }
+      }
+      continue
+    }
+
+    const prev = valid[i - 1]
+    const deltaAbsurd =
+      typeof cur.delta !== 'number' ||
+      !Number.isFinite(cur.delta) ||
+      Math.abs(cur.delta) > MAX_PLAUSIBLE_DELTA_USD
+
+    const originalIdx = history.indexOf(cur)
+    const prevInOriginal = originalIdx > 0 ? history[originalIdx - 1] : null
+    const neighborWasPruned = hadPruning && prevInOriginal && prevInOriginal.id !== prev.id
+
+    if (deltaAbsurd || neighborWasPruned) {
+      let expectedDelta = Number((cur.totalNormalizedUsd - prev.totalNormalizedUsd).toFixed(4))
+      if (Math.abs(expectedDelta) > MAX_PLAUSIBLE_DELTA_USD) {
+        expectedDelta = 0
+      }
+      if (cur.delta !== expectedDelta) {
+        changed = true
+        valid[i] = {
+          ...cur,
+          delta: expectedDelta,
+        }
+      }
+    }
+  }
+
+  return { sanitized: valid, changed }
+}
 
 export function getRelayHistory(storage?: Storage): RelayBalanceSnapshot[] {
   const target = storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined)
@@ -32,7 +117,7 @@ export function getRelayHistory(storage?: Storage): RelayBalanceSnapshot[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
+    const valid = parsed.filter(
       (item): item is RelayBalanceSnapshot =>
         typeof item === 'object' &&
         item !== null &&
@@ -40,6 +125,11 @@ export function getRelayHistory(storage?: Storage): RelayBalanceSnapshot[] {
         typeof item.timestamp === 'number' &&
         typeof item.totalNormalizedUsd === 'number'
     )
+    const { sanitized, changed } = sanitizeRelayHistory(valid)
+    if (changed) {
+      saveRelayHistory(sanitized, storage)
+    }
+    return sanitized
   } catch {
     return []
   }
@@ -121,6 +211,27 @@ export function recordRelaySnapshot(
   let delta = 0
   if (lastSnapshot) {
     delta = Number((normalizedTotal - lastSnapshot.totalNormalizedUsd).toFixed(4))
+    if (Math.abs(delta) > MAX_PLAUSIBLE_DELTA_USD) {
+      delta = 0
+    }
+  }
+
+  // Guard against upstream sentinel values corrupting balance tracking
+  if (normalizedTotal > MAX_PLAUSIBLE_BALANCE_USD) {
+    return {
+      snapshot: lastSnapshot ?? {
+        id: `snap_${Date.now()}`,
+        timestamp: Date.now(),
+        totalBalanceUsd: 0,
+        totalBalanceCny: 0,
+        totalNormalizedUsd: 0,
+        delta: 0,
+        trigger,
+        providers: provMap,
+      },
+      delta: 0,
+      deltaFormatted: '-$0.00',
+    }
   }
 
   const snapshot: RelayBalanceSnapshot = {
@@ -147,11 +258,32 @@ export function recordRelaySnapshot(
 export function computeTotalSpent(history: RelayBalanceSnapshot[]): number {
   let spent = 0
   for (const item of history) {
-    if (typeof item.delta === 'number' && item.delta < 0) {
+    if (
+      typeof item.delta === 'number' &&
+      item.delta < 0 &&
+      Math.abs(item.delta) <= MAX_PLAUSIBLE_DELTA_USD
+    ) {
       spent += Math.abs(item.delta)
     }
   }
   return Number(spent.toFixed(4))
+}
+
+/**
+ * Resets the accumulated deduction counter while keeping historical balance trend data intact.
+ * Sets all historical deltas to 0 and writes back to storage.
+ */
+export function resetRelayAccumulatedSpent(storage?: Storage): RelayBalanceSnapshot[] {
+  const history = getRelayHistory(storage)
+  if (history.length === 0) return []
+
+  const updated = history.map((snap) => ({
+    ...snap,
+    delta: 0,
+  }))
+
+  saveRelayHistory(updated, storage)
+  return updated
 }
 
 export function filterHistoryByRange(

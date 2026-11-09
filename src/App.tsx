@@ -291,8 +291,11 @@ export default function App() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showToast = useCallback((msg: string, durationMs = 2500) => {
     setToastMessage(msg)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), durationMs)
+    if (toastTimerRef.current !== null) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null
+      setToastMessage(null)
+    }, durationMs)
   }, [])
 
   useEffect(() => {
@@ -307,6 +310,10 @@ export default function App() {
     return () => {
       window.removeEventListener('opencode:toast', handleToastEvent)
       window.removeEventListener('opencode-toast', handleToastEvent)
+      if (toastTimerRef.current !== null) {
+        clearTimeout(toastTimerRef.current)
+        toastTimerRef.current = null
+      }
     }
   }, [showToast])
 
@@ -454,15 +461,13 @@ export default function App() {
   }, [])
 
   const handleDaemonRestored = useCallback(() => {
-    setToastMessage('已恢复与 WSL 后端守护进程的连接')
-    setTimeout(() => setToastMessage(null), 3500)
+    showToast('已恢复与 WSL 后端守护进程的连接', 3500)
     refresh()
-  }, [refresh])
+  }, [refresh, showToast])
 
   const handleDaemonLost = useCallback(() => {
-    setToastMessage('WSL 后端连接中断，正在尝试指数退避重连...')
-    setTimeout(() => setToastMessage(null), 4000)
-  }, [])
+    showToast('WSL 后端连接中断，正在尝试指数退避重连...', 4000)
+  }, [showToast])
 
   const handleAddSessionToMap = useCallback(
     async (sessionId: string) => {
@@ -474,15 +479,13 @@ export default function App() {
             detail: { cardId: res.cardId, sessionId },
           })
         )
-        setToastMessage(res.alreadyExisted ? '会话已在蓝图地图中' : '已放入蓝图地图')
-        setTimeout(() => setToastMessage(null), 2200)
+        showToast(res.alreadyExisted ? '会话已在蓝图地图中' : '已放入蓝图地图', 2200)
       } catch (err) {
         console.error('Failed to add session to map:', err)
-        setToastMessage('放入地图失败，请重试')
-        setTimeout(() => setToastMessage(null), 2200)
+        showToast('放入地图失败，请重试', 2200)
       }
     },
-    [sessions]
+    [sessions, showToast]
   )
 
   const [mapTargetSessionId, setMapTargetSessionId] = useState<string | null>(null)
