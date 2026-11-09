@@ -65,52 +65,14 @@ interface MessageBubbleProps {
   showTerminalError?: boolean
 }
 
-/**
- * Format user message timestamp in clean short format:
- * - 2-digit year (e.g. 26, not 2026)
- * - 2-digit month and day separated by dots (xx.xx.xx)
- * - 24-hour clock (HH:mm)
- * Example: '26.11.08 18:46'
- */
-export function formatAbsoluteUserTime(timestamp?: number): string {
-  if (!timestamp || typeof timestamp !== 'number' || timestamp <= 0) return ''
-  const ms = timestamp < 1e11 ? timestamp * 1000 : timestamp
-  const d = new Date(ms)
-  if (isNaN(d.getTime())) return ''
-  const yy = String(d.getFullYear()).slice(-2)
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  const hh = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${yy}.${mm}.${dd} ${hh}:${min}`
-}
+import {
+  formatAbsoluteUserTime,
+  formatUserMessageTime,
+} from '../../utils/time'
 
-export function formatUserMessageTime(timestamp?: number, nowMs?: number): string {
-  if (!timestamp || typeof timestamp !== 'number' || timestamp <= 0) return ''
-  const ms = timestamp < 1e11 ? timestamp * 1000 : timestamp
-  const d = new Date(ms)
-  if (isNaN(d.getTime())) return ''
-
-  const current = typeof nowMs === 'number' ? nowMs : Date.now()
-  const diffMs = current - ms
-
-  // Within 48 hours: show relative time (e.g. 'just now', '2m ago', '2h ago', '27h ago')
-  const FORTY_EIGHT_HOURS_MS = 48 * 3600 * 1000
-  if (diffMs >= 0 && diffMs < FORTY_EIGHT_HOURS_MS) {
-    const diffSec = Math.floor(diffMs / 1000)
-    if (diffSec < 60) {
-      return 'just now'
-    }
-    const diffMin = Math.floor(diffSec / 60)
-    if (diffMin < 60) {
-      return `${diffMin}m ago`
-    }
-    const diffHours = Math.floor(diffMin / 60)
-    return `${diffHours}h ago`
-  }
-
-  // Beyond 48 hours: fall back to 26.MM.DD HH:mm format
-  return formatAbsoluteUserTime(ms)
+export {
+  formatAbsoluteUserTime,
+  formatUserMessageTime,
 }
 
 function formatTokens(n: number | undefined): string {

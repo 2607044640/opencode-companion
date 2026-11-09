@@ -19,6 +19,8 @@ import {
   type RelayProvider,
 } from '../../utils/relay-billing'
 import { recordRelaySnapshot } from '../../utils/relay-history'
+import { usePreferences } from '../../utils/preferences'
+import { formatTimeAgo } from '../../utils/time'
 import { RelayCostAnalyticsModal } from './RelayCostAnalyticsModal'
 
 interface RelayHubDropdownProps {
@@ -32,6 +34,8 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
   compact = false,
   popoverPlacement = 'bottom',
 }) => {
+  const { prefs } = usePreferences()
+  const autoRefreshRelayQuota = Boolean(prefs.autoRefreshRelayQuota)
   const [providers, setProviders] = useState<RelayProvider[]>(() => getRelayProviders())
   const [isOpen, setIsOpen] = useState(false)
   const [isRefreshingAll, setIsRefreshingAll] = useState(false)
@@ -83,32 +87,34 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
       if (!mounted) return
       setProviders(synced)
 
-      // Auto-fetch balance for any provider that has apiKey and hasn't been updated recently (>= 10 mins)
+      // Auto-fetch balance on mount only when auto-refresh is explicitly enabled in preferences
       const now = Date.now()
-      const needsFetch = synced.filter((p) => p.apiKey && (!p.lastUpdated || now - p.lastUpdated >= DEFAULT_REFRESH_INTERVAL_MS))
-      if (needsFetch.length > 0) {
-        for (const p of needsFetch) {
-          fetchRelayQuota(p).then((res) => {
-            if (!mounted) return
-            if (res.ok) {
-              updateRelayProvider(p.id, {
-                balance: res.balance,
-                totalQuota: res.totalQuota,
-                usedQuota: res.usedQuota,
-                isUnmetered: res.isUnmetered,
-                note: res.note,
-                status: 'ok',
-                error: undefined,
-                lastUpdated: Date.now(),
-              })
-            } else {
-              updateRelayProvider(p.id, {
-                status: 'error',
-                error: res.error || 'Fetch failed',
-              })
-            }
-            if (mounted) reloadProviders()
-          })
+      if (autoRefreshRelayQuota) {
+        const needsFetch = synced.filter((p) => p.apiKey && (!p.lastUpdated || now - p.lastUpdated >= DEFAULT_REFRESH_INTERVAL_MS))
+        if (needsFetch.length > 0) {
+          for (const p of needsFetch) {
+            fetchRelayQuota(p).then((res) => {
+              if (!mounted) return
+              if (res.ok) {
+                updateRelayProvider(p.id, {
+                  balance: res.balance,
+                  totalQuota: res.totalQuota,
+                  usedQuota: res.usedQuota,
+                  isUnmetered: res.isUnmetered,
+                  note: res.note,
+                  status: 'ok',
+                  error: undefined,
+                  lastUpdated: Date.now(),
+                })
+              } else {
+                updateRelayProvider(p.id, {
+                  status: 'error',
+                  error: res.error || 'Fetch failed',
+                })
+              }
+              if (mounted) reloadProviders()
+            })
+          }
         }
       }
     }
@@ -259,8 +265,12 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
     }
   }
 
-  // 10-minute auto refresh interval (runs strictly when companion app is open and browser tab is visible)
+  // 10-minute auto refresh interval (runs strictly when enabled in preferences, app is open, and tab is visible)
   useEffect(() => {
+    if (!autoRefreshRelayQuota) {
+      return
+    }
+
     let timer: ReturnType<typeof setInterval> | null = null
 
     const scheduleTimer = () => {
@@ -302,17 +312,13 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
       if (timer) clearInterval(timer)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [refreshAll])
+  }, [refreshAll, autoRefreshRelayQuota])
 
   const summary = aggregateBalances(providers)
 
-  // Format relative timestamp
+  // Format relative timestamp using unified time utility
   const formatTime = (ts?: number) => {
-    if (!ts) return '未更新'
-    const diff = Math.floor((Date.now() - ts) / 1000)
-    if (diff < 60) return '刚刚'
-    if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
-    return `${Math.floor(diff / 3600)} 小时前`
+    return formatTimeAgo(ts, undefined, { fallback: '未更新' })
   }
 
   const popoverStyle: React.CSSProperties =
@@ -419,12 +425,21 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
             <div className="flex items-center gap-1.5">
               <Coins className="w-4 h-4 text-zinc-400" />
               <span className="font-semibold text-xs text-zinc-100">中转站额度中心</span>
-              <span
-                className="text-[9px] text-zinc-400 font-mono bg-[#1c202a] px-1.5 py-0.5 rounded border border-[#2d3240]"
-                title="打开软件时每10分钟自动刷新，关闭或切换后台时不消耗资源"
-              >
-                10m自动刷新
-              </span>
+              {autoRefreshRelayQuota ? (
+                <span
+                  className="text-[9px] text-sky-400 font-mono bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-700/60"
+                  title="已开启：打开软件时每10分钟自动刷新，关闭或切换后台时不消耗资源"
+                >
+                  10m自动刷新
+                </span>
+              ) : (
+                <span
+                  className="text-[9px] text-zinc-500 font-mono bg-[#1c202a] px-1.5 py-0.5 rounded border border-[#2d3240]"
+                  title="默认禁用：可在系统设置中开启每10分钟自动刷新"
+                >
+                  手动刷新
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1">

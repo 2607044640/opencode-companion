@@ -773,6 +773,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   />
                 </div>
 
+                {/* 10-Minute Relay Quota Auto Refresh */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">
+                      {tr('每 10 分钟自动刷新中转站额度', 'Auto-refresh relay quota every 10 minutes', 'Relay-Guthaben alle 10 Minuten aktualisieren')}
+                    </div>
+                    <div className="text-[11px] text-zinc-500">
+                      {tr(
+                        '默认禁用。开启后，在伴侣端打开且前台处于活跃状态时，每 10 分钟自动刷新各中转站最新额度并记录走势点',
+                        'Disabled by default. When enabled, auto-refreshes relay quota every 10 minutes when the app is active and in foreground',
+                        'Standardmäßig deaktiviert. Wenn aktiviert, wird das Guthaben alle 10 Minuten aktualisiert'
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(prefs.autoRefreshRelayQuota)}
+                    onChange={(e) => updatePreferences({ autoRefreshRelayQuota: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
                 {/* Dialogue Expand / Collapse Quick Actions & Shortcuts */}
                 <div className="flex items-center justify-between py-2.5 border-t border-zinc-800">
                   <div>
@@ -1060,9 +1082,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
 
             {/* 4.5 RELAY HUB TAB */}
             {activeTab === 'relays' && (
-              <div className="space-y-3 text-sm text-zinc-300">
-                <p>中转站额度、Key 和兑换地址已并入模型路由悬浮面板（Ctrl+Shift+3）的「中转额度」页。</p>
-                <p className="text-xs text-zinc-500">顶栏金币按钮的设置入口也会打开那一页。这里不再单独维护一份。</p>
+              <div className="space-y-4 text-sm text-zinc-300">
+                <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
+                  <div>
+                    <div className="text-xs font-medium text-zinc-200">
+                      {tr('每 10 分钟自动刷新中转站额度', 'Auto-refresh relay quota every 10 minutes', 'Relay-Guthaben alle 10 Minuten aktualisieren')}
+                    </div>
+                    <div className="text-[11px] text-zinc-500">
+                      {tr(
+                        '默认禁用。开启后，在伴侣端处于前台时，每 10 分钟自动向各中转站请求一次最新额度并记录走势点',
+                        'Disabled by default. When enabled, auto-refreshes relay quota every 10 minutes when the app is active in foreground',
+                        'Standardmäßig deaktiviert. Wenn aktiviert, wird das Guthaben alle 10 Minuten aktualisiert'
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updatePreferences({ autoRefreshRelayQuota: !prefs.autoRefreshRelayQuota })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                      prefs.autoRefreshRelayQuota ? 'bg-blue-600' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        prefs.autoRefreshRelayQuota ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 text-xs text-zinc-400">
+                  <p>中转站额度、Key 和兑换地址已并入模型路由悬浮面板（Ctrl+Shift+3）的「中转额度」页。</p>
+                  <p className="text-[11px] text-zinc-500">顶栏金币按钮的设置入口也会打开那一页。这里不再单独维护一份。</p>
+                </div>
               </div>
             )}
 

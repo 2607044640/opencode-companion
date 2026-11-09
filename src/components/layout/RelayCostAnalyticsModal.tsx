@@ -26,6 +26,7 @@ import {
   type RelayBalanceSnapshot,
 } from '../../utils/relay-history'
 import { type RelayProvider } from '../../utils/relay-billing'
+import { formatTimeAgo } from '../../utils/time'
 import { useI18n } from '../../utils/i18n'
 
 export interface RelayCostAnalyticsModalProps {
@@ -410,8 +411,8 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
             <div className={`text-lg font-bold font-mono mt-1 ${latestDelta < 0 ? 'text-sky-300' : 'text-zinc-200'}`}>
               {formatDelta(latestDelta)}
             </div>
-            <div className="text-[11px] text-zinc-400 mt-0.5">
-              {latestSnapshot ? new Date(latestSnapshot.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--'}
+            <div className="text-[11px] text-zinc-400 mt-0.5 truncate" title={latestSnapshot ? new Date(latestSnapshot.timestamp).toLocaleString() : ''}>
+              {latestSnapshot ? `${formatTimeAgo(latestSnapshot.timestamp)} (${new Date(latestSnapshot.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})` : '--:--'}
             </div>
           </div>
 
@@ -808,8 +809,8 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
                   }}
                 >
                   <div className="flex items-center justify-between pb-1.5 border-b border-[#252a36] text-[11px] text-zinc-400">
-                    <span className="font-mono">
-                      {new Date(hoveredSnapshot.timestamp).toLocaleString()}
+                    <span className="font-mono" title={new Date(hoveredSnapshot.timestamp).toLocaleString()}>
+                      {formatTimeAgo(hoveredSnapshot.timestamp)} ({new Date(hoveredSnapshot.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})
                     </span>
                     <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-300">
                       {hoveredSnapshot.trigger === 'manual_click'
@@ -886,7 +887,14 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
                   .map((snap) => (
                     <tr key={snap.id} className="hover:bg-[#161922] transition-colors">
                       <td className="py-1.5 text-zinc-300">
-                        {new Date(snap.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        <div className="flex items-center gap-1.5" title={new Date(snap.timestamp).toLocaleString()}>
+                          <span className="font-semibold text-zinc-200">
+                            {formatTimeAgo(snap.timestamp)}
+                          </span>
+                          <span className="text-[10px] text-zinc-500 font-mono font-normal">
+                            ({new Date(snap.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})
+                          </span>
+                        </div>
                       </td>
                       <td className="py-1.5 text-zinc-400">
                         {snap.trigger === 'manual_click' ? (

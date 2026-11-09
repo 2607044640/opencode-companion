@@ -29,6 +29,7 @@ export interface UserPreferences {
   translucentPromptInput?: boolean
   translucentUiChrome?: boolean
   collapseNavRailTopButtons?: boolean
+  autoRefreshRelayQuota?: boolean
   mouseSideButtonToggleDialogue?: boolean
   modelVisibility?: Record<string, boolean>
   providerVisibility?: Record<string, boolean>
@@ -113,6 +114,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   translucentPromptInput: false,
   translucentUiChrome: false,
   collapseNavRailTopButtons: false,
+  autoRefreshRelayQuota: false,
   mouseSideButtonToggleDialogue: true,
   modelVisibility: {},
   providerVisibility: {},
