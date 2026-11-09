@@ -10,6 +10,7 @@ import { resolveSessionProject, sessionBelongsToProjectFilter } from '../../util
 import { formatCompactTime } from '../../utils/sidebar-helpers'
 import { SessionTrailingIndicator } from '../common/SessionStatusIndicator'
 import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
+import { SessionPreviewPopover } from './SessionPreviewPopover'
 import {
   SESSION_BOARD_STORAGE_KEY, createSessionBoard, readSessionBoard, saveSessionBoard,
   moveBoardSession, moveBoardGroup, moveBoardColumn, recentBoardSessions,
@@ -53,6 +54,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
   const [toast, setToast] = useState<{ message: string; isError?: boolean; key: number } | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [deleting, setDeleting] = useState<DragItem | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<{ session: Session; mouseX: number; mouseY: number } | null>(null)
   const [dragging, setDragging] = useState<DragItem | null>(null)
   const [dropTarget, setDropTarget] = useState('')
   const [hoverTarget, setHoverTarget] = useState<HoverTarget | null>(null)
@@ -282,8 +284,14 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
       onMouseLeave={() => { if (hoverTargetRef.current?.kind === 'session' && hoverTargetRef.current.session.id === session.id) setHover(null) }}
       onDragOver={event => groupId && over(event, target, ['session'])}
       onDrop={event => { if (dragged.current?.kind === 'session') drop(event, item => { if (groupId) commit(moveBoardSession(boardRef.current, item.id, groupId, session.id)); else recycle(item.id) }) }}>
-      <button className="sb-session-open" title={`${session.title}\n${badge.name} · ${session.directory}${groupId ? '\n[R] ' + (zh ? '移回底栏待整理' : 'Return to tray') : ''}\n[D] ${isArchived ? (zh ? '取消归档' : 'Unarchive') : (zh ? '归档' : 'Archive')}\n[F2] ${zh ? '重命名会话' : 'Rename conversation'}`}
-        onClick={() => {
+      <button className="sb-session-open" title={`${session.title}\n${badge.name} · ${session.directory}\n[Ctrl+点击] ${zh ? '悬浮快速预览会话' : 'Preview conversation'}${groupId ? '\n[R] ' + (zh ? '移回底栏待整理' : 'Return to tray') : ''}\n[D] ${isArchived ? (zh ? '取消归档' : 'Unarchive') : (zh ? '归档' : 'Archive')}\n[F2] ${zh ? '重命名会话' : 'Rename conversation'}`}
+        onClick={(e) => {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            e.stopPropagation()
+            setPreviewTarget({ session, mouseX: e.clientX, mouseY: e.clientY })
+            return
+          }
           if (Date.now() - lastActionAt.current < 350) return
           onSelectSession(session.id)
           onClose()
@@ -307,7 +315,8 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
       if (isIMEActive(event)) return
       if (event.key === 'Escape') {
         event.preventDefault(); event.stopPropagation()
-        if (editor) setEditor(null)
+        if (previewTarget) setPreviewTarget(null)
+        else if (editor) setEditor(null)
         else if (deleting) setDeleting(null)
         else onClose()
       }
@@ -398,6 +407,7 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
           <div className="sb-help-item"><kbd>悬浮 + F2</kbd><span>{zh ? '重命名会话 / 分组 / 列' : 'Rename item'}</span></div>
           <div className="sb-help-item"><kbd>悬浮 + R</kbd><span>{zh ? '移回底栏待整理' : 'Return to tray'}</span></div>
           <div className="sb-help-item"><kbd>悬浮 + D</kbd><span>{zh ? '快速归档 / 恢复' : 'Archive / Restore'}</span></div>
+          <div className="sb-help-item"><kbd>Ctrl+点击</kbd><span>{zh ? '悬浮快速预览' : 'Preview session'}</span></div>
           <div className="sb-help-item"><kbd>单击</kbd><span>{zh ? '直接进入会话' : 'Open chat'}</span></div>
           <div className="sb-help-item"><kbd>拖拽</kbd><span>{zh ? '跨组 / 跨列自由分类' : 'Drag to arrange'}</span></div>
           <div className="sb-help-item"><kbd>Ctrl+Shift+A</kbd><span>{zh ? '切换看板' : 'Toggle board'}</span></div>
@@ -412,5 +422,19 @@ export function FloatingSessionBoardModal({ sessions, projects, initialSelectedP
     )}
     {editor && <div className="sb-editor-shade"><form className="sb-editor" onSubmit={event => { event.preventDefault(); editCommit() }}><label>{editor.kind === 'session' ? (zh ? '重命名会话' : 'Rename Conversation') : editor.id ? (zh ? '重命名' : 'Rename') : editor.kind === 'group' ? 'New Group' : 'New Column'}<input autoFocus maxLength={100} value={editor.value} onChange={event => setEditor({ ...editor, value: event.target.value })} onKeyDown={event => { if (isIMEActive(event) && event.key === 'Enter') event.preventDefault() }} /></label><div><button type="button" onClick={() => setEditor(null)}>{zh ? '取消' : 'Cancel'}</button><button type="submit" disabled={!editor.value.trim()}>{zh ? '保存' : 'Save'}</button></div></form></div>}
     {deleting && <div className="sb-confirm-scope"><CountdownConfirmDialog isOpen title={zh ? '移除组织容器？' : 'Remove this container?'} description={zh ? '其中会话将移回待整理区，历史会保留。' : 'Conversations return to the ungrouped pool. History is preserved.'} onConfirm={deleteItem} onClose={() => setDeleting(null)} isDestructive /></div>}
+    {previewTarget && (
+      <SessionPreviewPopover
+        session={previewTarget.session}
+        mouseX={previewTarget.mouseX}
+        mouseY={previewTarget.mouseY}
+        projects={projects}
+        onClose={() => setPreviewTarget(null)}
+        onSelectSession={(id) => {
+          setPreviewTarget(null)
+          onSelectSession(id)
+          onClose()
+        }}
+      />
+    )}
   </div>
 }

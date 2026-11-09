@@ -44,6 +44,7 @@ import { api, matchCanonicalWorkspace } from '../../services/api'
 import { exportSessionToMarkdown, extractSessionPrompts } from '../../utils/export-markdown'
 import { useI18n } from '../../utils/i18n'
 import { usePreferences } from '../../utils/preferences'
+import { SessionPreviewPopover } from '../search/SessionPreviewPopover'
 import {
   AntigravityRunningIndicator,
   SessionUnreadDot,
@@ -198,6 +199,7 @@ export function Sidebar({
   // Pinned & Archived session IDs state
   const [pinnedIds, setPinnedIds] = useState<string[]>(() => getPinnedSessionIds())
   const [archivedIds, setArchivedIds] = useState<string[]>(() => getArchivedSessionIds())
+  const [previewTarget, setPreviewTarget] = useState<{ session: Session; mouseX: number; mouseY: number } | null>(null)
 
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
@@ -530,6 +532,20 @@ export function Sidebar({
             <Settings className="w-4 h-4" />
           </button>
         </div>
+
+        {previewTarget && (
+          <SessionPreviewPopover
+            session={previewTarget.session}
+            mouseX={previewTarget.mouseX}
+            mouseY={previewTarget.mouseY}
+            projects={projects}
+            onClose={() => setPreviewTarget(null)}
+            onSelectSession={(id) => {
+              setPreviewTarget(null)
+              onSelectSession(id)
+            }}
+          />
+        )}
       </aside>
     )
   }
@@ -794,7 +810,15 @@ export function Sidebar({
                       setDraggingSessionId(null)
                       setDragOverSessionId(null)
                     }}
-                    onClick={() => onSelectSession(session.id)}
+                    onClick={(e) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setPreviewTarget({ session, mouseX: e.clientX, mouseY: e.clientY })
+                        return
+                      }
+                      onSelectSession(session.id)
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
@@ -969,7 +993,13 @@ export function Sidebar({
                           return (
                             <div
                               key={session.id}
-                              onClick={() => {
+                              onClick={(e) => {
+                                if (e.ctrlKey || e.metaKey) {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setPreviewTarget({ session, mouseX: e.clientX, mouseY: e.clientY })
+                                  return
+                                }
                                 if (isActive) {
                                   setEditingSessionId(session.id)
                                   setEditingTitle(session.title || '')
@@ -1163,7 +1193,15 @@ export function Sidebar({
                   return (
                     <div
                       key={`archived-${session.id}`}
-                      onClick={() => onSelectSession(session.id)}
+                      onClick={(e) => {
+                      if (e.ctrlKey || e.metaKey) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setPreviewTarget({ session, mouseX: e.clientX, mouseY: e.clientY })
+                        return
+                      }
+                      onSelectSession(session.id)
+                    }}
                       onContextMenu={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -1543,6 +1581,20 @@ export function Sidebar({
             <span>{isZh ? '删除会话' : 'Delete Session'}</span>
           </button>
         </div>
+      )}
+
+      {previewTarget && (
+        <SessionPreviewPopover
+          session={previewTarget.session}
+          mouseX={previewTarget.mouseX}
+          mouseY={previewTarget.mouseY}
+          projects={projects}
+          onClose={() => setPreviewTarget(null)}
+          onSelectSession={(id) => {
+            setPreviewTarget(null)
+            onSelectSession(id)
+          }}
+        />
       )}
     </aside>
   )
