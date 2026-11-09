@@ -498,6 +498,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     </button>
                   </div>
 
+                  {/* Lighter Window Title Bar (PWA / Edge App Mode) */}
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-200">
+                        {tr('顶部窗口标题栏浅色主题', 'Lighter Window Titlebar', 'Helle Fenster-Titelleiste')}
+                      </div>
+                      <div className="text-[11px] text-zinc-500">
+                        {tr(
+                          '默认开启。在 Windows / Edge 应用模式下将外部顶部标题栏由纯黑调整为优雅浅石板色调，使整体界面更开阔协调',
+                          'Enabled by default. Styles the external window titlebar with a modern lighter slate tone instead of pure black in Edge app mode',
+                          'Standardmäßig aktiviert. Färbt die Titelleiste im helleren Schieferton statt reinem Schwarz'
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updatePreferences({ lightTitlebar: !(prefs.lightTitlebar ?? true) })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                        (prefs.lightTitlebar ?? true) ? 'bg-blue-600' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          (prefs.lightTitlebar ?? true) ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
                   {/* Conversation Width */}
                   <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
                     <div>

@@ -33,7 +33,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Custom sleek scrollbars */
+  /* Custom sleek scrollbars: translucent when idle, fully visible on hover */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -42,11 +42,12 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #27272a;
+    background: rgba(255, 255, 255, 0.14);
     border-radius: 9999px;
+    transition: background 0.2s ease-in-out;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #3f3f46;
+    background: rgba(255, 255, 255, 0.45);
   }
 
   /* Utility to hide native scrollbar while retaining scrolling capability */

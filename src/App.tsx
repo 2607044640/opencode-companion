@@ -41,9 +41,19 @@ import { BackgroundTasksModal } from './components/tasks/BackgroundTasksModal'
 import { SubagentTopologyInspector } from './components/chat/SubagentTopologyInspector'
 import { FloatingModelRouter } from './components/router/FloatingModelRouter'
 import { SessionHistoryStack } from './utils/session-history'
-import { getPreferences } from './utils/preferences'
+import { getPreferences, usePreferences } from './utils/preferences'
+import { resolveTitlebarColor, syncTitlebarThemeColor } from './utils/theme-color'
 
 export default function App() {
+  const { prefs } = usePreferences()
+
+  useEffect(() => {
+    const color = resolveTitlebarColor({
+      lightTitlebar: prefs.lightTitlebar ?? true,
+      translucentUiChrome: prefs.translucentUiChrome,
+    })
+    syncTitlebarThemeColor(color)
+  }, [prefs.lightTitlebar, prefs.translucentUiChrome])
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
     try {
       const prefs = getPreferences()

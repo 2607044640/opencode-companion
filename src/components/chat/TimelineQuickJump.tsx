@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import { useLongPress } from '../../hooks/useLongPress'
 import { useI18n } from '../../utils/i18n'
+import { usePreferences } from '../../utils/preferences'
 import {
   computeDialogueTicks,
   computeViewportThumb,
@@ -32,6 +33,8 @@ export function TimelineQuickJump({
   isZenMode,
 }: TimelineQuickJumpProps) {
   const { t, tr } = useI18n()
+  const { prefs } = usePreferences()
+  const isStealthActive = Boolean(prefs.translucentUiChrome ?? prefs.translucentPromptInput)
 
   const [ticks, setTicks] = useState<DialogueTick[]>([])
   const [thumb, setThumb] = useState<{ topPct: number; heightPct: number }>({ topPct: 0, heightPct: 100 })
@@ -284,8 +287,12 @@ export function TimelineQuickJump({
   return (
     <div
       ref={containerWrapperRef}
-      className={`absolute z-30 flex flex-col items-center select-none transition-all duration-200 ${
+      className={`absolute z-30 flex flex-col items-center select-none transition-all duration-300 ${
         isZenMode ? 'top-4 bottom-4 right-2' : 'top-3 bottom-3 right-1.5'
+      } ${
+        isStealthActive && !isDragging && hoveredTickIndex === null
+          ? 'opacity-25 hover:opacity-100 focus-within:opacity-100'
+          : 'opacity-100'
       }`}
       style={{ width: '16px' }}
       aria-label="对话轨迹导航栏"

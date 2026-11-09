@@ -6,8 +6,12 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0c0d0e",
-  "theme_color": "#0c0d0e",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#1e222d",
+  "theme_color": "#1e222d",
   "launch_handler": {
     "client_mode": "navigate-existing"
   },

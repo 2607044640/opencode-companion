@@ -16,6 +16,7 @@ describe('Preferences Utilities (preferences.ts)', () => {
     assert.equal(DEFAULT_PREFERENCES.translucentUiChrome, false)
     assert.equal(DEFAULT_PREFERENCES.collapseNavRailTopButtons, false)
     assert.equal(DEFAULT_PREFERENCES.autoRefreshRelayQuota, false)
+    assert.equal(DEFAULT_PREFERENCES.lightTitlebar, true)
     assert.equal(DEFAULT_PREFERENCES.autoGitCheckpoint, true)
     assert.equal(DEFAULT_PREFERENCES.floatingDiffView, true)
     assert.equal(DEFAULT_PREFERENCES.conversationWidth, 'default')
