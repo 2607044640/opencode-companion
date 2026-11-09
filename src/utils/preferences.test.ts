@@ -13,6 +13,7 @@ describe('Preferences Utilities (preferences.ts)', () => {
     assert.equal(DEFAULT_PREFERENCES.verboseAgentChat, true)
     assert.equal(DEFAULT_PREFERENCES.collapseSidebarOnStartup, false)
     assert.equal(DEFAULT_PREFERENCES.translucentPromptInput, false)
+    assert.equal(DEFAULT_PREFERENCES.translucentUiChrome, false)
     assert.equal(DEFAULT_PREFERENCES.collapseNavRailTopButtons, false)
     assert.equal(DEFAULT_PREFERENCES.autoGitCheckpoint, true)
     assert.equal(DEFAULT_PREFERENCES.floatingDiffView, true)
@@ -57,6 +58,8 @@ describe('Preferences Utilities (preferences.ts)', () => {
       const prefs = getPreferences()
       assert.equal(prefs.collapseNavRailTopButtons, true)
       assert.equal(store['opencode_collapse_nav_rail_top_buttons_initialized_v1'], 'true')
+      assert.equal(prefs.translucentUiChrome, true)
+      assert.equal(store['opencode_stealth_ui_chrome_initialized_v2'], 'true')
     } finally {
       ;(globalThis as any).localStorage = origLocalStorage
     }

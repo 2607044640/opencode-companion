@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { Project, Session } from '../../types/opencode'
 import { useI18n } from '../../utils/i18n'
+import { usePreferences } from '../../utils/preferences'
 import { TabContextMenu } from './TabContextMenu'
 import { resolveSessionProject } from '../../utils/session-workspace'
 import { getStoredTabTitles } from '../../utils/tab-persistence'
@@ -206,8 +207,13 @@ export function Header({
     setEditingTabId(null)
   }, [activeSessionId])
 
+  const { prefs } = usePreferences()
+  const isStealthActive = Boolean(prefs.translucentUiChrome ?? prefs.translucentPromptInput) && !contextMenu
+
   return (
-    <header className="h-12 border-b border-[#1f1f2c] bg-[#0f0f15] flex items-center justify-between px-2 gap-2 select-none shrink-0">
+    <header className={`h-12 border-b border-[#1f1f2c] bg-[#0f0f15] flex items-center justify-between px-2 gap-2 select-none shrink-0 ${
+      isStealthActive ? 'opacity-25 hover:opacity-100 focus-within:opacity-100 transition-all duration-300' : ''
+    }`}>
       {/* Multi-Session Tabs */}
       <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto no-scrollbar">
         {/* Tab Items */}

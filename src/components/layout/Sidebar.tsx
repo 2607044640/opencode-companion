@@ -418,9 +418,13 @@ export function Sidebar({
     return 'APISpace'
   }
 
+  const isStealthActive = Boolean(prefs.translucentUiChrome ?? prefs.translucentPromptInput) && !contextMenu
+
   if (isOpen === false) {
     return (
-      <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between">
+      <aside className={`w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between ${
+        isStealthActive ? 'opacity-25 hover:opacity-100 focus-within:opacity-100 transition-all duration-300' : ''
+      }`}>
         {/* Top: Expand Sidebar Icon + Top Bar Toggle (hidden when collapseNavRailTopButtons is active) */}
         {!prefs.collapseNavRailTopButtons ? (
           <div className="flex flex-col items-center gap-1.5">
@@ -531,7 +535,9 @@ export function Sidebar({
   }
 
   return (
-    <aside className="w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none">
+    <aside className={`w-64 sm:w-[260px] h-full flex flex-col shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none ${
+      isStealthActive ? 'opacity-25 hover:opacity-100 focus-within:opacity-100 transition-all duration-300' : ''
+    }`}>
       {/* 1. Top Action Buttons Bar (图4功能 - 并列一行，纯图标，带悬浮说明) */}
       <div className="h-11 px-2.5 flex items-center justify-between border-b border-[#1f1f2c] bg-[#12121a]">
         {/* Left: Sidebar Toggle, Back, Forward */}

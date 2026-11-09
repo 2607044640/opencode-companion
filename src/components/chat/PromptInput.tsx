@@ -1071,16 +1071,16 @@ export function PromptInput({
     clearComposer()
   }
 
-  const isDimmedPrompt = Boolean(isZenMode || prefs.translucentPromptInput)
+  const isDimmedPrompt = Boolean(isZenMode || prefs.translucentUiChrome || prefs.translucentPromptInput)
 
   return (
     <div
       className={
         isZenMode
-          ? 'w-full select-none opacity-40 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl'
+          ? 'w-full select-none opacity-25 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl'
           : `mx-auto w-full px-4 sm:px-6 lg:px-8 pb-4 select-none ${
-              prefs.translucentPromptInput
-                ? 'opacity-40 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl '
+              isDimmedPrompt
+                ? 'opacity-25 hover:opacity-100 focus-within:opacity-100 transition-all duration-300 shadow-2xl '
                 : ''
             }${
               prefs.conversationWidth === 'narrow'
