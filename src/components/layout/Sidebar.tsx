@@ -43,6 +43,7 @@ import { useDaemonHeartbeat } from '../../utils/daemon-heartbeat'
 import { api, matchCanonicalWorkspace } from '../../services/api'
 import { exportSessionToMarkdown, extractSessionPrompts } from '../../utils/export-markdown'
 import { useI18n } from '../../utils/i18n'
+import { usePreferences } from '../../utils/preferences'
 import {
   AntigravityRunningIndicator,
   SessionUnreadDot,
@@ -173,6 +174,7 @@ export function Sidebar({
 }: SidebarProps) {
   const { lang } = useI18n()
   const isZh = lang === 'zh-CN'
+  const { prefs } = usePreferences()
 
   // Diagnostic state monitoring for AI inspection (replacing removed visual status dots)
   const { state: daemonState, attempt: daemonAttempt } = useDaemonHeartbeat({
@@ -419,45 +421,49 @@ export function Sidebar({
   if (isOpen === false) {
     return (
       <aside className="w-12 h-full flex flex-col items-center py-2 shrink-0 border-r border-[#1f1f2c] bg-[#0f0f15] text-[#c9d1d9] select-none justify-between">
-        {/* Top: Expand Sidebar Icon + Top Bar Toggle */}
-        <div className="flex flex-col items-center gap-1.5">
-          {/* Toggle Sidebar [|] */}
-          <button
-            type="button"
-            onClick={onToggleSidebar}
-            className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
-            title={isZh ? '展开侧边栏 (Ctrl+B)' : 'Show Sidebar (Ctrl+B)'}
-          >
-            <PanelLeftOpen className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={onOpenSessionBoard}
-            className="p-2 rounded-md text-[#8b949e] hover:text-sky-400 hover:bg-[#1f232b]"
-            title={isZh ? '会话整理看板 (Ctrl+Shift+A)' : 'Session board (Ctrl+Shift+A)'} aria-label={isZh ? '会话整理看板' : 'Session board'}>
-            <Columns3 className="w-4 h-4" />
-          </button>
+        {/* Top: Expand Sidebar Icon + Top Bar Toggle (hidden when collapseNavRailTopButtons is active) */}
+        {!prefs.collapseNavRailTopButtons ? (
+          <div className="flex flex-col items-center gap-1.5">
+            {/* Toggle Sidebar [|] */}
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="p-2 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] transition-colors cursor-pointer"
+              title={isZh ? '展开侧边栏 (Ctrl+B)' : 'Show Sidebar (Ctrl+B)'}
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={onOpenSessionBoard}
+              className="p-2 rounded-md text-[#8b949e] hover:text-sky-400 hover:bg-[#1f232b]"
+              title={isZh ? '会话整理看板 (Ctrl+Shift+A)' : 'Session board (Ctrl+Shift+A)'} aria-label={isZh ? '会话整理看板' : 'Session board'}>
+              <Columns3 className="w-4 h-4" />
+            </button>
 
-          {/* Toggle Top Bar (Ctrl+Shift+B) */}
-          <button
-            type="button"
-            onClick={onToggleHeader}
-            className={`p-2 rounded-md transition-colors cursor-pointer ${
-              !isHeaderVisible
-                ? 'text-sky-400 hover:text-sky-300 hover:bg-[#1f232b]'
-                : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b]'
-            }`}
-            title={
-              isZh
-                ? isHeaderVisible
-                  ? '隐藏上方栏 (Ctrl+Shift+B)'
-                  : '显示上方栏 (Ctrl+Shift+B)'
-                : isHeaderVisible
-                ? 'Hide Top Bar (Ctrl+Shift+B)'
-                : 'Show Top Bar (Ctrl+Shift+B)'
-            }
-          >
-            {isHeaderVisible ? <PanelTopClose className="w-4 h-4" /> : <PanelTopOpen className="w-4 h-4" />}
-          </button>
-        </div>
+            {/* Toggle Top Bar (Ctrl+Shift+B) */}
+            <button
+              type="button"
+              onClick={onToggleHeader}
+              className={`p-2 rounded-md transition-colors cursor-pointer ${
+                !isHeaderVisible
+                  ? 'text-sky-400 hover:text-sky-300 hover:bg-[#1f232b]'
+                  : 'text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b]'
+              }`}
+              title={
+                isZh
+                  ? isHeaderVisible
+                    ? '隐藏上方栏 (Ctrl+Shift+B)'
+                    : '显示上方栏 (Ctrl+Shift+B)'
+                  : isHeaderVisible
+                  ? 'Hide Top Bar (Ctrl+Shift+B)'
+                  : 'Show Top Bar (Ctrl+Shift+B)'
+              }
+            >
+              {isHeaderVisible ? <PanelTopClose className="w-4 h-4" /> : <PanelTopOpen className="w-4 h-4" />}
+            </button>
+          </div>
+        ) : (
+          <div />
+        )}
 
         {/* Bottom Cluster: Todo List + Token Stats + Relay Hub + Three-Dot Tools/Export Menu + Settings */}
         <div className="flex flex-col items-center gap-2">
@@ -503,6 +509,9 @@ export function Sidebar({
             onOpenFind={onOpenFind}
             isHeaderVisible={isHeaderVisible}
             onToggleHeader={onToggleHeader}
+            onToggleSidebar={onToggleSidebar}
+            isSidebarOpen={false}
+            onOpenSessionBoard={onOpenSessionBoard}
             compact
             popoverPlacement="right-bottom"
           />

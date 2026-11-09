@@ -27,6 +27,7 @@ export interface UserPreferences {
   showTimelineZoomWidget?: boolean
   timelineZoom?: number
   translucentPromptInput?: boolean
+  collapseNavRailTopButtons?: boolean
   mouseSideButtonToggleDialogue?: boolean
   modelVisibility?: Record<string, boolean>
   providerVisibility?: Record<string, boolean>
@@ -109,6 +110,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   showTimelineZoomWidget: false,
   timelineZoom: 100,
   translucentPromptInput: false,
+  collapseNavRailTopButtons: false,
   mouseSideButtonToggleDialogue: true,
   modelVisibility: {},
   providerVisibility: {},
@@ -127,6 +129,7 @@ const STORAGE_KEY = 'opencode_companion_user_preferences'
 const SIDEBAR_PREF_INITIALIZED_KEY = 'opencode_sidebar_startup_pref_initialized'
 const ZOOM_WIDGET_DISABLED_KEY = 'opencode_timeline_zoom_disabled_default_v2'
 const TRANSLUCENT_PROMPT_PREF_KEY = 'opencode_translucent_prompt_pref_initialized_v1'
+const COLLAPSE_NAV_RAIL_TOP_BUTTONS_KEY = 'opencode_collapse_nav_rail_top_buttons_initialized_v1'
 
 export function getPreferences(): UserPreferences {
   try {
@@ -158,6 +161,14 @@ export function getPreferences(): UserPreferences {
         localStorage.setItem(TRANSLUCENT_PROMPT_PREF_KEY, 'true')
         if (prefs.translucentPromptInput === undefined || prefs.translucentPromptInput === false) {
           prefs.translucentPromptInput = true
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
+        }
+      }
+      // Explicit user request: default false in schema, but auto-enable on client upon rollout (fold top 3 nav buttons into bottom menu)
+      if (!localStorage.getItem(COLLAPSE_NAV_RAIL_TOP_BUTTONS_KEY)) {
+        localStorage.setItem(COLLAPSE_NAV_RAIL_TOP_BUTTONS_KEY, 'true')
+        if (prefs.collapseNavRailTopButtons === undefined || prefs.collapseNavRailTopButtons === false) {
+          prefs.collapseNavRailTopButtons = true
           localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
         }
       }

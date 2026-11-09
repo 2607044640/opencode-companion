@@ -466,6 +466,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     </button>
                   </div>
 
+                  {/* Fold Nav Rail Top Buttons into Bottom Menu */}
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-200">
+                        {tr('折叠左上角导航按钮至左下角', 'Fold Nav Rail Top Buttons into Bottom Menu', 'Obere Navigations-Buttons ins untere Menü')}
+                      </div>
+                      <div className="text-[11px] text-zinc-500">
+                        {tr(
+                          '收起侧边栏时，将左上角的展开侧栏、看板与顶部栏按钮隐藏，并折叠收纳进左下角“···”快捷菜单中',
+                          'When sidebar is collapsed, hide top navigation buttons (sidebar toggle, board, top bar) and fold them into the bottom-left "···" shortcut menu',
+                          'Versteckt obere Navigationsschaltflächen bei eingeklappter Seitenleiste und bündelt sie im "···"-Menü'
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updatePreferences({ collapseNavRailTopButtons: !prefs.collapseNavRailTopButtons })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                        prefs.collapseNavRailTopButtons ? 'bg-blue-600' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          prefs.collapseNavRailTopButtons ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
                   {/* Conversation Width */}
                   <div className="flex items-center justify-between p-3.5 rounded-xl border border-[#21242b] bg-[#151820]">
                     <div>
@@ -804,6 +833,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     type="checkbox"
                     checked={prefs.collapseSidebarOnStartup || false}
                     onChange={(e) => updatePreferences({ collapseSidebarOnStartup: e.target.checked })}
+                    className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
+                  />
+                </div>
+
+                {/* Fold Nav Rail Top Buttons into Bottom Menu */}
+                <div className="flex items-center justify-between py-2 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">
+                      {tr('折叠左上角导航按钮至左下角', 'Fold Nav Rail Top Buttons into Bottom Menu', 'Obere Navigations-Buttons ins untere Menü')}
+                    </div>
+                    <div className="text-[11px] text-zinc-500">
+                      {tr(
+                        '收起侧边栏时，将左上角的展开侧栏、看板与顶部栏按钮隐藏，并折叠收纳进左下角“···”快捷菜单中',
+                        'When sidebar is collapsed, hide top navigation buttons (sidebar toggle, board, top bar) and fold them into the bottom-left "···" shortcut menu',
+                        'Versteckt obere Navigationsschaltflächen bei eingeklappter Seitenleiste und bündelt sie im "···"-Menü'
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={prefs.collapseNavRailTopButtons ?? false}
+                    onChange={(e) => updatePreferences({ collapseNavRailTopButtons: e.target.checked })}
                     className="w-4 h-4 rounded bg-zinc-800 border-zinc-700 text-blue-600 focus:ring-0 cursor-pointer"
                   />
                 </div>

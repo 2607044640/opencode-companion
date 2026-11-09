@@ -13,6 +13,9 @@ import {
   Terminal,
   PanelTopClose,
   PanelTopOpen,
+  PanelLeftOpen,
+  PanelLeftClose,
+  Columns3,
 } from 'lucide-react'
 import { useI18n } from '../../utils/i18n'
 import type { Session, Message } from '../../types/opencode'
@@ -33,6 +36,9 @@ export interface ShortcutMenuProps {
   onOpenFind?: () => void
   isHeaderVisible?: boolean
   onToggleHeader?: () => void
+  onToggleSidebar?: () => void
+  isSidebarOpen?: boolean
+  onOpenSessionBoard?: () => void
   compact?: boolean
   popoverPlacement?: 'right' | 'top' | 'bottom' | 'right-bottom'
 }
@@ -52,6 +58,9 @@ export function ShortcutMenu({
   onOpenFind,
   isHeaderVisible = true,
   onToggleHeader,
+  onToggleSidebar,
+  isSidebarOpen = false,
+  onOpenSessionBoard,
   compact = true,
   popoverPlacement = 'right',
 }: ShortcutMenuProps) {
@@ -460,36 +469,98 @@ export function ShortcutMenu({
               </button>
             )}
 
-            {/* 10. Toggle Top Bar (Ctrl+Shift+B) */}
-            {onToggleHeader && (
-              <button
-                type="button"
-                onClick={() => {
-                  onToggleHeader()
-                  setIsOpen(false)
-                }}
-                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
-              >
-                <div className="flex items-center gap-2">
-                  {isHeaderVisible ? (
-                    <PanelTopClose className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
-                  ) : (
-                    <PanelTopOpen className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
-                  )}
-                  <span>
-                    {isZh
-                      ? isHeaderVisible
-                        ? '隐藏上方会话栏'
-                        : '显示上方会话栏'
-                      : isHeaderVisible
-                      ? 'Hide Top Bar'
-                      : 'Show Top Bar'}
-                  </span>
+            {/* View & Navigation Section (Folding top 3 buttons into bottom menu) */}
+            {(onToggleSidebar || onOpenSessionBoard || onToggleHeader) && (
+              <>
+                <div className="border-t border-zinc-800/60 my-1" />
+                <div className="px-2.5 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+                  {isZh ? '视图与导航' : 'View & Navigation'}
                 </div>
-                <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
-                  Ctrl+Shift+B
-                </kbd>
-              </button>
+
+                {/* 1. Toggle Sidebar (Ctrl+B) */}
+                {onToggleSidebar && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleSidebar()
+                      setIsOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+                  >
+                    <div className="flex items-center gap-2">
+                      {isSidebarOpen ? (
+                        <PanelLeftClose className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                      ) : (
+                        <PanelLeftOpen className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                      )}
+                      <span>
+                        {isZh
+                          ? isSidebarOpen
+                            ? '收起侧边栏'
+                            : '展开侧边栏'
+                          : isSidebarOpen
+                          ? 'Hide Sidebar'
+                          : 'Show Sidebar'}
+                      </span>
+                    </div>
+                    <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
+                      Ctrl+B
+                    </kbd>
+                  </button>
+                )}
+
+                {/* 2. Session Board (Ctrl+Shift+A) */}
+                {onOpenSessionBoard && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenSessionBoard()
+                      setIsOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Columns3 className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                      <span>{isZh ? '会话整理看板' : 'Session Board'}</span>
+                    </div>
+                    <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
+                      Ctrl+Shift+A
+                    </kbd>
+                  </button>
+                )}
+
+                {/* 3. Toggle Top Bar (Ctrl+Shift+B) */}
+                {onToggleHeader && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleHeader()
+                      setIsOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-zinc-200 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer text-left group"
+                  >
+                    <div className="flex items-center gap-2">
+                      {isHeaderVisible ? (
+                        <PanelTopClose className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                      ) : (
+                        <PanelTopOpen className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                      )}
+                      <span>
+                        {isZh
+                          ? isHeaderVisible
+                            ? '隐藏上方会话栏'
+                            : '显示上方会话栏'
+                          : isHeaderVisible
+                          ? 'Hide Top Bar'
+                          : 'Show Top Bar'}
+                      </span>
+                    </div>
+                    <kbd className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700/60 font-mono text-[10px] text-zinc-400">
+                      Ctrl+Shift+B
+                    </kbd>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
