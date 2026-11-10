@@ -166,6 +166,64 @@ export function createPastedAttachment(
   }
 }
 
+/**
+ * Formats the inline English placeholder generated at the cursor position
+ * when the user pastes a long text snippet into the prompt textarea.
+ * (e.g. "[Here, user inserted p1 text]")
+ */
+export function formatPastedSnippetCursorPlaceholder(pastedId: string): string {
+  const safeId = (pastedId || 'p1').toLowerCase()
+  return `[Here, user inserted ${safeId} text]`
+}
+
+export interface InsertPastedSnippetPlaceholderResult {
+  newText: string
+  newCursorPosition: number
+  placeholder: string
+}
+
+/**
+ * Inserts the pasted snippet English placeholder at the current cursor / selection range,
+ * formatting leading and trailing spaces intelligently for seamless continuation of typing.
+ */
+export function insertPastedSnippetPlaceholder(
+  currentText: string,
+  pastedId: string,
+  selectionStart?: number,
+  selectionEnd?: number
+): InsertPastedSnippetPlaceholderResult {
+  const placeholder = formatPastedSnippetCursorPlaceholder(pastedId)
+
+  const len = currentText.length
+  const start =
+    typeof selectionStart === 'number' && selectionStart >= 0 && selectionStart <= len
+      ? selectionStart
+      : len
+  const end =
+    typeof selectionEnd === 'number' && selectionEnd >= start && selectionEnd <= len
+      ? selectionEnd
+      : start
+
+  const before = currentText.slice(0, start)
+  const after = currentText.slice(end)
+
+  const needsLeadingSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n')
+  const needsTrailingSpace = after.length > 0 ? (!after.startsWith(' ') && !after.startsWith('\n')) : true
+
+  const lead = needsLeadingSpace ? ' ' : ''
+  const trail = needsTrailingSpace ? ' ' : ''
+
+  const inserted = `${lead}${placeholder}${trail}`
+  const newText = `${before}${inserted}${after}`
+  const newCursorPosition = before.length + inserted.length
+
+  return {
+    newText,
+    newCursorPosition,
+    placeholder,
+  }
+}
+
 function escapeClosingTag(content: string): string {
   return content.replace(/<\/pasted_content>/gi, '<\\/pasted_content>')
 }

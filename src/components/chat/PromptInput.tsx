@@ -45,6 +45,7 @@ import {
 import {
   shouldConvertToPastedSnippet,
   createPastedAttachment,
+  insertPastedSnippetPlaceholder,
   isPastedAttachment,
   isImageAttachment,
 } from '../../utils/pasted-snippets'
@@ -737,7 +738,27 @@ export function PromptInput({
     const pastedText = e.clipboardData?.getData('text/plain') || ''
     if (shouldConvertToPastedSnippet(pastedText)) {
       e.preventDefault()
-      setAttachments((prev) => [...prev, createPastedAttachment(pastedText, prev)])
+      const newAttachment = createPastedAttachment(pastedText, attachments)
+      setAttachments((prev) => [...prev, newAttachment])
+
+      const textarea = textareaRef.current
+      const selStart = textarea?.selectionStart ?? text.length
+      const selEnd = textarea?.selectionEnd ?? text.length
+
+      const { newText, newCursorPosition } = insertPastedSnippetPlaceholder(
+        text,
+        newAttachment.pastedId || 'p1',
+        selStart,
+        selEnd
+      )
+
+      setText(newText)
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = newCursorPosition
+        }
+      }, 10)
     }
   }
 

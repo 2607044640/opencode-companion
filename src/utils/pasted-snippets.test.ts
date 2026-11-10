@@ -5,6 +5,8 @@ import {
   getNextPastedId,
   getPastedSnippetStats,
   createPastedAttachment,
+  formatPastedSnippetCursorPlaceholder,
+  insertPastedSnippetPlaceholder,
   serializePromptWithPastedSnippets,
   parsePastedSnippetsFromText,
   isPastedAttachment,
@@ -80,5 +82,36 @@ describe('pasted-snippets utility tests', () => {
     assert.equal(parsed.snippets[0].pastedId, 'p1')
     assert.equal(parsed.snippets[0].content, 'Standalone pasted block')
     assert.equal(parsed.cleanText, '')
+  })
+
+  describe('cursor placeholder generation on paste (p1, p2)', () => {
+    it('formats English placeholder like [Here, user inserted p1 text]', () => {
+      assert.equal(formatPastedSnippetCursorPlaceholder('p1'), '[Here, user inserted p1 text]')
+      assert.equal(formatPastedSnippetCursorPlaceholder('P2'), '[Here, user inserted p2 text]')
+      assert.equal(formatPastedSnippetCursorPlaceholder(''), '[Here, user inserted p1 text]')
+    })
+
+    it('inserts placeholder into empty prompt with smart trailing space', () => {
+      const res = insertPastedSnippetPlaceholder('', 'p1', 0, 0)
+      assert.equal(res.newText, '[Here, user inserted p1 text] ')
+      assert.equal(res.newCursorPosition, '[Here, user inserted p1 text] '.length)
+    })
+
+    it('inserts placeholder with leading space when preceding text lacks whitespace', () => {
+      const res = insertPastedSnippetPlaceholder('Check this log:', 'p1', 15, 15)
+      assert.equal(res.newText, 'Check this log: [Here, user inserted p1 text] ')
+      assert.equal(res.newCursorPosition, 'Check this log: [Here, user inserted p1 text] '.length)
+    })
+
+    it('inserts placeholder inside existing text without duplicate spaces', () => {
+      const res = insertPastedSnippetPlaceholder('Check:  and fix it', 'p1', 8, 8)
+      assert.equal(res.newText, 'Check:  [Here, user inserted p1 text] and fix it')
+      assert.equal(res.newCursorPosition, 8 + '[Here, user inserted p1 text] '.length)
+    })
+
+    it('replaces active text selection with placeholder cleanly', () => {
+      const res = insertPastedSnippetPlaceholder('Look at <selected_code> please', 'p2', 8, 23)
+      assert.equal(res.newText, 'Look at [Here, user inserted p2 text] please')
+    })
   })
 })

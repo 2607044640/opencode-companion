@@ -621,11 +621,14 @@ interface UserMessageBubbleProps {
   isReverting?: boolean
 }
 
-function renderUserPromptWithQuotePills(text: string) {
-  if (!text || !text.includes('@[Quote')) {
+function renderUserPromptWithQuotePills(
+  text: string,
+  onPastedClick?: (pastedId: string) => void
+) {
+  if (!text || (!text.includes('@[Quote') && !text.includes('[Here, user inserted'))) {
     return text
   }
-  const parts = text.split(/(@\[Quote(?:\s+\d+)?\])/gi)
+  const parts = text.split(/(@\[Quote(?:\s+\d+)?\]|\[Here,\s*user\s+inserted\s+p\d+\s+text\])/gi)
   return parts.map((part, i) => {
     if (/^@\[Quote(?:\s+\d+)?\]$/i.test(part)) {
       return (
@@ -637,6 +640,26 @@ function renderUserPromptWithQuotePills(text: string) {
         </span>
       )
     }
+
+    const matchPasted = part.match(/^\[Here,\s*user\s+inserted\s+(p\d+)\s+text\]$/i)
+    if (matchPasted) {
+      const pid = matchPasted[1].toLowerCase()
+      return (
+        <button
+          key={i}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onPastedClick?.(pid)
+          }}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono bg-emerald-950/80 border border-emerald-600/70 text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/90 transition-colors align-baseline mx-0.5 shadow-xs cursor-pointer group select-none"
+          title={`点击查看 ${pid} 文本内容 / Click to view ${pid}`}
+        >
+          <span>{part}</span>
+        </button>
+      )
+    }
+
     return part
   })
 }
@@ -675,6 +698,16 @@ function UserMessageBubble({
   const { references: referencedConversations, cleanText: displayText } = useMemo(
     () => parseReferencedConversationsFromText(displayTextAfterQuotes),
     [displayTextAfterQuotes]
+  )
+
+  const handleOpenPastedSnippetById = useCallback(
+    (pid: string) => {
+      const match = pastedSnippets.find((s) => s.pastedId.toLowerCase() === pid.toLowerCase())
+      if (match) {
+        setActivePastedSnippet(match)
+      }
+    },
+    [pastedSnippets]
   )
 
   const { isCollapsible, defaultCollapsed } = useMemo(
@@ -868,7 +901,7 @@ function UserMessageBubble({
                     : undefined
                 }
               >
-                {renderUserPromptWithQuotePills(displayText)}
+                {renderUserPromptWithQuotePills(displayText, handleOpenPastedSnippetById)}
               </div>
             </div>
 
