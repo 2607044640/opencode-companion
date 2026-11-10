@@ -15,7 +15,7 @@ import {
   Loader2,
   HelpCircle,
 } from 'lucide-react'
-import type { AgentInfo, ProviderInfo, Session, CommandItem, SkillItem, Project, TodoItem } from '../../types/opencode'
+import type { AgentInfo, ProviderInfo, Session, CommandItem, SkillItem, Project, TodoItem, Message } from '../../types/opencode'
 import type { PromptAttachment } from '../../hooks/useChatStream'
 import { api, resolveAgentName } from '../../services/api'
 import { PromptPopover, type PopoverItem } from './PromptPopover'
@@ -53,6 +53,11 @@ import { QueuedMessagesList } from './QueuedMessagesList'
 import { shouldEnqueueSubmission, type QueuedMessage, type QueuedPromptOptions } from '../../utils/message-queue'
 import { applySlashCommand, detectSlashTrigger } from './slash-trigger'
 import { rankPopoverItems } from './popover-rank'
+import {
+  matchCopiedUserInput,
+  mergePastedUserInputAttachments,
+  registerSentMessageAttachments,
+} from '../../utils/copied-user-input'
 import {
   getStoredPromptDraft,
   saveStoredPromptDraft,
@@ -113,11 +118,13 @@ interface PromptInputProps {
   onToggleSideQuestion?: () => void
   onSelectModel?: (model: { providerID: string; modelID: string; name?: string }) => void
   onSelectAgent?: (agentName: string) => void
+  messages?: Message[]
 }
 
 export function PromptInput({
   activeSessionId,
   activeSession,
+  messages,
   onSend,
   onAbort,
   isBusy,
@@ -736,6 +743,37 @@ export function PromptInput({
     }
 
     const pastedText = e.clipboardData?.getData('text/plain') || ''
+    if (!pastedText) return
+
+    // 1. Detect if the user copied an exact userinput turn with attachments (p1, images)
+    const copiedMatch = matchCopiedUserInput(pastedText, messages)
+    if (copiedMatch && copiedMatch.attachments.length > 0) {
+      e.preventDefault()
+
+      const textarea = textareaRef.current
+      const selStart = textarea?.selectionStart ?? text.length
+      const selEnd = textarea?.selectionEnd ?? text.length
+
+      const { attachments: mergedAttachments, text: textToInsert } =
+        mergePastedUserInputAttachments(copiedMatch.attachments, attachments, copiedMatch.text || pastedText)
+
+      const before = text.slice(0, selStart)
+      const after = text.slice(selEnd)
+      const newText = `${before}${textToInsert}${after}`
+      const newCursorPosition = before.length + textToInsert.length
+
+      setText(newText)
+      setAttachments(mergedAttachments)
+
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = newCursorPosition
+        }
+      }, 10)
+      return
+    }
+
     if (shouldConvertToPastedSnippet(pastedText)) {
       e.preventDefault()
       const newAttachment = createPastedAttachment(pastedText, attachments)
@@ -1072,6 +1110,10 @@ export function PromptInput({
         model: selectedModel,
         attachments,
       },
+    }
+
+    if (attachments.length > 0) {
+      registerSentMessageAttachments(textToSend, attachments)
     }
 
     // While the model is working OR when items are already waiting in the queue,

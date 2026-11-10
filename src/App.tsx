@@ -888,6 +888,7 @@ export default function App() {
                   <PromptInput
                     activeSessionId={activeSessionId}
                     activeSession={activeSession}
+                    messages={messages}
                     onSend={handleSendPrompt}
                     onSideQuestion={handleSideQuestion}
                     sideQuestionCount={totalCount}

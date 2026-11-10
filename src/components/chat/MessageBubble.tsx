@@ -47,6 +47,7 @@ import {
 } from '../../utils/conversation-mention'
 import { cleanRawPath } from '../../utils/path-resolver'
 import { findBestMatchingFileInGroups, normalizeFilePath } from '../../utils/file-matcher'
+import { recordCopiedUserInput } from '../../utils/copied-user-input'
 
 interface MessageBubbleProps {
   message: Message
@@ -770,15 +771,6 @@ function UserMessageBubble({
     setIsLightboxOpen(true)
   }, [])
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(fullText)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1000)
-  }
-
-  const createdTime = message.info.time?.created
-  const formattedTime = formatUserMessageTime(createdTime)
-
   const fileParts = message.parts
     .filter((p) => p.type === 'file')
     .map((p) => p as FilePart)
@@ -787,6 +779,27 @@ function UserMessageBubble({
     : fileParts.length > 0
     ? `[${fileParts.length} ${tr('个附件/图片', 'attachments/images', 'Anhänge/Bilder')}]`
     : ''
+
+  const handleCopy = () => {
+    const textToCopy = displayText.trim()
+      ? displayText
+      : fullText.trim()
+      ? fullText
+      : promptPreviewText
+
+    navigator.clipboard.writeText(textToCopy)
+    recordCopiedUserInput({
+      message,
+      displayText,
+      fullText,
+      copiedText: textToCopy,
+    })
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1000)
+  }
+
+  const createdTime = message.info.time?.created
+  const formattedTime = formatUserMessageTime(createdTime)
 
   return (
     <div
