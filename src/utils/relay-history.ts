@@ -22,8 +22,8 @@ export interface RelayBalanceSnapshot {
 export const RELAY_HISTORY_STORAGE_KEY = 'opencode_relay_balance_history'
 export const MAX_RELAY_HISTORY_ITEMS = 500
 export const DEFAULT_CNY_RATE = 7.2
-export const MAX_PLAUSIBLE_BALANCE_USD = 10_000
-export const MAX_PLAUSIBLE_DELTA_USD = 500
+export const MAX_PLAUSIBLE_BALANCE_USD = 100_000
+export const MAX_PLAUSIBLE_DELTA_USD = 50_000
 
 /**
  * Sanitizes relay balance history by dropping sentinel/abnormal balance spikes
@@ -40,7 +40,7 @@ export function sanitizeRelayHistory(history: RelayBalanceSnapshot[]): {
     if (
       typeof item.totalNormalizedUsd !== 'number' ||
       !Number.isFinite(item.totalNormalizedUsd) ||
-      item.totalNormalizedUsd < 0 ||
+      item.totalNormalizedUsd < -1000 ||
       item.totalNormalizedUsd > MAX_PLAUSIBLE_BALANCE_USD
     ) {
       changed = true
@@ -52,7 +52,7 @@ export function sanitizeRelayHistory(history: RelayBalanceSnapshot[]): {
       for (const prov of Object.values(item.providers)) {
         if (
           typeof prov.balance === 'number' &&
-          (prov.balance > MAX_PLAUSIBLE_BALANCE_USD || prov.balance < 0)
+          (prov.balance > MAX_PLAUSIBLE_BALANCE_USD || prov.balance < -1000)
         ) {
           providerAbnormal = true
           break
@@ -165,16 +165,24 @@ export function clearRelayHistory(storage?: Storage): void {
 }
 
 export function formatDelta(delta: number): string {
-  // delta is (newTotal - oldTotal). If negative, money was spent.
+  // delta is (newTotal - oldTotal). If positive, balance increased (recharge). If negative, money was spent.
   if (Math.abs(delta) < 0.0001) {
-    return '-$0.00'
+    return '$0.00'
   }
   if (delta < 0) {
     const abs = Math.abs(delta)
+    if (abs % 1 === 0) {
+      return `-$${abs}`
+    }
     const decimals = abs < 0.01 ? 4 : 2
     return `-$${abs.toFixed(decimals)}`
   }
-  return `+$${delta.toFixed(2)}`
+  // Positive delta (e.g. recharge +$5, +$5.20)
+  if (delta % 1 === 0) {
+    return `+$${delta}`
+  }
+  const decimals = delta < 0.01 ? 4 : 2
+  return `+$${delta.toFixed(decimals)}`
 }
 
 export function recordRelaySnapshot(
@@ -230,7 +238,7 @@ export function recordRelaySnapshot(
         providers: provMap,
       },
       delta: 0,
-      deltaFormatted: '-$0.00',
+      deltaFormatted: '$0.00',
     }
   }
 

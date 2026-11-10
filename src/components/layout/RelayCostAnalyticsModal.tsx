@@ -402,13 +402,37 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
             </div>
           </div>
 
-          {/* Card 2: Recent Delta Cost */}
+          {/* Card 2: Recent Delta Cost / Recharge */}
           <div className="p-3 rounded-xl bg-[#141720] border border-[#242936] shadow-inner">
             <div className="flex items-center justify-between text-zinc-400 text-xs">
-              <span>{isZh ? '最近单次扣费' : 'Recent Delta'}</span>
-              <DollarSign className="w-3.5 h-3.5 text-sky-400" />
+              <span>
+                {isZh
+                  ? latestDelta > 0
+                    ? '最近单次充值'
+                    : latestDelta < 0
+                    ? '最近单次扣费'
+                    : '最近单次变动'
+                  : latestDelta > 0
+                  ? 'Recent Recharge'
+                  : latestDelta < 0
+                  ? 'Recent Cost'
+                  : 'Recent Delta'}
+              </span>
+              {latestDelta > 0 ? (
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <DollarSign className="w-3.5 h-3.5 text-sky-400" />
+              )}
             </div>
-            <div className={`text-lg font-bold font-mono mt-1 ${latestDelta < 0 ? 'text-sky-300' : 'text-zinc-200'}`}>
+            <div
+              className={`text-lg font-bold font-mono mt-1 ${
+                latestDelta > 0
+                  ? 'text-emerald-400'
+                  : latestDelta < 0
+                  ? 'text-sky-300'
+                  : 'text-zinc-400'
+              }`}
+            >
               {formatDelta(latestDelta)}
             </div>
             <div className="text-[11px] text-zinc-400 mt-0.5 truncate" title={latestSnapshot ? new Date(latestSnapshot.timestamp).toLocaleString() : ''}>
@@ -433,7 +457,7 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
               </div>
             </div>
             <div className="text-lg font-bold font-mono text-rose-300 mt-1 flex items-baseline justify-between">
-              <span>-${totalSpent.toFixed(totalSpent < 0.01 && totalSpent > 0 ? 4 : 2)}</span>
+              <span>{totalSpent > 0 ? `-$${totalSpent.toFixed(totalSpent < 0.01 ? 4 : 2)}` : '$0.00'}</span>
               {totalSpent > 0 && (
                 <button
                   type="button"
@@ -828,8 +852,29 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-zinc-400">{isZh ? '单次扣费' : 'Cost Delta'}:</span>
-                        <span className={`font-mono font-bold ${hoveredSnapshot.delta < 0 ? 'text-sky-300' : 'text-zinc-300'}`}>
+                        <span className="text-zinc-400">
+                          {isZh
+                            ? hoveredSnapshot.delta > 0
+                              ? '单次充值'
+                              : hoveredSnapshot.delta < 0
+                              ? '单次扣费'
+                              : '单次变动'
+                            : hoveredSnapshot.delta > 0
+                            ? 'Recharge'
+                            : hoveredSnapshot.delta < 0
+                            ? 'Cost Delta'
+                            : 'Delta'}
+                          :
+                        </span>
+                        <span
+                          className={`font-mono font-bold ${
+                            hoveredSnapshot.delta > 0
+                              ? 'text-emerald-400'
+                              : hoveredSnapshot.delta < 0
+                              ? 'text-sky-300'
+                              : 'text-zinc-400'
+                          }`}
+                        >
                           {formatDelta(hoveredSnapshot.delta)}
                         </span>
                       </div>
@@ -875,7 +920,7 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
                   <th className="py-1">{isZh ? '采样时间' : 'Time'}</th>
                   <th className="py-1">{isZh ? '触发方式' : 'Trigger'}</th>
                   <th className="py-1">{isZh ? '刷新后总余额' : 'Balance'}</th>
-                  <th className="py-1">{isZh ? '单次扣费差额 (浅蓝色)' : 'Delta Cost'}</th>
+                  <th className="py-1">{isZh ? '单次变动差额 (扣费/充值)' : 'Delta (Cost/Recharge)'}</th>
                   <th className="py-1 text-right">{isZh ? '中转站数' : 'Providers'}</th>
                 </tr>
               </thead>
@@ -907,7 +952,15 @@ export const RelayCostAnalyticsModal: React.FC<RelayCostAnalyticsModalProps> = (
                         ${snap.totalNormalizedUsd.toFixed(2)}
                       </td>
                       <td className="py-1.5 font-bold">
-                        <span className={snap.delta < 0 ? 'text-sky-300' : 'text-zinc-400'}>
+                        <span
+                          className={
+                            snap.delta > 0
+                              ? 'text-emerald-400'
+                              : snap.delta < 0
+                              ? 'text-sky-300'
+                              : 'text-zinc-400'
+                          }
+                        >
                           {formatDelta(snap.delta)}
                         </span>
                       </td>

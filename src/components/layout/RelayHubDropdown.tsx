@@ -335,11 +335,17 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* 2-Second Floating Delta Cost Animation Badge (浅蓝色扣费浮现动画) */}
+      {/* 2-Second Floating Delta Cost / Recharge Animation Badge */}
       {floatingDelta && (
         <div
           key={floatingDelta.id}
-          className={`pointer-events-none absolute z-[70] whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border border-sky-400/80 text-sky-300 font-mono font-bold text-[11px] shadow-[0_0_16px_rgba(56,189,248,0.65)] select-none ${
+          className={`pointer-events-none absolute z-[70] whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border font-mono font-bold text-[11px] select-none ${
+            floatingDelta.text.startsWith('+')
+              ? 'border-emerald-400/90 text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.7)]'
+              : floatingDelta.text.startsWith('-')
+              ? 'border-sky-400/80 text-sky-300 shadow-[0_0_16px_rgba(56,189,248,0.65)]'
+              : 'border-zinc-600/80 text-zinc-300 shadow-[0_0_14px_rgba(113,113,122,0.5)]'
+          } ${
             compact || popoverPlacement === 'right'
               ? 'left-full ml-3 bottom-1.5 animate-relay-cost-float-right'
               : '-top-6 left-1/2 -translate-x-1/2 animate-relay-cost-float'
@@ -480,7 +486,13 @@ export const RelayHubDropdown: React.FC<RelayHubDropdownProps> = ({
                   {isOpen && floatingDelta && (
                     <div
                       key={`hdr-${floatingDelta.id}`}
-                      className="pointer-events-none absolute -bottom-7 right-0 z-[80] whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border border-sky-400/80 text-sky-300 font-mono font-bold text-[10px] shadow-[0_0_14px_rgba(56,189,248,0.65)] animate-relay-cost-float select-none"
+                      className={`pointer-events-none absolute -bottom-7 right-0 z-[80] whitespace-nowrap px-2 py-0.5 rounded-full bg-[#0d111a]/95 border font-mono font-bold text-[10px] select-none animate-relay-cost-float ${
+                        floatingDelta.text.startsWith('+')
+                          ? 'border-emerald-400/90 text-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.7)]'
+                          : floatingDelta.text.startsWith('-')
+                          ? 'border-sky-400/80 text-sky-300 shadow-[0_0_14px_rgba(56,189,248,0.65)]'
+                          : 'border-zinc-600/80 text-zinc-300 shadow-[0_0_14px_rgba(113,113,122,0.5)]'
+                      }`}
                     >
                       {floatingDelta.text}
                     </div>

@@ -38,7 +38,7 @@ describe('relay-history utility', () => {
     mockStorage = new MockStorage()
   })
 
-  it('records initial snapshot with zero delta and formats delta as -$0.00', () => {
+  it('records initial snapshot with zero delta and formats delta as $0.00', () => {
     const providers: RelayProvider[] = [
       { id: 'p1', name: 'RelayA', baseUrl: 'https://a.com', apiKey: 'sk-1', currency: 'USD', balance: 10.5 },
       { id: 'p2', name: 'RelayB', baseUrl: 'https://b.com', apiKey: 'sk-2', currency: 'USD', balance: 5.0 },
@@ -46,7 +46,7 @@ describe('relay-history utility', () => {
 
     const res = recordRelaySnapshot(providers, 'initial_load', mockStorage as any)
     assert.equal(res.delta, 0)
-    assert.equal(res.deltaFormatted, '-$0.00')
+    assert.equal(res.deltaFormatted, '$0.00')
     assert.equal(res.snapshot.totalBalanceUsd, 15.5)
 
     const history = getRelayHistory(mockStorage as any)
@@ -75,10 +75,12 @@ describe('relay-history utility', () => {
   })
 
   it('formats positive delta when balance increases (recharge)', () => {
-    assert.equal(formatDelta(5.0), '+$5.00')
+    assert.equal(formatDelta(5.0), '+$5')
+    assert.equal(formatDelta(5.25), '+$5.25')
     assert.equal(formatDelta(-0.02), '-$0.02')
+    assert.equal(formatDelta(-1.0), '-$1')
     assert.equal(formatDelta(-0.0012), '-$0.0012')
-    assert.equal(formatDelta(0), '-$0.00')
+    assert.equal(formatDelta(0), '$0.00')
   })
 
   it('trims history beyond MAX_RELAY_HISTORY_ITEMS', () => {
