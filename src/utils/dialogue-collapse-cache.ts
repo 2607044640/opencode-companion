@@ -138,3 +138,40 @@ export function clearDialogueExpandedCache(): void {
     }
   }
 }
+
+/**
+ * Master toggle switch for collapsing / expanding all collapsible dialogue blocks.
+ * Logic:
+ * - If ANY collapsible dialogue is currently expanded -> Collapse ALL dialogues ('opencode-collapse-all-dialogues').
+ * - If ALL collapsible dialogues are currently collapsed -> Expand ALL dialogues ('opencode-expand-all-dialogues').
+ *
+ * @param root Optional DOM container/root for testing or scoped lookup (defaults to global document)
+ * @returns 'collapsed' if action was to collapse, 'expanded' if action was to expand
+ */
+export function toggleAllDialogues(root?: ParentNode): 'collapsed' | 'expanded' {
+  const targetRoot = root ?? (typeof document !== 'undefined' ? document : null)
+  if (!targetRoot) return 'collapsed'
+
+  const collapsibleElements = Array.from(
+    targetRoot.querySelectorAll<HTMLElement>('[data-collapsible="true"]')
+  )
+  if (collapsibleElements.length === 0) {
+    return 'collapsed'
+  }
+
+  const hasAnyExpanded = collapsibleElements.some(
+    (el) => el.getAttribute('data-expanded') === 'true'
+  )
+
+  if (hasAnyExpanded) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('opencode-collapse-all-dialogues'))
+    }
+    return 'collapsed'
+  } else {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('opencode-expand-all-dialogues'))
+    }
+    return 'expanded'
+  }
+}

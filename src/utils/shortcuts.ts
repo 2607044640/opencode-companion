@@ -95,7 +95,7 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     key: 'c',
     ctrlKey: true,
     shiftKey: true,
-    description: '收缩所有对话 (Collapse All Dialogues)',
+    description: '折叠/展开所有对话开关 (Toggle Collapse/Expand All Dialogues)',
     label: 'Ctrl + Shift + C',
     category: 'dialogue',
   },

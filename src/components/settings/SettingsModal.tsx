@@ -45,6 +45,7 @@ import { CountdownConfirmDialog } from '../common/CountdownConfirmDialog'
 import type { ProviderInfo } from '../../types/opencode'
 import { ManageModelsContent } from '../models/ManageModelsModal'
 import { ArchivedSessionsSettings } from './ArchivedSessionsSettings'
+import { toggleAllDialogues } from '../../utils/dialogue-collapse-cache'
 
 export type SettingsTab =
   | 'general'
@@ -828,7 +829,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                 <div className="flex items-center justify-between py-2.5 border-t border-zinc-800">
                   <div>
                     <div className="text-xs text-zinc-300 font-medium">{tr('对话全屏伸缩快捷键', 'Dialogue Expand / Collapse Shortcuts', 'Dialog-Ein-/Ausklappen-Tastenkombinationen')}</div>
-                    <div className="text-[11px] text-zinc-500">{tr('快捷键：Ctrl+Shift+O 展开所有对话，Ctrl+Shift+C 收缩所有对话', 'Shortcuts: Ctrl+Shift+O to expand all dialogues, Ctrl+Shift+C to collapse all', 'Tastenkombination: Ctrl+Shift+O zum Ausklappen, Ctrl+Shift+C zum Einklappen')}</div>
+                    <div className="text-[11px] text-zinc-500">{tr('快捷键：Ctrl+Shift+O 展开所有对话，Ctrl+Shift+C 折叠/展开所有对话开关', 'Shortcuts: Ctrl+Shift+O to expand all dialogues, Ctrl+Shift+C to toggle collapse/expand all', 'Tastenkombination: Ctrl+Shift+O zum Ausklappen, Ctrl+Shift+C zum Umschalten')}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -842,11 +843,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                     </button>
                     <button
                       type="button"
-                      onClick={() => window.dispatchEvent(new CustomEvent('opencode-collapse-all-dialogues'))}
+                      onClick={() => toggleAllDialogues()}
                       className="px-2.5 py-1 text-xs text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
                       title="Ctrl + Shift + C"
                     >
-                      <span>{tr('收缩全部', 'Collapse All', 'Alle einklappen')}</span>
+                      <span>{tr('折叠/展开开关', 'Toggle Collapse/Expand', 'Ein-/Ausklappen umschalten')}</span>
                       <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">Ctrl+Shift+C</kbd>
                     </button>
                   </div>

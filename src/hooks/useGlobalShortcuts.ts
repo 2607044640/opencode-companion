@@ -5,6 +5,7 @@ import { togglePinSessionId } from '../utils/pinning'
 import { zoomIn, zoomOut, resetZoom } from '../utils/timeline-zoom'
 import { getPreferences } from '../utils/preferences'
 import { isValidTextSelection } from '../components/chat/selection-copy'
+import { toggleAllDialogues } from '../utils/dialogue-collapse-cache'
 
 export interface UseGlobalShortcutsParams {
   activeSessionId: string | null
@@ -355,7 +356,7 @@ export function useGlobalShortcuts({
       if (isCtrlShiftC || (shortcuts.collapseAllConversations && matchesShortcut(e, shortcuts.collapseAllConversations))) {
         e.preventDefault()
         e.stopPropagation()
-        window.dispatchEvent(new CustomEvent('opencode-collapse-all-dialogues'))
+        toggleAllDialogues()
         return
       }
 
