@@ -33,6 +33,8 @@ export interface UseGlobalShortcutsParams {
   selectSession: (sessionId: string) => void
   handleAddSessionToMap: (sessionId: string) => void
   handleOpenMapAndLocate: (sessionId?: string | null) => void
+  onHistoryBack?: () => void
+  onHistoryForward?: () => void
 }
 
 export function useGlobalShortcuts({
@@ -61,6 +63,8 @@ export function useGlobalShortcuts({
   selectSession,
   handleAddSessionToMap,
   handleOpenMapAndLocate,
+  onHistoryBack,
+  onHistoryForward,
 }: UseGlobalShortcutsParams) {
   const [isZenMode, setIsZenMode] = useState(false)
   const [shortcuts, setShortcuts] = useState<ShortcutsMap>(() => getShortcuts())
@@ -79,6 +83,16 @@ export function useGlobalShortcuts({
   useEffect(() => {
     isZenModeRef.current = isZenMode
   }, [isZenMode])
+
+  const onHistoryBackRef = useRef(onHistoryBack)
+  useEffect(() => {
+    onHistoryBackRef.current = onHistoryBack
+  }, [onHistoryBack])
+
+  const onHistoryForwardRef = useRef(onHistoryForward)
+  useEffect(() => {
+    onHistoryForwardRef.current = onHistoryForward
+  }, [onHistoryForward])
 
   useEffect(() => {
     const handleShortcutsUpdate = (e: Event) => {
@@ -231,6 +245,43 @@ export function useGlobalShortcuts({
       const isCtrlTab = (e.ctrlKey || e.metaKey) && !e.altKey && isTabKey
       const isCtrlPageDown = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'PageDown' || e.code === 'PageDown')
       const isCtrlPageUp = (e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'PageUp' || e.code === 'PageUp')
+
+      // Conversation Navigation History: Alt + Left/Right Arrow
+      const isAltLeft =
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        (e.key === 'ArrowLeft' || e.code === 'ArrowLeft')
+
+      if (isAltLeft || (shortcuts.historyBack && matchesShortcut(e, shortcuts.historyBack))) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (onHistoryBackRef.current) {
+          onHistoryBackRef.current()
+        } else {
+          window.dispatchEvent(new CustomEvent('opencode-history-back'))
+        }
+        return
+      }
+
+      const isAltRight =
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        (e.key === 'ArrowRight' || e.code === 'ArrowRight')
+
+      if (isAltRight || (shortcuts.historyForward && matchesShortcut(e, shortcuts.historyForward))) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (onHistoryForwardRef.current) {
+          onHistoryForwardRef.current()
+        } else {
+          window.dispatchEvent(new CustomEvent('opencode-history-forward'))
+        }
+        return
+      }
 
       if (
         isCtrlTab ||
@@ -510,6 +561,126 @@ export function useGlobalShortcuts({
     setIsBackgroundTasksOpen,
     setIsSubagentTopologyOpen,
   ])
+
+  // Mouse Side Buttons (Back/Forward) & Alt + Left/Right Click session navigation
+  useEffect(() => {
+    let lastNavTime = 0
+
+    const triggerHistoryNav = (direction: 'back' | 'forward') => {
+      const now = Date.now()
+      if (now - lastNavTime < 100) return
+      lastNavTime = now
+
+      if (direction === 'back') {
+        if (onHistoryBackRef.current) {
+          onHistoryBackRef.current()
+        } else {
+          window.dispatchEvent(new CustomEvent('opencode-history-back'))
+        }
+      } else {
+        if (onHistoryForwardRef.current) {
+          onHistoryForwardRef.current()
+        } else {
+          window.dispatchEvent(new CustomEvent('opencode-history-forward'))
+        }
+      }
+    }
+
+    const handlePointerDown = (e: PointerEvent) => {
+      // Intercept mouse side buttons early to prevent browser navigation away from PWA
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const prefs = getPreferences()
+
+      // 1. Mouse side button 3 (Back / XButton1)
+      if (e.button === 3) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (prefs.mouseSideButtonNavigation ?? true) {
+          triggerHistoryNav('back')
+        }
+        return
+      }
+
+      // 2. Mouse side button 4 (Forward / XButton2)
+      if (e.button === 4) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (prefs.mouseSideButtonToggleDialogue && !prefs.mouseSideButtonNavigation) {
+          window.dispatchEvent(new CustomEvent('opencode-toggle-center-dialogue'))
+        } else if (prefs.mouseSideButtonNavigation ?? true) {
+          triggerHistoryNav('forward')
+        }
+        return
+      }
+
+      // 3. Alt + Left Click (Back)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+        e.preventDefault()
+        e.stopPropagation()
+        triggerHistoryNav('back')
+        return
+      }
+
+      // 4. Alt + Right Click (Forward)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 2) {
+        e.preventDefault()
+        e.stopPropagation()
+        triggerHistoryNav('forward')
+        return
+      }
+    }
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4 || (e.altKey && (e.button === 0 || e.button === 2))) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleAuxClick = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleClick = (e: MouseEvent) => {
+      if (e.altKey && (e.button === 0 || e.button === 2)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    const handleContextMenu = (e: MouseEvent) => {
+      // Suppress native context menu when Alt + Right Click is used for navigation
+      if (e.altKey) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true })
+    window.addEventListener('mousedown', handleMouseDown, { capture: true })
+    window.addEventListener('mouseup', handleMouseUp, { capture: true })
+    window.addEventListener('auxclick', handleAuxClick, { capture: true })
+    window.addEventListener('click', handleClick, { capture: true })
+    window.addEventListener('contextmenu', handleContextMenu, { capture: true })
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, { capture: true })
+      window.removeEventListener('mousedown', handleMouseDown, { capture: true })
+      window.removeEventListener('mouseup', handleMouseUp, { capture: true })
+      window.removeEventListener('auxclick', handleAuxClick, { capture: true })
+      window.removeEventListener('click', handleClick, { capture: true })
+      window.removeEventListener('contextmenu', handleContextMenu, { capture: true })
+    }
+  }, [])
 
   return {
     isZenMode,

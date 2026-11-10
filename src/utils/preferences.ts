@@ -31,6 +31,7 @@ export interface UserPreferences {
   collapseNavRailTopButtons?: boolean
   autoRefreshRelayQuota?: boolean
   lightTitlebar?: boolean
+  mouseSideButtonNavigation?: boolean
   mouseSideButtonToggleDialogue?: boolean
   modelVisibility?: Record<string, boolean>
   providerVisibility?: Record<string, boolean>
@@ -117,7 +118,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   collapseNavRailTopButtons: false,
   autoRefreshRelayQuota: false,
   lightTitlebar: true,
-  mouseSideButtonToggleDialogue: true,
+  mouseSideButtonNavigation: true,
+  mouseSideButtonToggleDialogue: false,
   modelVisibility: {},
   providerVisibility: {},
   verboseAgentChat: true,
@@ -137,6 +139,7 @@ const ZOOM_WIDGET_DISABLED_KEY = 'opencode_timeline_zoom_disabled_default_v2'
 const TRANSLUCENT_PROMPT_PREF_KEY = 'opencode_translucent_prompt_pref_initialized_v1'
 const STEALTH_UI_CHROME_KEY = 'opencode_stealth_ui_chrome_initialized_v2'
 const COLLAPSE_NAV_RAIL_TOP_BUTTONS_KEY = 'opencode_collapse_nav_rail_top_buttons_initialized_v1'
+const MOUSE_SIDE_NAV_INITIALIZED_KEY = 'opencode_mouse_side_nav_pref_initialized_v1'
 
 export function getPreferences(): UserPreferences {
   try {
@@ -187,6 +190,13 @@ export function getPreferences(): UserPreferences {
           prefs.collapseNavRailTopButtons = true
           localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
         }
+      }
+      // Explicit user request: enable mouse side button session navigation by default
+      if (!localStorage.getItem(MOUSE_SIDE_NAV_INITIALIZED_KEY)) {
+        localStorage.setItem(MOUSE_SIDE_NAV_INITIALIZED_KEY, 'true')
+        prefs.mouseSideButtonNavigation = true
+        prefs.mouseSideButtonToggleDialogue = false
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
       }
       return prefs
     }

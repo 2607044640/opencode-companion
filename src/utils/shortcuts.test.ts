@@ -56,10 +56,12 @@ describe('shortcuts matching and registration', () => {
     }
 
     const workspaceKeys = filterShortcutKeys(DEFAULT_SHORTCUTS, 'workspace')
-    assert.equal(workspaceKeys.length, 9)
+    assert.equal(workspaceKeys.length, 11)
     assert.ok(workspaceKeys.includes('toggleSessionBoard'))
     assert.ok(workspaceKeys.includes('toggleSubagentTopology'))
     assert.ok(workspaceKeys.includes('togglePinSession'))
+    assert.ok(workspaceKeys.includes('historyBack'))
+    assert.ok(workspaceKeys.includes('historyForward'))
     for (const k of workspaceKeys) {
       assert.equal(DEFAULT_SHORTCUTS[k].category, 'workspace')
     }
@@ -94,6 +96,14 @@ describe('shortcuts matching and registration', () => {
     assert.ok(DEFAULT_SHORTCUTS.closeActiveTab)
     assert.equal(DEFAULT_SHORTCUTS.closeActiveTab.key, 'w')
     assert.equal(DEFAULT_SHORTCUTS.closeActiveTab.ctrlKey, true)
+
+    assert.ok(DEFAULT_SHORTCUTS.historyBack)
+    assert.equal(DEFAULT_SHORTCUTS.historyBack.key, 'ArrowLeft')
+    assert.equal(DEFAULT_SHORTCUTS.historyBack.altKey, true)
+
+    assert.ok(DEFAULT_SHORTCUTS.historyForward)
+    assert.equal(DEFAULT_SHORTCUTS.historyForward.key, 'ArrowRight')
+    assert.equal(DEFAULT_SHORTCUTS.historyForward.altKey, true)
   })
 
   it('matches Ctrl + Tab for nextTab and rejects Ctrl + Shift + Tab', () => {
@@ -122,6 +132,30 @@ describe('shortcuts matching and registration', () => {
 
     assert.equal(matchesShortcut(ctrlShiftTabEvent, DEFAULT_SHORTCUTS.prevTab), true)
     assert.equal(matchesShortcut(ctrlShiftTabEvent, DEFAULT_SHORTCUTS.nextTab), false)
+  })
+
+  it('matches Alt + ArrowLeft for historyBack and Alt + ArrowRight for historyForward', () => {
+    const backEvent = {
+      key: 'ArrowLeft',
+      code: 'ArrowLeft',
+      altKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(backEvent, DEFAULT_SHORTCUTS.historyBack), true)
+    assert.equal(matchesShortcut(backEvent, DEFAULT_SHORTCUTS.historyForward), false)
+
+    const forwardEvent = {
+      key: 'ArrowRight',
+      code: 'ArrowRight',
+      altKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      metaKey: false,
+    } as KeyboardEvent
+    assert.equal(matchesShortcut(forwardEvent, DEFAULT_SHORTCUTS.historyForward), true)
+    assert.equal(matchesShortcut(forwardEvent, DEFAULT_SHORTCUTS.historyBack), false)
   })
 
   it('does not match Tab without Ctrl or with Alt', () => {

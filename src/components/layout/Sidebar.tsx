@@ -609,12 +609,12 @@ export function Sidebar({
               onClick={onHistoryBack}
               disabled={!canGoBack}
               className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
-              title={isZh ? '后退到上一个会话' : 'Back to previous session'}
+              title={isZh ? '后退到上一个会话 (Alt+← / 侧键后退 / Alt+左键)' : 'Back to previous session (Alt+← / Side Button Back / Alt+Left Click)'}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
             <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
-              <span>{isZh ? '后退' : 'Back'}</span>
+              <span>{isZh ? '后退 (Alt+← / 侧键 / Alt+左键)' : 'Back (Alt+← / Side / Alt+Left)'}</span>
             </div>
           </div>
 
@@ -625,12 +625,12 @@ export function Sidebar({
               onClick={onHistoryForward}
               disabled={!canGoForward}
               className="p-1.5 rounded-md text-[#8b949e] hover:text-[#f0f6fc] hover:bg-[#1f232b] disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer"
-              title={isZh ? '前进到下一个会话' : 'Forward to next session'}
+              title={isZh ? '前进到下一个会话 (Alt+→ / 侧键前进 / Alt+右键)' : 'Forward to next session (Alt+→ / Side Button Forward / Alt+Right Click)'}
             >
               <ArrowRight className="w-4 h-4" />
             </button>
             <div className="absolute left-0 top-full mt-1.5 hidden group-hover:flex items-center px-2 py-1 rounded bg-[#1c1f26] border border-[#2d323d] text-[11px] text-[#f0f6fc] whitespace-nowrap z-50 shadow-xl pointer-events-none">
-              <span>{isZh ? '前进' : 'Forward'}</span>
+              <span>{isZh ? '前进 (Alt+→ / 侧键 / Alt+右键)' : 'Forward (Alt+→ / Side / Alt+Right)'}</span>
             </div>
           </div>
         </div>

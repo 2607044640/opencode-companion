@@ -61,6 +61,8 @@ export interface ShortcutsMap {
   mapHome: ShortcutItem
   mapRearrange: ShortcutItem
   findInPage: ShortcutItem
+  historyBack: ShortcutItem
+  historyForward: ShortcutItem
   openModelRouter: ShortcutItem
   expandAllConversations: ShortcutItem
   collapseAllConversations: ShortcutItem
@@ -192,6 +194,20 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     shiftKey: true,
     description: '重新打开刚刚关闭的标签 (Reopen Closed Tab)',
     label: 'Ctrl + Shift + T',
+    category: 'workspace',
+  },
+  historyBack: {
+    key: 'ArrowLeft',
+    altKey: true,
+    description: '后退到上一个会话 (History Back / Alt+← / Mouse Back / Alt+Left Click)',
+    label: 'Alt + ←',
+    category: 'workspace',
+  },
+  historyForward: {
+    key: 'ArrowRight',
+    altKey: true,
+    description: '前进到下一个会话 (History Forward / Alt+→ / Mouse Forward / Alt+Right Click)',
+    label: 'Alt + →',
     category: 'workspace',
   },
   focusSearch: {

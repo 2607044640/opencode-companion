@@ -567,7 +567,6 @@ export default function App() {
       selectSession(prevId)
     }
     updateHistoryState()
-    isNavigatingHistory.current = false
   }, [selectSession, updateHistoryState])
 
   const handleHistoryForward = useCallback(() => {
@@ -578,17 +577,32 @@ export default function App() {
       selectSession(nextId)
     }
     updateHistoryState()
-    isNavigatingHistory.current = false
   }, [selectSession, updateHistoryState])
 
   useEffect(() => {
-    if (activeSessionId && historyStack.current.current() !== activeSessionId) {
-      if (!isNavigatingHistory.current) {
+    if (activeSessionId) {
+      if (isNavigatingHistory.current) {
+        isNavigatingHistory.current = false
+        updateHistoryState()
+        return
+      }
+      if (historyStack.current.current() !== activeSessionId) {
         historyStack.current.push(activeSessionId)
         updateHistoryState()
       }
     }
   }, [activeSessionId, updateHistoryState])
+
+  useEffect(() => {
+    const onBack = () => handleHistoryBack()
+    const onForward = () => handleHistoryForward()
+    window.addEventListener('opencode-history-back', onBack)
+    window.addEventListener('opencode-history-forward', onForward)
+    return () => {
+      window.removeEventListener('opencode-history-back', onBack)
+      window.removeEventListener('opencode-history-forward', onForward)
+    }
+  }, [handleHistoryBack, handleHistoryForward])
 
   useEffect(() => {
     if (activeSessionId) {
@@ -645,6 +659,8 @@ export default function App() {
     selectSession,
     handleAddSessionToMap,
     handleOpenMapAndLocate,
+    onHistoryBack: handleHistoryBack,
+    onHistoryForward: handleHistoryForward,
   })
 
   useEffect(() => {

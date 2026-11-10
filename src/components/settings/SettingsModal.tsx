@@ -852,11 +852,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                   </div>
                 </div>
 
+                {/* Mouse Side Buttons & Alt+Click Session Navigation (Antigravity parity) */}
+                <div className="flex items-center justify-between py-2.5 border-t border-zinc-800">
+                  <div>
+                    <div className="text-xs text-zinc-300 font-medium">{tr('鼠标侧键与 Alt+点击导航会话历史', 'Mouse Side Buttons & Alt+Click Session Navigation', 'Maus-Seitentasten & Alt+Klick Sitzungsnavigation')}</div>
+                    <div className="text-[11px] text-zinc-500">{tr('对齐 Antigravity 体验。支持鼠标侧键（后退/前进）、Alt+左键（后退）、Alt+右键（前进）以及 Alt+←/→ 在会话历史记录间快速穿梭', 'Antigravity parity. Supports mouse side buttons (Back/Forward), Alt+Left Click (Back), Alt+Right Click (Forward), and Alt+←/→ to navigate session history', 'Antigravity-kompatibel. Unterstützt Seitentasten, Alt+Klick und Alt+Pfeiltasten zur Sitzungsnavigation')}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={prefs.mouseSideButtonNavigation ?? true}
+                      onChange={(e) => updatePreferences({ mouseSideButtonNavigation: e.target.checked })}
+                      className="rounded border-zinc-700 bg-zinc-900 text-sky-500 focus:ring-sky-500/20 w-4 h-4 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
                 {/* Mouse Upper Side Button: Toggle Dialogue in Center of Screen */}
                 <div className="flex items-center justify-between py-2.5 border-t border-zinc-800">
                   <div>
-                    <div className="text-xs text-zinc-300 font-medium">{tr('鼠标上侧键伸缩面前对话', 'Mouse Upper Side Button Toggle Dialogue', 'Obere Maustaste Dialog umschalten')}</div>
-                    <div className="text-[11px] text-zinc-500">{tr('按下鼠标上侧键（前进键）或 Ctrl+Shift+D，自动判断并展开/折叠屏幕最中间的对话块', 'Press mouse upper side button (Forward) or Ctrl+Shift+D to toggle the dialogue block in the center of your screen', 'Obere Maustaste oder Ctrl+Shift+D drücken, um den Dialog in der Bildschirmmitte ein-/auszuklappen')}</div>
+                    <div className="text-xs text-zinc-300 font-medium">{tr('伸缩屏幕中央对话 (Ctrl+Shift+D)', 'Toggle Center Dialogue (Ctrl+Shift+D)', 'Dialog in Bildschirmmitte umschalten')}</div>
+                    <div className="text-[11px] text-zinc-500">{tr('按下 Ctrl+Shift+D 自动判断并展开/折叠屏幕最中间的对话块', 'Press Ctrl+Shift+D to automatically toggle the dialogue block in the center of your screen', 'Ctrl+Shift+D drücken, um den Dialog in der Bildschirmmitte ein-/auszuklappen')}</div>
                   </div>
                   <div className="flex items-center gap-3">
                     <button
@@ -866,14 +882,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, i
                       title="Ctrl + Shift + D"
                     >
                       <span>{tr('测试切换', 'Test Toggle', 'Testen')}</span>
-                      <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">侧键 / Ctrl+Shift+D</kbd>
+                      <kbd className="px-1 py-0.2 rounded bg-zinc-900 border border-zinc-700 text-[10px] font-mono text-zinc-400">Ctrl+Shift+D</kbd>
                     </button>
-                    <input
-                      type="checkbox"
-                      checked={prefs.mouseSideButtonToggleDialogue ?? true}
-                      onChange={(e) => updatePreferences({ mouseSideButtonToggleDialogue: e.target.checked })}
-                      className="rounded border-zinc-700 bg-zinc-900 text-sky-500 focus:ring-sky-500/20 w-4 h-4 cursor-pointer"
-                    />
                   </div>
                 </div>
 
