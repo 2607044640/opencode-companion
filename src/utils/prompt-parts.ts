@@ -148,10 +148,12 @@ function extractUserMessageText(msg: Message): string {
  * Resolves session message history against previous local state.
  * Prevents wiping active optimistic parts if backend history has not yet materialized them.
  *
- * CRITICAL INVARIANT:
- * File parts from an older historical turn MUST NEVER be leaked into a subsequent
- * user message turn. Only pending optimistic user messages that explicitly contain
- * optimistic file parts may reconcile into their corresponding backend message.
+ * CRITICAL INVARIANTS:
+ * 1. File parts from an older historical turn MUST NEVER be leaked into a subsequent user message turn.
+ * 2. Unsettled in-flight optimistic prompts in `prev` that have NOT yet been committed/returned by the
+ *    backend MUST BE PRESERVED and appended, never silently dropped (fixes "Send Now" prompt disappearing bug).
+ * 3. Once backend history catches up with the matching user prompt, optimistic parts are merged and the
+ *    optimistic client-side message is consumed without duplicating turns.
  */
 export function reconcileHistoryWithOptimistic(
   history: Message[],
@@ -199,20 +201,22 @@ export function reconcileHistoryWithOptimistic(
     }
   }
 
-  if (optimisticDonors.length === 0) {
-    return history
+  // Track which unsettled messages from `prev` were matched to a backend history message
+  const matchedDonorIndices = new Set<number>()
+  const matchedPrevMessageIds = new Set<string>()
+
+  // Mark all prev messages whose IDs already exist in history as matched
+  for (const prevMsg of prev) {
+    if (historyIds.has(prevMsg.info.id)) {
+      matchedPrevMessageIds.add(prevMsg.info.id)
+    }
   }
 
-  // Map each history message to matching donor (at most one donor per history message)
-  const matchedDonorIndices = new Set<number>()
-
-  return history.map((hMsg) => {
+  const reconciledHistory = history.map((hMsg) => {
     if (hMsg.info.role !== 'user') return hMsg
 
     // If backend message already has file parts populated, no reconciliation needed
     const hasFiles = hMsg.parts.some((pt) => pt.type === 'file')
-    if (hasFiles) return hMsg
-
     const hText = extractUserMessageText(hMsg)
 
     // Find the matching donor:
@@ -243,15 +247,58 @@ export function reconcileHistoryWithOptimistic(
     if (matchedDonorIdx >= 0) {
       matchedDonorIndices.add(matchedDonorIdx)
       const donor = optimisticDonors[matchedDonorIdx]
-      return {
-        ...hMsg,
-        parts: [
-          ...donor.fileParts.map((fp) => ({ ...fp, messageID: hMsg.info.id })),
-          ...hMsg.parts,
-        ],
+      matchedPrevMessageIds.add(donor.donorMsg.info.id)
+
+      if (!hasFiles) {
+        return {
+          ...hMsg,
+          parts: [
+            ...donor.fileParts.map((fp) => ({ ...fp, messageID: hMsg.info.id })),
+            ...hMsg.parts,
+          ],
+        }
+      }
+    } else {
+      // Also match text-only unsettled messages in prev so they are marked as consumed
+      for (const prevMsg of prev) {
+        if (
+          prevMsg.info.role === 'user' &&
+          !historyIds.has(prevMsg.info.id) &&
+          !matchedPrevMessageIds.has(prevMsg.info.id) &&
+          extractUserMessageText(prevMsg) === hText
+        ) {
+          matchedPrevMessageIds.add(prevMsg.info.id)
+          break
+        }
       }
     }
 
     return hMsg
   })
+
+  // Identify in-flight optimistic messages in `prev` that backend history does not yet contain
+  // (e.g. prompt_async in-flight or history fetched right when prior turn was aborted).
+  // These MUST NOT be dropped; otherwise the user's prompt disappears from the UI!
+  const inFlightUnmatched: Message[] = []
+  let seenUnmatchedInFlight = false
+
+  for (const prevMsg of prev) {
+    if (!historyIds.has(prevMsg.info.id) && !matchedPrevMessageIds.has(prevMsg.info.id)) {
+      const isOptimisticUser =
+        prevMsg.info.role === 'user' &&
+        (prevMsg.info.id.startsWith('usr_') ||
+          prevMsg.parts.some((pt) => Boolean((pt as any).isOptimistic)))
+
+      if (isOptimisticUser || seenUnmatchedInFlight) {
+        seenUnmatchedInFlight = true
+        inFlightUnmatched.push(prevMsg)
+      }
+    }
+  }
+
+  if (inFlightUnmatched.length > 0) {
+    return [...reconciledHistory, ...inFlightUnmatched]
+  }
+
+  return reconciledHistory
 }

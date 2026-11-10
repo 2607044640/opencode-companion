@@ -239,6 +239,13 @@ export function usePromptQueue({
         return next
       })
 
+      // 1. If already in waiting_boundary, re-clicking Send Now forces immediate preemption (Antigravity parity)
+      if (pendingBoundaryIdRef.current === id) {
+        setPendingBoundaryId(null)
+        void dispatchQueueItem(id, true)
+        return
+      }
+
       // 2. If session is idle right now, dispatch immediately
       if (!isBusy && sessionStatusType === 'idle') {
         void dispatchQueueItem(id, false)

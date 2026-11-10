@@ -784,6 +784,12 @@ export function useChatStream(
         return
       }
 
+      if (data.status.type === 'idle' && isSendingRef.current) {
+        // Lagging idle event from interrupted prior turn while a new prompt is actively in flight.
+        // Do not flip session back to idle.
+        return
+      }
+
       commitSessionStatus(data.status)
       if (data.status.type === 'idle') {
         if (isUserStopped()) {
@@ -1079,7 +1085,12 @@ export function useChatStream(
         model: options?.model,
       })
 
-      setMessages((prev) => [...prev, userMsg])
+      setMessages((prev) => {
+        const next = [...prev, userMsg]
+        messagesRef.current = next
+        return next
+      })
+      messagesRef.current = [...messagesRef.current, userMsg]
       pendingOptimisticIdRef.current = userMsg.info.id
       userAbortedRef.current = false
       repetitionArmedRef.current = false

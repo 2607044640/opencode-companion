@@ -372,4 +372,104 @@ describe('Prompt Parts & Optimistic Message Resolvers', () => {
     assert.equal((t2Files[0] as any).filename, 'img2.png')
     assert.equal((t2Files[0] as any).messageID, 'usr_turn_2_backend')
   })
+
+  test('reconcileHistoryWithOptimistic: preserves in-flight optimistic text prompt when backend history has not caught up (fixes Send Now missing prompt)', () => {
+    const prev: Message[] = [
+      // Turn 1 settled
+      {
+        info: { id: 'usr_t1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [{ id: 'p_u1', sessionID: 'ses_1', messageID: 'usr_t1', type: 'text', text: 'First prompt' }],
+      },
+      {
+        info: { id: 'ast_t1', sessionID: 'ses_1', role: 'assistant', time: { created: 110 }, finish: 'abort' },
+        parts: [{ id: 'p_a1', sessionID: 'ses_1', messageID: 'ast_t1', type: 'text', text: 'Aborted answer' }],
+      },
+      // Turn 2 optimistic in-flight (Send Now triggered while prior turn aborted)
+      {
+        info: { id: 'usr_opt_2', sessionID: 'ses_1', role: 'user', time: { created: 200 } },
+        parts: [
+          {
+            id: 'p_opt_2',
+            sessionID: 'ses_1',
+            messageID: 'usr_opt_2',
+            type: 'text',
+            text: '除了这个ban，你再看看还有没有其他代码，你写的过于片面的',
+            isOptimistic: true,
+          },
+        ],
+      },
+    ]
+
+    // Lagging backend history returned right during abort (only contains Turn 1)
+    const history: Message[] = [
+      {
+        info: { id: 'usr_t1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [{ id: 'p_u1', sessionID: 'ses_1', messageID: 'usr_t1', type: 'text', text: 'First prompt' }],
+      },
+      {
+        info: { id: 'ast_t1', sessionID: 'ses_1', role: 'assistant', time: { created: 110 }, finish: 'abort' },
+        parts: [{ id: 'p_a1', sessionID: 'ses_1', messageID: 'ast_t1', type: 'text', text: 'Aborted answer' }],
+      },
+    ]
+
+    const reconciled = reconcileHistoryWithOptimistic(history, prev)
+    assert.equal(reconciled.length, 3, 'Must retain in-flight optimistic user prompt')
+    assert.equal(reconciled[2].info.id, 'usr_opt_2')
+    assert.equal((reconciled[2].parts[0] as any).text, '除了这个ban，你再看看还有没有其他代码，你写的过于片面的')
+  })
+
+  test('reconcileHistoryWithOptimistic: consumes optimistic prompt once backend history catches up without duplication', () => {
+    const prev: Message[] = [
+      {
+        info: { id: 'usr_t1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [{ id: 'p_u1', sessionID: 'ses_1', messageID: 'usr_t1', type: 'text', text: 'First prompt' }],
+      },
+      {
+        info: { id: 'ast_t1', sessionID: 'ses_1', role: 'assistant', time: { created: 110 } },
+        parts: [{ id: 'p_a1', sessionID: 'ses_1', messageID: 'ast_t1', type: 'text', text: 'Aborted answer' }],
+      },
+      // Client previously had optimistic prompt
+      {
+        info: { id: 'usr_opt_2', sessionID: 'ses_1', role: 'user', time: { created: 200 } },
+        parts: [
+          {
+            id: 'p_opt_2',
+            sessionID: 'ses_1',
+            messageID: 'usr_opt_2',
+            type: 'text',
+            text: '除了这个ban，你再看看还有没有其他代码',
+            isOptimistic: true,
+          },
+        ],
+      },
+    ]
+
+    // Backend history has now caught up and committed the prompt under its official backend ID
+    const history: Message[] = [
+      {
+        info: { id: 'usr_t1', sessionID: 'ses_1', role: 'user', time: { created: 100 } },
+        parts: [{ id: 'p_u1', sessionID: 'ses_1', messageID: 'usr_t1', type: 'text', text: 'First prompt' }],
+      },
+      {
+        info: { id: 'ast_t1', sessionID: 'ses_1', role: 'assistant', time: { created: 110 } },
+        parts: [{ id: 'p_a1', sessionID: 'ses_1', messageID: 'ast_t1', type: 'text', text: 'Aborted answer' }],
+      },
+      {
+        info: { id: 'usr_backend_official_2', sessionID: 'ses_1', role: 'user', time: { created: 205 } },
+        parts: [
+          {
+            id: 'p_backend_2',
+            sessionID: 'ses_1',
+            messageID: 'usr_backend_official_2',
+            type: 'text',
+            text: '除了这个ban，你再看看还有没有其他代码',
+          },
+        ],
+      },
+    ]
+
+    const reconciled = reconcileHistoryWithOptimistic(history, prev)
+    assert.equal(reconciled.length, 3, 'Must cleanly consume optimistic prompt without duplicate 4th message')
+    assert.equal(reconciled[2].info.id, 'usr_backend_official_2')
+  })
 })
